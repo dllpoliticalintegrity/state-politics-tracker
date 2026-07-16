@@ -107,6 +107,14 @@
   .dash-hero p a { color: var(--primary); }
   .dash-hero p a:hover { text-decoration: underline; }
 
+  .race-tabs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: -4px 0 28px; }
+  .race-tab {
+    border: 1px solid var(--border); border-radius: 999px; background: var(--card);
+    padding: 6px 16px; font-size: 13px; font-weight: 600; color: var(--muted-foreground);
+  }
+  .race-tab:hover { background: var(--accent); color: var(--foreground); }
+  .race-tab.active { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+
   .summary { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); border-radius: 8px; background: var(--card); margin-bottom: 36px; }
   .summary > div { padding: 16px 22px; }
   .summary > div + div { border-left: 1px solid var(--border); }
@@ -190,9 +198,9 @@
   <div class="hero">
     <p class="kicker">2026 statewide races</p>
     <h1>Who's winning your state — and who's paying for it</h1>
-    <p>Polling averages, campaign finance, and outside spending for governor's
-       races across the country, synced from each state's disclosure agency
-       and 270toWin. Pick your state to start.</p>
+    <p>Polling averages, campaign finance, and outside spending for statewide
+       races across the country — governor on down — synced from each state's
+       disclosure agency and 270toWin. Pick your state to start.</p>
   </div>
   <div class="legend">
     <span><span class="dot dot--live"></span> Dashboard live</span>
@@ -214,6 +222,8 @@
   </div>
 
   <div class="container">
+    <div class="race-tabs" id="dRaceTabs" role="tablist" aria-label="Races"></div>
+
     <div class="summary">
       <div>
         <div class="kicker">Days to the general</div>
@@ -221,7 +231,7 @@
         <div class="sub">Tuesday, Nov 3, 2026</div>
       </div>
       <div>
-        <div class="kicker">Polling leader</div>
+        <div class="kicker" id="dLeaderKicker">Polling leader</div>
         <div class="val" id="dLeader"></div>
         <div class="sub" id="dLeaderSub"></div>
       </div>
@@ -245,7 +255,7 @@
 
     <div class="sec-head" id="field">
       <h2>The field</h2>
-      <span class="note">Ranked by current poll average</span>
+      <span class="note" id="dFieldNote">Ranked by current poll average</span>
     </div>
     <div class="cards" id="dCards"></div>
 
@@ -285,71 +295,169 @@ const EXTERNAL = {
   CA: { name: "California", url: "https://github.com/dllpoliticalintegrity/ca-gov-polling" },
 };
 
+/* Each live state carries every statewide race on its 2026 ballot (the SLCF
+   pipeline covers all state-level filers, so races beyond governor come from
+   the same import). Governor fields use the plausible real candidates;
+   down-ballot names here are placeholders. Polling exists mostly for
+   governor races — unpolled races rank by money. Race lists vary by state:
+   PA has no row offices on the 2026 ballot, so it shows governor only. */
 const LIVE = {
   fl: {
     name: "Florida",
     agency: { name: "Florida Division of Elections", short: "FL DOE" },
     pipeline: "state-level-campaign-finance (SLCF)",
-    candidates: [
-      { name: "Byron Donalds", party: "R", pct: 46.3, delta: 1.4, raised: 31.2e6 },
-      { name: "David Jolly", party: "D", pct: 41.8, delta: 2.2, raised: 14.6e6 },
-      { name: "Jason Pizzo", party: "I", pct: 5.4, delta: -0.6, raised: 2.1e6 },
-    ],
-    donors: [
-      ["Sunshine Freedom Fund", "Donalds", 4.20e6],
-      ["Gulf Breeze Development LLC", "Donalds", 1.90e6],
-      ["Floridians for Fair Government", "Jolly", 1.35e6],
-      ["Space Coast Ventures PAC", "Donalds", 1.10e6],
-      ["Everglades Action Network", "Jolly", 0.70e6],
+    races: [
+      {
+        office: "governor", title: "Governor", polled: true,
+        candidates: [
+          { name: "Byron Donalds", party: "R", pct: 46.3, delta: 1.4, raised: 31.2e6 },
+          { name: "David Jolly", party: "D", pct: 41.8, delta: 2.2, raised: 14.6e6 },
+          { name: "Jason Pizzo", party: "I", pct: 5.4, delta: -0.6, raised: 2.1e6 },
+        ],
+        donors: [
+          ["Sunshine Freedom Fund", "Donalds", 4.20e6],
+          ["Gulf Breeze Development LLC", "Donalds", 1.90e6],
+          ["Floridians for Fair Government", "Jolly", 1.35e6],
+          ["Space Coast Ventures PAC", "Donalds", 1.10e6],
+          ["Everglades Action Network", "Jolly", 0.70e6],
+        ],
+      },
+      {
+        office: "attorney-general", title: "Attorney General", polled: false,
+        candidates: [
+          { name: "Grant Whitfield", party: "R", raised: 6.2e6 },
+          { name: "Alicia Moreno", party: "D", raised: 4.8e6 },
+        ],
+        donors: [
+          ["Tallahassee Justice Fund", "Whitfield", 0.95e6],
+          ["Coastal Legal Alliance", "Moreno", 0.80e6],
+          ["First Coast Growth PAC", "Whitfield", 0.55e6],
+        ],
+      },
+      {
+        office: "cfo", title: "Chief Financial Officer", polled: false,
+        candidates: [
+          { name: "Dana Kessler", party: "R", raised: 5.1e6 },
+          { name: "Marcus Bell", party: "D", raised: 3.4e6 },
+        ],
+        donors: [
+          ["Suncoast Bankers Council", "Kessler", 0.85e6],
+          ["Orlando Progress Fund", "Bell", 0.60e6],
+          ["Panhandle Builders PAC", "Kessler", 0.45e6],
+        ],
+      },
     ],
   },
   ga: {
     name: "Georgia",
     agency: { name: "Georgia Government Transparency & Campaign Finance Commission", short: "GA GTCFC" },
     pipeline: "state-level-campaign-finance (SLCF)",
-    candidates: [
-      { name: "Burt Jones", party: "R", pct: 44.9, delta: 0.9, raised: 26.4e6 },
-      { name: "Keisha Lance Bottoms", party: "D", pct: 43.2, delta: 1.6, raised: 12.8e6 },
-    ],
-    donors: [
-      ["Peach State Prosperity PAC", "Jones", 2.80e6],
-      ["Atlanta Forward Committee", "Bottoms", 1.60e6],
-      ["Georgia Poultry Council Fund", "Jones", 1.15e6],
-      ["New South Coalition", "Bottoms", 0.95e6],
-      ["Savannah Port Alliance", "Jones", 0.80e6],
+    races: [
+      {
+        office: "governor", title: "Governor", polled: true,
+        candidates: [
+          { name: "Burt Jones", party: "R", pct: 44.9, delta: 0.9, raised: 26.4e6 },
+          { name: "Keisha Lance Bottoms", party: "D", pct: 43.2, delta: 1.6, raised: 12.8e6 },
+        ],
+        donors: [
+          ["Peach State Prosperity PAC", "Jones", 2.80e6],
+          ["Atlanta Forward Committee", "Bottoms", 1.60e6],
+          ["Georgia Poultry Council Fund", "Jones", 1.15e6],
+          ["New South Coalition", "Bottoms", 0.95e6],
+          ["Savannah Port Alliance", "Jones", 0.80e6],
+        ],
+      },
+      {
+        office: "lt-governor", title: "Lt. Governor", polled: false,
+        candidates: [
+          { name: "Tucker Ames", party: "R", raised: 4.4e6 },
+          { name: "Renee Caldwell", party: "D", raised: 3.9e6 },
+        ],
+        donors: [
+          ["North Georgia Freedom Fund", "Ames", 0.70e6],
+          ["Metro Atlanta Momentum", "Caldwell", 0.65e6],
+          ["Augusta Commerce PAC", "Ames", 0.40e6],
+        ],
+      },
+      {
+        office: "attorney-general", title: "Attorney General", polled: false,
+        candidates: [
+          { name: "Imani Drake", party: "D", raised: 3.6e6 },
+          { name: "Vic Hollis", party: "R", raised: 3.2e6 },
+        ],
+        donors: [
+          ["Georgia Trial Lawyers Fund", "Drake", 0.75e6],
+          ["Cobb County Conservatives", "Hollis", 0.55e6],
+          ["Decatur Civic Action", "Drake", 0.35e6],
+        ],
+      },
     ],
   },
   mi: {
     name: "Michigan",
     agency: { name: "Michigan Dept. of State — Campaign Finance", short: "MI SOS" },
     pipeline: "state-level-campaign-finance (SLCF)",
-    candidates: [
-      { name: "Jocelyn Benson", party: "D", pct: 39.6, delta: 1.1, raised: 13.9e6 },
-      { name: "John James", party: "R", pct: 37.8, delta: 0.7, raised: 16.2e6 },
-      { name: "Mike Duggan", party: "I", pct: 15.2, delta: 2.8, raised: 6.4e6 },
-    ],
-    donors: [
-      ["Great Lakes Leadership Fund", "James", 2.10e6],
-      ["Motor City Renewal PAC", "Duggan", 1.55e6],
-      ["Michigan Educators United", "Benson", 1.30e6],
-      ["Upper Peninsula Timber Assn.", "James", 0.75e6],
-      ["Ann Arbor Progress Fund", "Benson", 0.65e6],
+    races: [
+      {
+        office: "governor", title: "Governor", polled: true,
+        candidates: [
+          { name: "Jocelyn Benson", party: "D", pct: 39.6, delta: 1.1, raised: 13.9e6 },
+          { name: "John James", party: "R", pct: 37.8, delta: 0.7, raised: 16.2e6 },
+          { name: "Mike Duggan", party: "I", pct: 15.2, delta: 2.8, raised: 6.4e6 },
+        ],
+        donors: [
+          ["Great Lakes Leadership Fund", "James", 2.10e6],
+          ["Motor City Renewal PAC", "Duggan", 1.55e6],
+          ["Michigan Educators United", "Benson", 1.30e6],
+          ["Upper Peninsula Timber Assn.", "James", 0.75e6],
+          ["Ann Arbor Progress Fund", "Benson", 0.65e6],
+        ],
+      },
+      {
+        office: "attorney-general", title: "Attorney General", polled: false,
+        candidates: [
+          { name: "Priya Nair", party: "D", raised: 3.8e6 },
+          { name: "Cole Brandt", party: "R", raised: 2.9e6 },
+        ],
+        donors: [
+          ["Lansing Justice Coalition", "Nair", 0.65e6],
+          ["West Michigan Values PAC", "Brandt", 0.50e6],
+          ["Detroit Legal Aid Circle", "Nair", 0.35e6],
+        ],
+      },
+      {
+        office: "secretary-of-state", title: "Secretary of State", polled: false,
+        candidates: [
+          { name: "Tasha Reed", party: "D", raised: 2.7e6 },
+          { name: "Owen Kowalski", party: "R", raised: 2.2e6 },
+        ],
+        donors: [
+          ["Fair Elections Michigan", "Reed", 0.55e6],
+          ["Macomb Freedom Committee", "Kowalski", 0.40e6],
+          ["Grand Rapids Forward", "Reed", 0.30e6],
+        ],
+      },
     ],
   },
   pa: {
     name: "Pennsylvania",
     agency: { name: "Pennsylvania Department of State", short: "PA DOS" },
     pipeline: "state-level-campaign-finance (SLCF)",
-    candidates: [
-      { name: "Josh Shapiro", party: "D", pct: 54.1, delta: 0.8, raised: 24.7e6 },
-      { name: "Stacy Garrity", party: "R", pct: 37.6, delta: 1.0, raised: 8.9e6 },
-    ],
-    donors: [
-      ["Keystone Commonwealth PAC", "Shapiro", 3.40e6],
-      ["Philadelphia Building Trades", "Shapiro", 2.05e6],
-      ["Susquehanna Freedom Fund", "Garrity", 1.20e6],
-      ["Pittsburgh Innovation Council", "Shapiro", 0.90e6],
-      ["Lehigh Valley Manufacturers", "Garrity", 0.70e6],
+    races: [
+      {
+        office: "governor", title: "Governor", polled: true,
+        candidates: [
+          { name: "Josh Shapiro", party: "D", pct: 54.1, delta: 0.8, raised: 24.7e6 },
+          { name: "Stacy Garrity", party: "R", pct: 37.6, delta: 1.0, raised: 8.9e6 },
+        ],
+        donors: [
+          ["Keystone Commonwealth PAC", "Shapiro", 3.40e6],
+          ["Philadelphia Building Trades", "Shapiro", 2.05e6],
+          ["Susquehanna Freedom Fund", "Garrity", 1.20e6],
+          ["Pittsburgh Innovation Council", "Shapiro", 0.90e6],
+          ["Lehigh Valley Manufacturers", "Garrity", 0.70e6],
+        ],
+      },
     ],
   },
 };
@@ -448,40 +556,69 @@ function onSwitch(v) {
 }
 
 /* ─── Dashboard ─── */
-function showState(code) {
+function showState(code, officeSlug) {
   const s = LIVE[code];
   if (!s) return showLanding();
-  location.hash = "#/" + code;
+  const race = s.races.find(r => r.office === officeSlug) ?? s.races[0];
+  location.hash = `#/${code}/${race.office}`;
   localStorage.setItem("spt-state", code);
   document.getElementById("landing").classList.add("hidden");
   document.getElementById("dashboard").classList.remove("hidden");
   renderSwitcher(code);
+  renderRaceTabs(s, code, race);
 
-  const cands = [...s.candidates].sort((a, b) => b.pct - a.pct);
+  const cands = [...race.candidates].sort((a, b) =>
+    race.polled ? b.pct - a.pct : b.raised - a.raised);
   const leader = cands[0];
   const totalRaised = cands.reduce((t, c) => t + c.raised, 0);
   const days = Math.max(0, Math.ceil((GENERAL - TODAY) / 86400000));
 
-  document.getElementById("dKicker").textContent = `2026 ${s.name} Governor's race`;
+  document.getElementById("dKicker").textContent = `2026 ${s.name} ${race.title} race`;
   document.getElementById("dHeadline").textContent =
-    `Who's winning the race for ${s.name} Governor — and who's paying for it`;
+    `Who's winning the race for ${s.name} ${race.title} — and who's paying for it`;
   document.getElementById("dSub").innerHTML =
-    `Polling averages, campaign finance, and outside spending, synced nightly from ` +
-    `270toWin and the <a href="#" onclick="return false;">${s.agency.name}</a>.`;
+    (race.polled
+      ? `Polling averages, campaign finance, and outside spending, synced nightly from ` +
+        `270toWin and the <a href="#" onclick="return false;">${s.agency.name}</a>.`
+      : `Campaign finance and outside spending, synced nightly from the ` +
+        `<a href="#" onclick="return false;">${s.agency.name}</a>. No public polling ` +
+        `is tracked for this race yet.`);
   document.getElementById("dDays").textContent = days;
+  document.getElementById("dLeaderKicker").textContent =
+    race.polled ? "Polling leader" : "Money leader";
   document.getElementById("dLeader").textContent = surname(leader.name);
-  document.getElementById("dLeaderSub").textContent = `${leader.pct.toFixed(1)}% average`;
+  document.getElementById("dLeaderSub").textContent =
+    race.polled ? `${leader.pct.toFixed(1)}% average` : `${fmtMoney(leader.raised)} raised`;
   document.getElementById("dRaised").textContent = fmtMoney(totalRaised);
+  document.getElementById("dFieldNote").textContent =
+    race.polled ? "Ranked by current poll average" : "Ranked by total raised";
   document.getElementById("dDonorSrc").innerHTML =
     `Itemized contributions via ${s.agency.short} · pipeline: ${s.pipeline}`;
   document.getElementById("fSource").textContent =
-    `Data: ${s.agency.name} + 270toWin. Synced nightly. Preview build — all figures are mock.`;
+    `Data: ${s.agency.name}${race.polled ? " + 270toWin" : ""}. Synced nightly. Preview build — all figures are mock.`;
 
-  renderChart(cands);
-  renderAvgList(cands);
-  renderCards(cands);
-  renderDonors(s.donors);
+  document.getElementById("polling").classList.toggle("hidden", !race.polled);
+  if (race.polled) {
+    renderChart(cands);
+    renderAvgList(cands);
+  }
+  renderCards(cands, race.polled);
+  renderDonors(race.donors);
   window.scrollTo({ top: 0 });
+}
+
+function renderRaceTabs(s, code, activeRace) {
+  const el = document.getElementById("dRaceTabs");
+  el.innerHTML = "";
+  for (const r of s.races) {
+    const b = document.createElement("button");
+    b.className = "race-tab" + (r.office === activeRace.office ? " active" : "");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", r.office === activeRace.office ? "true" : "false");
+    b.textContent = r.title;
+    b.onclick = () => showState(code, r.office);
+    el.appendChild(b);
+  }
 }
 
 function renderChart(cands) {
@@ -522,12 +659,24 @@ function renderAvgList(cands) {
   }).join("");
 }
 
-function renderCards(cands) {
+function renderCards(cands, polled) {
   document.getElementById("dCards").innerHTML = cands.map((c, i) => {
-    const series = seriesFor(c, i);
-    const min = Math.min(...series), max = Math.max(...series), span = Math.max(0.1, max - min);
-    const pts = series.map((v, j) =>
-      `${(j / (series.length - 1)) * 100},${28 - ((v - min) / span) * 24}`).join(" ");
+    let spark = "";
+    if (polled) {
+      const series = seriesFor(c, i);
+      const min = Math.min(...series), max = Math.max(...series), span = Math.max(0.1, max - min);
+      const pts = series.map((v, j) =>
+        `${(j / (series.length - 1)) * 100},${28 - ((v - min) / span) * 24}`).join(" ");
+      spark = `<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+        <polyline points="${pts}" fill="none" stroke="${PARTY_COLOR[c.party]}" stroke-width="1.6"/>
+      </svg>`;
+    }
+    const big = polled
+      ? `${c.pct.toFixed(1)}<small>% avg</small>`
+      : `${fmtMoney(c.raised)}<small> raised</small>`;
+    const right = polled
+      ? `<div class="cand__raised"><div class="kicker">Raised</div><div class="amt">${fmtMoney(c.raised)}</div></div>`
+      : "";
     return `<div class="cand">
       <div class="cand__top">
         <span class="cand__rank">#${i + 1}</span>
@@ -535,15 +684,10 @@ function renderCards(cands) {
         <span class="chip chip--${c.party}">${c.party}</span>
       </div>
       <div class="cand__stats">
-        <div class="cand__poll">${c.pct.toFixed(1)}<small>% avg</small></div>
-        <div class="cand__raised">
-          <div class="kicker">Raised</div>
-          <div class="amt">${fmtMoney(c.raised)}</div>
-        </div>
+        <div class="cand__poll">${big}</div>
+        ${right}
       </div>
-      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
-        <polyline points="${pts}" fill="none" stroke="${PARTY_COLOR[c.party]}" stroke-width="1.6"/>
-      </svg>
+      ${spark}
     </div>`;
   }).join("");
 }
@@ -568,17 +712,22 @@ function go(e, code) {
   code ? showState(code) : showLanding();
   return false;
 }
+function parseHash() {
+  const [code, office] = location.hash.replace(/^#\//, "").split("/");
+  return { code, office };
+}
 window.addEventListener("hashchange", () => {
-  const code = location.hash.replace(/^#\//, "");
-  if (LIVE[code]) showState(code); else showLanding();
+  const { code, office } = parseHash();
+  if (LIVE[code]) showState(code, office); else showLanding();
 });
 
 document.getElementById("donateBtn").onclick = () =>
   alert("Preview: opens the existing DonationPanel dialog.");
 
 renderGrid();
-const initial = location.hash.replace(/^#\//, "") || localStorage.getItem("spt-state");
-if (initial && LIVE[initial]) showState(initial); else showLanding();
+const { code: hashCode, office: hashOffice } = parseHash();
+const initial = hashCode || localStorage.getItem("spt-state");
+if (initial && LIVE[initial]) showState(initial, hashOffice); else showLanding();
 </script>
 </body>
 </html>

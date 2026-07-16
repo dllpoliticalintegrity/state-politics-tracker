@@ -27,9 +27,9 @@ export default function StatePicker() {
           Who's winning your state — and who's paying for it
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          Polling averages, campaign finance, and outside spending for governor's races
-          across the country, synced from each state's disclosure agency and 270toWin.
-          Pick your state to start.
+          Polling averages, campaign finance, and outside spending for statewide races
+          across the country — governor on down — synced from each state's disclosure
+          agency and 270toWin. Pick your state to start.
         </p>
       </section>
 

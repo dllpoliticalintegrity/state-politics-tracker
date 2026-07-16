@@ -65,17 +65,36 @@ per state, as `tx_candidates` is today).
 One config module drives everything (`src/states/registry.ts`):
 
 ```ts
+export interface RaceConfig {
+  office: string;          // URL segment: "governor", "attorney-general"
+  title: string;           // "Governor"
+  generalDate: string;     // "2026-11-03"
+  pollingSourceUrl?: string;  // 270toWin page, where polling exists
+}
+
 export interface StateConfig {
   code: string;            // "mi"
   name: string;            // "Michigan"
-  raceTitle: string;       // "2026 Michigan Governor's race"
-  generalDate: string;     // "2026-11-03"
+  races: RaceConfig[];     // every tracked statewide race on the ballot
   agency: { name: string; url: string };   // e.g. MI Dept. of State
-  pollingSourceUrl?: string;               // 270toWin state page
   status: "live" | "ready" | "planned" | "external";
   externalUrl?: string;    // status "external": TX → texaspoliticstracker.com
 }
 ```
+
+### Race model
+
+The site covers **all statewide races**, not just governor. Each state's
+registry entry lists the races on its 2026 ballot — the offices vary
+(Michigan elects Governor, AG, and Secretary of State; Pennsylvania has
+no row offices on the 2026 ballot). SLCF data covers every state-level
+filer, so finance for every race comes from the same import; the
+registry's race list is the editorial choice of which offices to render.
+Polling exists mostly for governor's races — unpolled races rank the
+field by money raised and hide the polling sections. State legislative
+races are possible later (they need a district dimension on races);
+federal races (US Senate/House) are out of scope — different disclosure
+regime (FEC), different pipeline.
 
 `status` meanings: **live** = dashboard published here; **ready** = SLCF
 pipeline implemented, data importable but no curated dashboard yet;
@@ -87,10 +106,14 @@ Political Integrity Project site (Texas and California).
 - `/` — state picker landing (hero + 50-state grid). Remembered state
   (localStorage) gets a one-click "Back to Michigan" affordance rather
   than an auto-redirect, so the landing stays shareable.
-- `/:state` — state home (this repo's `Index` format)
-- `/:state/candidates`, `/:state/candidates/:slug`, `/:state/polling`,
-  `/:state/money/donors`, `/:state/money/outside-spending`,
-  `/:state/about`
+- `/:state` — state home: overview cards for every tracked race, with
+  the governor's race (where there is one) leading.
+- `/:state/:office` — race dashboard (this repo's `Index` format), e.g.
+  `/mi/governor`, `/mi/attorney-general`. Race tabs switch between a
+  state's races; the header switcher stays state-level.
+- `/:state/:office/candidates`, `.../candidates/:slug`, `.../polling`,
+  `.../money/donors`, `.../money/outside-spending` — race-scoped pages.
+- `/:state/about` — per-state methodology and sources.
 - `external` states never get routes — their landing tiles and any
   switcher entries link out.
 
@@ -122,7 +145,8 @@ migration, no shared-database coupling, and no risk to the live TX site.
 Schema mirrors SLCF's canonical five tables plus the editorial layer,
 with `state` (2-letter code) on every row:
 
-- `cf_candidates` — editorial: slug, name, party, office, status,
+- `cf_candidates` — editorial: slug, name, party, **office** (joins the
+  registry's race list), status,
   featured, headshot, **state**, and a jsonb `filer_refs` for the
   state's committee/filer identifiers (some states need several per
   candidate, like TX's COH + SPAC pairs).
@@ -130,7 +154,7 @@ with `state` (2-letter code) on every row:
   `cf_committees` — direct mappings of the canonical columns.
 - `cf_independent_expenditures` — added per state as disclosure data
   allows; not all states expose an IE equivalent.
-- Polling tables copied from this repo, plus `state`.
+- Polling tables copied from this repo, plus `state` and `office`.
 
 Derived views (this repo's `refresh_tx_finance_views()` pattern) group
 by state from day one.
@@ -185,8 +209,8 @@ cheapest first:
    live states (landing grid only, TX tile linking out).
 3. **Phase 2 — pilot states**: `cf_*` schema, SLCF importer, and 2–3
    pilots with clean 2026 governor races and good SLCF data (suggest
-   **FL, MI, GA**; PA/AZ next). Curate candidates for each — the real
-   per-state cost.
+   **FL, MI, GA**; PA/AZ next). Curate candidates for every tracked
+   race in each pilot state — the real per-state cost.
 4. **Phase 3 — launch**: open the switcher, per-state SEO, cross-link
    from texaspoliticstracker.com's header/footer; announce.
 5. **Phase 4 — scale**: remaining SLCF states as curation capacity

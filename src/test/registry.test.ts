@@ -27,9 +27,15 @@ describe("state registry", () => {
 
   it("live states carry the config the dashboard needs", () => {
     for (const s of liveStates()) {
-      expect(s.raceTitle, `${s.code} raceTitle`).toBeTruthy();
-      expect(s.generalDate, `${s.code} generalDate`).toBeTruthy();
       expect(s.agency?.name, `${s.code} agency`).toBeTruthy();
+      expect(s.races?.length, `${s.code} races`).toBeGreaterThan(0);
+      const offices = new Set(s.races!.map((r) => r.office));
+      expect(offices.size, `${s.code} unique offices`).toBe(s.races!.length);
+      for (const r of s.races!) {
+        expect(r.office).toMatch(/^[a-z0-9-]+$/);
+        expect(r.title, `${s.code}/${r.office} title`).toBeTruthy();
+        expect(r.generalDate, `${s.code}/${r.office} generalDate`).toBeTruthy();
+      }
     }
   });
 

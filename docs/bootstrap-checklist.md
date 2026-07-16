@@ -38,13 +38,19 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
 - [ ] Create the Supabase project; write `cf_*` migrations (see plan.md
       "Data architecture"); set `VITE_SUPABASE_URL`/key in `.env` and
       Cloudflare Pages env.
+- [ ] Race-scoped routing: `/:state` becomes a race-overview page;
+      `/:state/:office` renders the dashboard (Index format) with race
+      tabs; candidates/polling/money pages nest under the race. See
+      plan.md "Race model" — offices vary per state, unpolled races rank
+      by money raised.
 - [ ] Generalize the data layer: hooks (`useCandidates`, `usePolling`,
-      `useLatestContributions`) take the state from `useStateConfig()` and
-      query `cf_*` tables filtered by state; regenerate
+      `useLatestContributions`) take state + office from context and
+      query `cf_*` tables filtered accordingly; regenerate
       `src/integrations/supabase/types.ts` from the new schema.
 - [ ] De-TX the page copy: `Index.tsx` hero/subtitle, `About.tsx`,
-      `Statewide.tsx` (offices differ per state), `PollingChart` source
-      links — all should read from `useStateConfig()`.
+      `PollingChart` source links — all should read from the registry.
+      Drop `Statewide.tsx`: the race model (tabs + race overview)
+      replaces it.
 - [ ] Write `scripts/data-import/slcf/import_slcf_finance.py` (canonical
       CSVs → `cf_*`); port + parameterize the 270toWin polling importer.
 - [ ] Nightly sync workflow matrix in `.github/workflows/` for live states.

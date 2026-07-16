@@ -25,10 +25,10 @@ const STATIC_ROUTES: Record<string, RouteMeta> = {
   "/": {
     title: "State Politics Tracker — Money & Polling in 2026 Statewide Races",
     description:
-      "Follow the money and polling in 2026 governor's races across the country. Campaign-finance data from state disclosure agencies, polling averages, and outside spending.",
+      "Follow the money and polling in 2026 statewide races across the country — governor on down. Campaign-finance data from state disclosure agencies, polling averages, and outside spending.",
     h1: "State Politics Tracker — Follow the Money in Your State",
     body: `
-      <p>State Politics Tracker is a public-interest dashboard for 2026 statewide races. We pull primary-source campaign-finance filings from each state's disclosure agency, surface outside spending, and aggregate public polling so you can see how money and momentum are moving — state by state.</p>
+      <p>State Politics Tracker is a public-interest dashboard for 2026 statewide races. We pull primary-source campaign-finance filings from each state's disclosure agency, surface outside spending, and aggregate public polling for every statewide race on the ballot — governor, attorney general, and the rest of the row offices — so you can see how money and momentum are moving, state by state.</p>
       <p>Texas and California are tracked on separate sites: <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a> covers the 2026 Texas Governor's race.</p>
     `,
   },

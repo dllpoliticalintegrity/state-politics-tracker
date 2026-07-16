@@ -12,18 +12,29 @@ export type StateStatus =
   // Tracked on a separate Political Integrity Project site; tiles link out.
   | "external";
 
+export interface RaceConfig {
+  /** URL segment: "governor", "attorney-general", "secretary-of-state"… */
+  office: string;
+  /** Display title: "Governor", "Attorney General"… */
+  title: string;
+  /** ISO date of the general election. */
+  generalDate: string;
+  /** 270toWin page, where public polling exists (mostly governor races). */
+  pollingSourceUrl?: string;
+}
+
 export interface StateConfig {
   code: string; // lowercase two-letter code, used as the URL segment
   name: string;
   status: StateStatus;
-  /** e.g. "2026 Michigan Governor's race" — required once status is "live". */
-  raceTitle?: string;
-  /** ISO date of the general election. */
-  generalDate?: string;
+  /**
+   * Every tracked statewide race on the state's 2026 ballot — offices vary
+   * per state. Required (non-empty) once status is "live". Races without
+   * polling rank the field by money raised.
+   */
+  races?: RaceConfig[];
   /** The state's campaign-finance disclosure agency. */
   agency?: { name: string; url: string };
-  /** 270toWin page for the tracked race. */
-  pollingSourceUrl?: string;
   /** Required when status is "external". */
   externalUrl?: string;
 }
@@ -61,8 +72,8 @@ const ALL_STATES: Array<[string, string]> = [
   ["wy", "Wyoming"],
 ];
 
-// Phase 2 promotes pilot states to "live" here, filling in raceTitle,
-// generalDate, agency, and pollingSourceUrl (suggested pilots: FL, MI, GA).
+// Phase 2 promotes pilot states to "live" here, filling in races (all
+// statewide offices on the ballot) and agency (suggested pilots: FL, MI, GA).
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,
   name,
