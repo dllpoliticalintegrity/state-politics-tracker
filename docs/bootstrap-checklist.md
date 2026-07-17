@@ -51,10 +51,19 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       the registry (About rewritten multi-state; Statewide.tsx dropped).
 - [ ] Race overview page at `/:state` (currently redirects to the first
       race) and race tabs once a state has more than one tracked race.
-- [ ] Finance: write `scripts/data-import/slcf/import_slcf_finance.py`
-      (SLCF cleaned CSVs → cf_*, matched via cf_candidates.filer_refs);
-      research each pilot candidate's committee IDs; nightly sync
-      workflow. Until it runs, money sections show $0/empty.
+- [x] Finance imported (Jul 17, 2026): 384k contributions, 16k
+      expenditures loaded from FL DOE per-candidate queries, GA
+      Peachfile bulk CSVs, and MI MiTN bulk ZIPs, scoped to the
+      committees in cf_candidates.filer_refs.
+      `scripts/data-import/pilot/import_pilot_finance.py` re-runs it
+      (idempotent upserts); `.github/workflows/finance-sync.yml` runs
+      nightly once the SUPABASE_SERVICE_ROLE_KEY repo secret is added.
+- [ ] Known finance gaps: FL affiliated political committees (e.g.
+      "Friends of Byron Donalds" — FL's big money flows outside the
+      $3k-capped candidate accounts) are not yet mapped into
+      filer_refs; GA Raffensperger and MI Perry Johnson have no
+      committee registrations found as of Jul 2026; outside-spending
+      (IE) tables remain empty pending per-state IE source research.
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
       schema (hooks currently use `as any`, so this is cleanup).
 
