@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import MoneyTabs from "@/components/MoneyTabs";
@@ -13,6 +14,8 @@ const CYCLE_OPTIONS = [
 
 export default function IndependentExpenditures() {
   const { data: candidates } = useCandidates();
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
   const { data: ieByCand, isLoading: ieLoading, error: ieError } = useIEByCandidate();
   const { data: topCommittees } = useTopIECommittees(20);
   const [cycleFilter, setCycleFilter] = useState<string>("all");
@@ -48,14 +51,14 @@ export default function IndependentExpenditures() {
     <div className="min-h-[80vh]">
       <section className="container pt-12 pb-6 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Money in the 2026 Texas Governor's race
+          {`Money in the 2026 ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">
           Outside spending
         </h1>
         <p className="text-base text-muted-foreground max-w-2xl">
-          Independent expenditures by PACs and committees supporting or opposing gubernatorial
-          candidates, from Texas Ethics Commission direct-campaign-expenditure filings.
+          Independent expenditures by PACs and committees supporting or opposing candidates in
+          this race, from state disclosure filings.
         </p>
       </section>
 
@@ -172,7 +175,7 @@ export default function IndependentExpenditures() {
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate">{c.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {c.transaction_count} transactions · TEC filer {c.filer_id}
+                    {c.transaction_count} transactions · filer {c.filer_id}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -188,7 +191,7 @@ export default function IndependentExpenditures() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground pt-2">
-          Updated nightly from Texas Ethics Commission filings.
+          Updated nightly from {stateCfg.agency?.name} filings.
         </p>
       </section>
     </div>

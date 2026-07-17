@@ -8,8 +8,8 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { ThemeProvider } from "next-themes";
-import { StateProvider, useActiveState } from "@/states/StateContext";
-import { getState } from "@/states/registry";
+import { StateProvider, RaceProvider, useActiveState } from "@/states/StateContext";
+import { getState, type StateConfig } from "@/states/registry";
 import StatePicker from "./pages/StatePicker";
 import ComingSoon from "./pages/ComingSoon";
 import Index from "./pages/Index";
@@ -18,25 +18,41 @@ import CandidateDetail from "./pages/CandidateDetail";
 import IndependentExpenditures from "./pages/IndependentExpenditures";
 import TopDonors from "./pages/TopDonors";
 import Polling from "./pages/Polling";
-import Statewide from "./pages/Statewide";
 import About from "./pages/About";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
 // Everything under /:state. Validates the code against the registry and
-// renders the live dashboard, a coming-soon page, an external redirect,
-// or a 404.
+// renders the live state's race routes, a coming-soon page, an external
+// redirect, or a 404.
 function StateArea() {
   const { state } = useParams();
   const cfg = getState(state);
 
   if (!cfg) return <NotFound />;
   if (cfg.status === "external") return <ExternalRedirect url={cfg.externalUrl!} name={cfg.name} />;
-  if (cfg.status !== "live") return <ComingSoon state={cfg} />;
+  if (cfg.status !== "live" || !cfg.races?.length) return <ComingSoon state={cfg} />;
 
   return (
     <StateProvider config={cfg}>
+      <Routes>
+        <Route index element={<Navigate to={cfg.races[0].office} replace />} />
+        <Route path="about" element={<About />} />
+        <Route path=":office/*" element={<RaceArea cfg={cfg} />} />
+      </Routes>
+    </StateProvider>
+  );
+}
+
+// Everything under /:state/:office — the race-scoped dashboard pages.
+function RaceArea({ cfg }: { cfg: StateConfig }) {
+  const { office } = useParams();
+  const race = cfg.races!.find((r) => r.office === office);
+  if (!race) return <NotFound />;
+
+  return (
+    <RaceProvider race={race}>
       <Routes>
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />
@@ -45,11 +61,9 @@ function StateArea() {
         <Route path="money/donors" element={<TopDonors />} />
         <Route path="money/outside-spending" element={<IndependentExpenditures />} />
         <Route path="polling" element={<Polling />} />
-        <Route path="statewide" element={<Statewide />} />
-        <Route path="about" element={<About />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </StateProvider>
+    </RaceProvider>
   );
 }
 

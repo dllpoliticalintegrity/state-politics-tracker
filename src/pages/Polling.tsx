@@ -1,11 +1,12 @@
 import { useMemo } from "react";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { Card } from "@/components/ui/card";
 import { ExternalLink } from "lucide-react";
 import PollingChart from "@/components/PollingChart";
 import { useCandidates } from "@/hooks/useCandidates";
 import {
-  useTxGovPolling,
-  useTxGovRacePolls,
+  useRacePolling,
+  useRacePolls,
   type RacePollRow,
 } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
@@ -68,9 +69,11 @@ function fmtDate(iso: string): string {
 }
 
 export default function Polling() {
-  const { data: polling, isLoading, error } = useTxGovPolling();
-  const { data: racePolls, isLoading: pollsLoading } = useTxGovRacePolls();
+  const { data: polling, isLoading, error } = useRacePolling();
+  const { data: racePolls, isLoading: pollsLoading } = useRacePolls();
   const { data: candidates } = useCandidates();
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
 
   const groups = useMemo(() => groupPolls(racePolls ?? []), [racePolls]);
 
@@ -101,7 +104,7 @@ export default function Polling() {
     <div className="min-h-[80vh]">
       <section className="container pt-12 pb-6 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          2026 Texas Governor's race
+          {`2026 ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">Polling</h1>
         <p className="text-base text-muted-foreground">
@@ -157,7 +160,7 @@ export default function Polling() {
               All polls <span className="text-muted-foreground font-normal">({groups.length})</span>
             </h2>
             <a
-              href="https://www.270towin.com/2026-governor-polls/texas"
+              href={race.pollingSourceUrl}
               target="_blank"
               rel="noreferrer noopener"
               className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1"

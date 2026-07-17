@@ -19,6 +19,8 @@ export interface RaceConfig {
   title: string;
   /** ISO date of the general election. */
   generalDate: string;
+  /** Slug in the shared `races` polling table, e.g. "michigan-governor-2026". */
+  raceSlug: string;
   /** 270toWin page, where public polling exists (mostly governor races). */
   pollingSourceUrl?: string;
 }
@@ -72,13 +74,69 @@ const ALL_STATES: Array<[string, string]> = [
   ["wy", "Wyoming"],
 ];
 
-// Phase 2 promotes pilot states to "live" here, filling in races (all
-// statewide offices on the ballot) and agency (suggested pilots: FL, MI, GA).
+// Pilot states live since July 2026: polling synced from 270toWin via the
+// import-towin-polling-multi edge function; finance lands via the SLCF
+// importer. Down-ballot races get added here as their candidates are curated.
+const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
+  fl: {
+    agency: {
+      name: "Florida Division of Elections",
+      url: "https://dos.fl.gov/elections/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "florida-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/florida",
+      },
+    ],
+  },
+  mi: {
+    agency: {
+      name: "Michigan Dept. of State — Campaign Finance",
+      url: "https://www.michigan.gov/sos/elections/disclosure",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "michigan-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/michigan",
+      },
+    ],
+  },
+  ga: {
+    agency: {
+      name: "Georgia Government Transparency & Campaign Finance Commission",
+      url: "https://ethics.ga.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "georgia-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/georgia",
+      },
+    ],
+  },
+};
+
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,
   name,
-  status: EXTERNAL[code] ? "external" : SLCF_READY.has(code) ? "ready" : "planned",
+  status: EXTERNAL[code]
+    ? "external"
+    : LIVE_CONFIG[code]
+      ? "live"
+      : SLCF_READY.has(code)
+        ? "ready"
+        : "planned",
   externalUrl: EXTERNAL[code],
+  ...LIVE_CONFIG[code],
 }));
 
 const byCode = new Map(STATES.map((s) => [s.code, s]));

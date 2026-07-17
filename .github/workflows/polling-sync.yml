@@ -1,0 +1,35 @@
+name: Polling sync
+
+on:
+  schedule:
+    # Every 6 hours — polls drop throughout the day
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: polling-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The import-towin-polling-multi Supabase edge function scrapes the
+      # 270toWin page for every live race (see RACES in
+      # supabase/functions/import-towin-polling-multi/index.ts) and refreshes
+      # race_polls + the race_polling aggregates using the project's own
+      # service role. The apikey below is the project's publishable (anon)
+      # key — public by design, needed only to pass the edge-function JWT
+      # check. It fails loudly (non-2xx) if any race's scrape breaks.
+      - name: Trigger 270toWin import (all live races)
+        run: |
+          ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvaHhkZnJ4bnh1eGpkdnZ5ZmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ5NzQsImV4cCI6MjA5ODU5MDk3NH0.vAaUdkMmbFPEO-1usZaTj9J4EcyJjnYzjAiDkSeaVYo"
+          RESP=$(curl -fsS -X POST \
+            "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-towin-polling-multi" \
+            -H "Authorization: Bearer $ANON" \
+            -H "apikey: $ANON" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)"

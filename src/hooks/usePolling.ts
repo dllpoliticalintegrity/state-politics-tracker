@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useRaceConfig } from "@/states/StateContext";
 
 export type PollRow = {
   Poll: string;
@@ -17,8 +18,6 @@ export type PollingBundle = {
   average: PollRow | null; // row where Poll === "RCP Average"
   polls: PollRow[]; // everything except the average, sorted by Date desc
 };
-
-const GOV_RACE_SLUG = "texas-governor-2026";
 
 async function fetchRacePolling(slug: string): Promise<PollingBundle | null> {
   const { data: race, error: raceErr } = await (supabase as any)
@@ -93,10 +92,11 @@ export function parsePollDate(d: string | undefined | null): string {
   return rangeEnd;
 }
 
-export function useTxGovPolling() {
+export function useRacePolling() {
+  const race = useRaceConfig();
   return useQuery({
-    queryKey: ["race_polling", GOV_RACE_SLUG],
-    queryFn: () => fetchRacePolling(GOV_RACE_SLUG),
+    queryKey: ["race_polling", race.raceSlug],
+    queryFn: () => fetchRacePolling(race.raceSlug),
   });
 }
 
@@ -123,14 +123,15 @@ export function isGeneralMatchup(m: string | null | undefined): boolean {
   return s === "general" || s.startsWith("h2h");
 }
 
-export function useTxGovRacePolls() {
+export function useRacePolls() {
+  const raceCfg = useRaceConfig();
   return useQuery({
-    queryKey: ["race_polls", GOV_RACE_SLUG],
+    queryKey: ["race_polls", raceCfg.raceSlug],
     queryFn: async (): Promise<RacePollRow[]> => {
       const { data: race } = await (supabase as any)
         .from("races")
         .select("race_id")
-        .eq("slug", GOV_RACE_SLUG)
+        .eq("slug", raceCfg.raceSlug)
         .maybeSingle();
       if (!race) return [];
       const { data, error } = await (supabase as any)

@@ -1,9 +1,9 @@
 import { useCandidates } from "@/hooks/useCandidates";
-import { useTxGovPolling } from "@/hooks/usePolling";
+import { useRacePolling } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
 
 export default function PollingAveragesList() {
-  const { data: polling, isLoading } = useTxGovPolling();
+  const { data: polling, isLoading } = useRacePolling();
   const { data: candidates } = useCandidates();
 
   if (isLoading) {

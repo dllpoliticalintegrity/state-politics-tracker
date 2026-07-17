@@ -4,21 +4,24 @@ import {
   useCandidates,
   useCandidateTotals,
 } from "@/hooks/useCandidates";
-import { isGeneralMatchup, useTxGovPolling, useTxGovRacePolls } from "@/hooks/usePolling";
+import { isGeneralMatchup, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
 import { formatCurrency } from "@/lib/finance";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 
-const GENERAL_DATE = new Date("2026-11-03T00:00:00");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function Index() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  const GENERAL_DATE = new Date(`${race.generalDate}T00:00:00`);
   const { data: candidates, isLoading } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
-  const { data: polling } = useTxGovPolling();
-  const { data: racePollsAll } = useTxGovRacePolls();
+  const { data: polling } = useRacePolling();
+  const { data: racePollsAll } = useRacePolls();
   const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
 
   // ---------- Per-candidate polling stats ----------
@@ -112,14 +115,14 @@ export default function Index() {
       {/* Hero */}
       <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          2026 Texas Governor's race
+          {`2026 ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
-          Who's winning the race for Texas Governor — and who's paying for it
+          {`Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          Polling averages, campaign finance, and outside spending, synced nightly from
-          270toWin and the Texas Ethics Commission.
+          Polling averages, campaign finance, and outside spending, synced from 270toWin
+          and the {stateCfg.agency?.name}.
         </p>
       </section>
 
@@ -129,7 +132,7 @@ export default function Index() {
           <SummaryStat
             label="Days to the general"
             value={String(daysToGeneral)}
-            sub="Tuesday, Nov 3, 2026"
+            sub={GENERAL_DATE.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
           />
           <SummaryStat
             label="Polling leader"
@@ -152,7 +155,7 @@ export default function Index() {
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               {polling?.spread && <span>Leading: {polling.spread}</span>}
               <a
-                href="https://www.270towin.com/2026-governor-polls/texas"
+                href={race.pollingSourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"

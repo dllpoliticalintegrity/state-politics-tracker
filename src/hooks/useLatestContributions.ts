@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 
 /**
  * Latest individual + PAC contributions across the cycle, joined to the
@@ -23,16 +24,19 @@ export type LatestContribution = {
 
 const PAC_TYPES = ["ENTITY"];
 
-export function useLatestContributions(limit = 20, minAmount = 30_000, office = "GOVERNOR") {
+export function useLatestContributions(limit = 20, minAmount = 30_000) {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
   return useQuery({
-    queryKey: ["tx_latest_contributions", limit, minAmount, office],
+    queryKey: ["cf_latest_contributions", stateCfg.code, race.office, limit, minAmount],
     queryFn: async (): Promise<LatestContribution[]> => {
       const { data, error } = await (supabase as any)
-        .from("tx_contributions")
+        .from("cf_contributions")
         .select(
-          "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id,tx_candidates!inner(name,party,office)",
+          "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id,cf_candidates!inner(name,party,office,state)",
         )
-        .eq("tx_candidates.office", office)
+        .eq("cf_candidates.state", stateCfg.code)
+        .eq("cf_candidates.office", race.office)
         .not("contribution_date", "is", null)
         .gte("amount", minAmount)
         .order("contribution_date", { ascending: false })
@@ -49,8 +53,8 @@ export function useLatestContributions(limit = 20, minAmount = 30_000, office = 
         city: r.city,
         state: r.state,
         candidate_id: r.candidate_id,
-        candidate_name: r.tx_candidates?.name ?? null,
-        candidate_party: normalizeParty(r.tx_candidates?.party),
+        candidate_name: r.cf_candidates?.name ?? null,
+        candidate_party: normalizeParty(r.cf_candidates?.party),
       }));
     },
     staleTime: 60_000,

@@ -138,12 +138,16 @@ states only.
 
 ## Data architecture (new repo)
 
-### Fresh Supabase project, state-keyed tables
+### Shared Supabase project, state-keyed cf_* tables
 
-A separate site means a separate Supabase project — no `tx_*` → `cf_*`
-migration, no shared-database coupling, and no risk to the live TX site.
-Schema mirrors SLCF's canonical five tables plus the editorial layer,
-with `state` (2-letter code) on every row:
+**Decision (July 2026): reuse the TX tracker's Supabase project** rather
+than pay for a second one. The cf_* tables are strictly additive beside
+the tx_* tables — nothing in this site touches tx_*, and the shared
+polling tables (races / race_polls / race_polling) were already
+state-generic, so both sites read them safely. If row counts or blast
+radius ever become a concern, the cf_* schema lifts cleanly into its own
+project. Schema mirrors SLCF's canonical five tables plus the editorial
+layer, with `state` (2-letter code) on cf_candidates:
 
 - `cf_candidates` — editorial: slug, name, party, **office** (joins the
   registry's race list), status,

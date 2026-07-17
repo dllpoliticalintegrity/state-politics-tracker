@@ -1,4 +1,5 @@
 import { useParams, Link, Navigate } from "react-router-dom";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import {
   useIEByCandidate,
   useCandidateLoans,
 } from "@/hooks/useCandidates";
-import { useTxGovPolling, readCandidatePct } from "@/hooks/usePolling";
+import { useRacePolling, readCandidatePct } from "@/hooks/usePolling";
 import CandidatePollingChart from "@/components/CandidatePollingChart";
 import {
   formatCurrency,
@@ -36,7 +37,9 @@ export default function CandidateDetail() {
   const { data: expn } = useExpenditureTotals(candidate?.id);
   const { data: ieRows } = useIEForCandidate(candidate?.id, 10);
   const { data: ieByCand } = useIEByCandidate();
-  const { data: polling } = useTxGovPolling();
+  const { data: polling } = useRacePolling();
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
 
   if (candLoading) {
     return (
@@ -216,7 +219,7 @@ export default function CandidateDetail() {
         {!hasFinanceData && (
           <Card className="p-8 border-dashed">
             <p className="text-sm text-muted-foreground text-center">
-              No filings yet for this candidate. Data will appear after the next TEC sync.
+              No filings yet for this candidate. Data will appear after the next sync.
             </p>
           </Card>
         )}
@@ -502,7 +505,7 @@ export default function CandidateDetail() {
         )}
 
         <p className="text-xs text-muted-foreground text-center pt-2">
-          Source: Texas Ethics Commission, updated nightly.
+          Source: {stateCfg.agency?.name}, updated nightly.
         </p>
       </div>
     </div>

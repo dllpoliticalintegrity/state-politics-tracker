@@ -1,12 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-// The Supabase project for this site doesn't exist yet (created in Phase 2 —
-// see docs/plan.md). Fall back to a placeholder so the app can boot with no
-// env configured; any actual query will fail, but nothing issues queries
-// until a state is "live" in the registry.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? 'https://placeholder.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? 'placeholder';
+// Shared Supabase project (same project as the TX tracker — see docs/plan.md;
+// the multi-state site reads the cf_* tables and the shared polling tables).
+// The publishable key is public by design; env vars override for local dev
+// against a different project.
+const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL ?? 'https://lohxdfrxnxuxjdvvyfjc.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+  'sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX';
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

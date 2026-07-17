@@ -20,16 +20,16 @@ import {
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import DonationPanel from "@/components/donate/DonationPanel";
-import { useActiveState } from "@/states/StateContext";
+import { useActiveRace, useActiveState } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
 import star from "@/assets/star.svg";
 
+// `race: true` items live under /:state/:office; the rest under /:state.
 const navItems = [
-  { to: "candidates", label: "Candidates" },
-  { to: "polling", label: "Polling" },
-  { to: "money", label: "Money" },
-  { to: "statewide", label: "Statewide" },
-  { to: "about", label: "About" },
+  { to: "candidates", label: "Candidates", race: true },
+  { to: "polling", label: "Polling", race: true },
+  { to: "money", label: "Money", race: true },
+  { to: "about", label: "About", race: false },
 ];
 
 function StateSwitcher() {
@@ -91,14 +91,19 @@ function StateSwitcher() {
 
 export function Header() {
   const activeState = useActiveState();
+  const activeRace = useActiveRace();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [donateOpen, setDonateOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
   const stateBase = activeState ? `/${activeState.code}` : "";
-  const isActive = (to: string) =>
-    activeState ? location.pathname.startsWith(`${stateBase}/${to}`) : false;
+  const linkFor = (item: { to: string; race: boolean }) =>
+    item.race && activeRace
+      ? `${stateBase}/${activeRace.office}/${item.to}`
+      : `${stateBase}/${item.to}`;
+  const isActive = (item: { to: string; race: boolean }) =>
+    activeState ? location.pathname.startsWith(linkFor(item)) : false;
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -129,18 +134,18 @@ export function Header() {
 
         {activeState && (
           <nav className="hidden md:flex items-center gap-1">
-            {navItems.map(({ to, label }) => (
-              <Link key={to} to={`${stateBase}/${to}`}>
+            {navItems.map((item) => (
+              <Link key={item.to} to={linkFor(item)}>
                 <Button
                   variant="ghost"
                   size="sm"
                   className={`h-8 px-3 text-sm ${
-                    isActive(to)
+                    isActive(item)
                       ? "text-foreground bg-accent font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {label}
+                  {item.label}
                 </Button>
               </Link>
             ))}
@@ -174,10 +179,10 @@ export function Header() {
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
             <nav className="flex flex-col gap-1 mt-6">
               {activeState &&
-                navItems.map(({ to, label }) => (
-                  <Link key={to} to={`${stateBase}/${to}`} onClick={() => setOpen(false)}>
+                navItems.map((item) => (
+                  <Link key={item.to} to={linkFor(item)} onClick={() => setOpen(false)}>
                     <Button variant="ghost" className="w-full justify-start text-sm">
-                      {label}
+                      {item.label}
                     </Button>
                   </Link>
                 ))}

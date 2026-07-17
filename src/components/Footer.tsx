@@ -1,16 +1,16 @@
 import { Link } from "react-router-dom";
-import { useActiveState } from "@/states/StateContext";
+import { useActiveRace, useActiveState } from "@/states/StateContext";
 
 const footerLinks = [
-  { to: "candidates", label: "Candidates" },
-  { to: "polling", label: "Polling" },
-  { to: "money", label: "Money" },
-  { to: "statewide", label: "Statewide races" },
-  { to: "about", label: "About & methodology" },
+  { to: "candidates", label: "Candidates", race: true },
+  { to: "polling", label: "Polling", race: true },
+  { to: "money", label: "Money", race: true },
+  { to: "about", label: "About & methodology", race: false },
 ];
 
 export function Footer() {
   const activeState = useActiveState();
+  const activeRace = useActiveRace();
 
   return (
     <footer className="border-t mt-16">
@@ -35,10 +35,14 @@ export function Footer() {
           </div>
           <nav aria-label="Footer" className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
             {activeState &&
-              footerLinks.map(({ to, label }) => (
+              footerLinks.map(({ to, label, race }) => (
                 <Link
                   key={to}
-                  to={`/${activeState.code}/${to}`}
+                  to={
+                    race && activeRace
+                      ? `/${activeState.code}/${activeRace.office}/${to}`
+                      : `/${activeState.code}/${to}`
+                  }
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {label}

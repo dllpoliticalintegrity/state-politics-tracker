@@ -1,25 +1,29 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Users, TrendingUp, DollarSign, Landmark } from "lucide-react";
-import { useActiveState } from "@/states/StateContext";
+import { Home, Users, TrendingUp, DollarSign, Info } from "lucide-react";
+import { useActiveRace, useActiveState } from "@/states/StateContext";
 
 const items = [
-  { to: "", label: "Home", icon: Home },
-  { to: "/candidates", label: "Candidates", icon: Users },
-  { to: "/polling", label: "Polling", icon: TrendingUp },
-  { to: "/money", label: "Money", icon: DollarSign },
-  { to: "/statewide", label: "Statewide", icon: Landmark },
+  { to: "", label: "Home", icon: Home, race: true },
+  { to: "/candidates", label: "Candidates", icon: Users, race: true },
+  { to: "/polling", label: "Polling", icon: TrendingUp, race: true },
+  { to: "/money", label: "Money", icon: DollarSign, race: true },
+  { to: "/about", label: "About", icon: Info, race: false },
 ];
 
 export function MobileTabBar() {
   const location = useLocation();
   const activeState = useActiveState();
+  const activeRace = useActiveRace();
 
   // Only rendered inside a live state's routes (App gates on this too).
-  if (!activeState) return null;
-  const base = `/${activeState.code}`;
+  if (!activeState || !activeRace) return null;
+  const stateBase = `/${activeState.code}`;
+  const base = `${stateBase}/${activeRace.office}`;
 
-  const isActive = (to: string) =>
-    to === "" ? location.pathname === base : location.pathname.startsWith(`${base}${to}`);
+  const linkFor = (item: { to: string; race: boolean }) =>
+    item.race ? `${base}${item.to}` : `${stateBase}${item.to}`;
+  const isActive = (item: { to: string; race: boolean }) =>
+    item.to === "" ? location.pathname === base : location.pathname.startsWith(linkFor(item));
 
   return (
     <nav
@@ -28,12 +32,13 @@ export function MobileTabBar() {
       aria-label="Primary"
     >
       <ul className="flex items-stretch justify-around h-14">
-        {items.map(({ to, label, icon: Icon }) => {
-          const active = isActive(to);
+        {items.map((item) => {
+          const { to, label, icon: Icon } = item;
+          const active = isActive(item);
           return (
             <li key={to} className="flex-1">
               <Link
-                to={`${base}${to}`}
+                to={linkFor(item)}
                 aria-current={active ? "page" : undefined}
                 className={`flex flex-col items-center justify-center gap-0.5 h-full text-[11px] transition-colors ${
                   active ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground"

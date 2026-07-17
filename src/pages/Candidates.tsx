@@ -1,14 +1,17 @@
 import { useCandidates, useCandidateTotals } from "@/hooks/useCandidates";
-import { isGeneralMatchup, useTxGovPolling, useTxGovRacePolls } from "@/hooks/usePolling";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { isGeneralMatchup, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function Candidates() {
   const { data: candidates, isLoading, error } = useCandidates();
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
   const { data: totalsMap } = useCandidateTotals();
-  const { data: polling } = useTxGovPolling();
-  const { data: racePollsAll } = useTxGovRacePolls();
+  const { data: polling } = useRacePolling();
+  const { data: racePollsAll } = useRacePolls();
   const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
 
   const today = new Date();
@@ -69,7 +72,7 @@ export default function Candidates() {
     <div className="min-h-[80vh]">
       <section className="container pt-12 pb-6 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          2026 Texas Governor's race
+          {`2026 ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">
           The candidates

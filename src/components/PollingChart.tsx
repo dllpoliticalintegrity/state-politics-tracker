@@ -10,15 +10,15 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import { useCandidates } from "@/hooks/useCandidates";
-import { isGeneralMatchup, parsePollDate, useTxGovPolling, useTxGovRacePolls } from "@/hooks/usePolling";
+import { isGeneralMatchup, parsePollDate, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
 
 // Trailing-window width for the rolling average (days).
 const WINDOW_DAYS = 30;
 
 export default function PollingChart() {
-  const { data: polling, isLoading } = useTxGovPolling();
-  const { data: racePollsAll } = useTxGovRacePolls();
+  const { data: polling, isLoading } = useRacePolling();
+  const { data: racePollsAll } = useRacePolls();
   const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
   const { data: candidates } = useCandidates();
 

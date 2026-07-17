@@ -33,32 +33,30 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       URL, `llms.txt`, Cloudflare `_middleware.ts` + `sitemap.xml.ts`
       (landing-only, origin-derived canonicals, no hardcoded domain).
 
-## Phase 2 — before the first live state
+## Phase 2 — live data (in progress)
 
-- [ ] Create the Supabase project; write `cf_*` migrations (see plan.md
-      "Data architecture"); set `VITE_SUPABASE_URL`/key in `.env` and
-      Cloudflare Pages env.
-- [ ] Race-scoped routing: `/:state` becomes a race-overview page;
-      `/:state/:office` renders the dashboard (Index format) with race
-      tabs; candidates/polling/money pages nest under the race. See
-      plan.md "Race model" — offices vary per state, unpolled races rank
-      by money raised.
-- [ ] Generalize the data layer: hooks (`useCandidates`, `usePolling`,
-      `useLatestContributions`) take state + office from context and
-      query `cf_*` tables filtered accordingly; regenerate
-      `src/integrations/supabase/types.ts` from the new schema.
-- [ ] De-TX the page copy: `Index.tsx` hero/subtitle, `About.tsx`,
-      `PollingChart` source links — all should read from the registry.
-      Drop `Statewide.tsx`: the race model (tabs + race overview)
-      replaces it.
-- [ ] Write `scripts/data-import/slcf/import_slcf_finance.py` (canonical
-      CSVs → `cf_*`); port + parameterize the 270toWin polling importer.
-- [ ] Nightly sync workflow matrix in `.github/workflows/` for live states.
-- [ ] Promote pilot states (suggested: FL, MI, GA) to `live` in the
-      registry with raceTitle/generalDate/agency/pollingSourceUrl; curate
-      `cf_candidates` for each.
-- [ ] Revisit `Statewide.tsx`: keep per-state down-ballot races or drop
-      the page from the multi-state nav.
+- [x] Database: cf_* schema applied to the **shared TX-tracker Supabase
+      project** (decision: reuse it instead of paying for a new one —
+      additive only, tx_* untouched). Migration in
+      `supabase/migrations/20260717000000_cf_schema.sql`; client defaults
+      to the shared project's publishable key.
+- [x] Pilot candidates seeded (FL/MI/GA governor, July 2026 fields);
+      races registered in the shared polling tables.
+- [x] Polling: `supabase/functions/import-towin-polling-multi` scrapes
+      270toWin for every live race (roster from cf_candidates); synced
+      every 6h by `.github/workflows/polling-sync.yml`.
+- [x] Frontend on live data: hooks query cf_*/races scoped by
+      state+office from context; /:state/:office routing with
+      RaceProvider; FL/MI/GA live in the registry; page copy reads from
+      the registry (About rewritten multi-state; Statewide.tsx dropped).
+- [ ] Race overview page at `/:state` (currently redirects to the first
+      race) and race tabs once a state has more than one tracked race.
+- [ ] Finance: write `scripts/data-import/slcf/import_slcf_finance.py`
+      (SLCF cleaned CSVs → cf_*, matched via cf_candidates.filer_refs);
+      research each pilot candidate's committee IDs; nightly sync
+      workflow. Until it runs, money sections show $0/empty.
+- [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
+      schema (hooks currently use `as any`, so this is cleanup).
 
 ## Phase 3 — launch
 

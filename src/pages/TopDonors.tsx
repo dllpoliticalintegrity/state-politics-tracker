@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import {
@@ -58,6 +59,8 @@ export default function TopDonors() {
   const [selectedIe, setSelectedIe] = useState<TxIeCrossCommitteeDonor | null>(null);
 
   const { data: candidates } = useCandidates();
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
   const candDonors = useTopAggregatedDonors(50, kind);
   const ieDonors = useTopIeAggregatedDonors(50, kind);
 
@@ -116,7 +119,7 @@ export default function TopDonors() {
     <div className="min-h-[80vh]">
       <section className="container pt-12 pb-6 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Money in the 2026 Texas Governor's race
+          {`Money in the 2026 ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">Top donors</h1>
         <p className="text-base text-muted-foreground max-w-2xl">
@@ -231,7 +234,7 @@ export default function TopDonors() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground pt-2">
-          Updated nightly from Texas Ethics Commission filings.
+          Updated nightly from {stateCfg.agency?.name} filings.
         </p>
       </section>
 

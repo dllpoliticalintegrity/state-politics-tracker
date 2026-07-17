@@ -17,15 +17,19 @@ describe("state registry", () => {
     }
   });
 
-  it("marks the SLCF-implemented states ready", () => {
-    // Spot-check a few of the 24 implemented states (minus external CA).
-    for (const code of ["fl", "mi", "ga", "pa", "al"]) {
+  it("marks the pilot states live and the rest of SLCF ready", () => {
+    for (const code of ["fl", "mi", "ga"]) {
+      expect(getState(code)?.status).toBe("live");
+    }
+    for (const code of ["pa", "al", "mn"]) {
       expect(getState(code)?.status).toBe("ready");
     }
-    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(24);
+    // 24 SLCF states minus the 3 live pilots.
+    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(21);
   });
 
   it("live states carry the config the dashboard needs", () => {
+    expect(liveStates().length).toBeGreaterThan(0);
     for (const s of liveStates()) {
       expect(s.agency?.name, `${s.code} agency`).toBeTruthy();
       expect(s.races?.length, `${s.code} races`).toBeGreaterThan(0);
@@ -35,6 +39,7 @@ describe("state registry", () => {
         expect(r.office).toMatch(/^[a-z0-9-]+$/);
         expect(r.title, `${s.code}/${r.office} title`).toBeTruthy();
         expect(r.generalDate, `${s.code}/${r.office} generalDate`).toBeTruthy();
+        expect(r.raceSlug, `${s.code}/${r.office} raceSlug`).toMatch(/-2026$/);
       }
     }
   });
