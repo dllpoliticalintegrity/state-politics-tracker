@@ -1,0 +1,32 @@
+name: Finance sync
+
+on:
+  schedule:
+    # Nightly at 07:20 UTC — after state systems have posted the day's filings
+    - cron: "20 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: finance-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Requires the SUPABASE_SERVICE_ROLE_KEY repository secret (Settings →
+      # Secrets and variables → Actions). The importer is idempotent — rows
+      # upsert on (source, source_txn_id) — so reruns are safe.
+      - name: Import FL/GA/MI finance
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."
+            exit 0
+          fi
+          python3 scripts/data-import/pilot/import_pilot_finance.py --states fl ga mi
