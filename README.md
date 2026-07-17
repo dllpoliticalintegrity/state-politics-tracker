@@ -33,6 +33,20 @@ for the target UX (open in a browser; mock data).
 - Supabase (Postgres; project created in Phase 2)
 - Cloudflare Pages functions (`functions/`) for SEO middleware + sitemap
 
+## Deploying
+
+Two Cloudflare targets are supported; both share `shared/seo.ts`:
+
+- **Workers Git-import flow** (dashboard default): build command
+  `npm run build`, deploy command `npx wrangler deploy`. Uses
+  `wrangler.jsonc` + `worker/index.ts` (static assets with SPA
+  fallback, SEO rewrites, sitemap).
+- **Classic Pages flow**: build command `npm run build`, output
+  directory `dist`, no deploy command. Uses `functions/`.
+
+Node is pinned to 22 via `.node-version`. No environment variables are
+needed until a state is live.
+
 ## Local development
 
 ```sh
