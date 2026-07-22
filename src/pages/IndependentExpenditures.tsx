@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import MoneyTabs from "@/components/MoneyTabs";
@@ -16,6 +16,7 @@ export default function IndependentExpenditures() {
   const { data: candidates } = useCandidates();
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
+  const raceBase = useRaceBase();
   const { data: ieByCand, isLoading: ieLoading, error: ieError } = useIEByCandidate();
   const { data: topCommittees } = useTopIECommittees(20);
   const [cycleFilter, setCycleFilter] = useState<string>("all");
@@ -127,7 +128,7 @@ export default function IndependentExpenditures() {
         )}
         <div className="space-y-2">
           {perCandidate.map((r) => (
-            <Link key={r.candidate_id} to={`/candidates/${r.slug}`}>
+            <Link key={r.candidate_id} to={`${raceBase}/candidates/${r.slug}`}>
               <Card className="p-4 hover:border-primary/40 transition-colors group">
                 <div className="flex items-center gap-4">
                   <span

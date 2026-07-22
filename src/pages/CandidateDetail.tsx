@@ -1,5 +1,5 @@
 import { useParams, Link, Navigate } from "react-router-dom";
-import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ export default function CandidateDetail() {
   const { data: polling } = useRacePolling();
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
+  const raceBase = useRaceBase();
 
   if (candLoading) {
     return (
@@ -48,7 +49,7 @@ export default function CandidateDetail() {
       </div>
     );
   }
-  if (candError || !candidate) return <Navigate to="/candidates" replace />;
+  if (candError || !candidate) return <Navigate to=".." replace />;
 
   // Aggregate across cycles
   const totals = (summaries ?? []).reduce(
@@ -122,7 +123,7 @@ export default function CandidateDetail() {
       <div className="container py-8 space-y-6">
         {/* Breadcrumb */}
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Link to="/candidates" className="hover:text-foreground">
+          <Link to={`${raceBase}/candidates`} className="hover:text-foreground">
             Candidates
           </Link>
           <ChevronRight className="h-3.5 w-3.5" />
@@ -296,7 +297,7 @@ export default function CandidateDetail() {
             </div>
             <div className="mt-4">
               <Link
-                to="/money/outside-spending"
+                to={`${raceBase}/money/outside-spending`}
                 className="text-sm text-primary hover:underline"
               >
                 All outside spending in the race →

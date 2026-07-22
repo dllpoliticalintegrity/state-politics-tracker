@@ -61,6 +61,27 @@ COMMITTEES = {
         "chris-carr": "100035",
         "jason-esteves": "101119",
         # brad-raffensperger: no Peachfile committee found as of Jul 2026
+        # Lt. Governor
+        "greg-dolezal": "100021",
+        "josh-mclaurin": "100828",
+        "john-f-kennedy": "100122",
+        "michael-tillery": "100007",
+        "steve-gooch": "100060",
+        "david-clark": "102478",
+        "nabilah-parkes": "104502",
+        "seth-clark": "101717",
+        # Attorney General
+        "brian-strickland": "102817",
+        "tanya-miller": "102716",
+        "bill-cowsert": "100055",
+        "rob-trammell": "100430",
+        # Secretary of State
+        "tim-fleming": "100059",
+        "penny-brown-reynolds": "103195",
+        "kelvin-king": "103261",
+        "gabriel-sterling": "103254",
+        "vernon-jones": "100071",
+        "dana-barrett": "101619",
     },
     "mi": {  # MiTN cfr_com_id (gubernatorial accounts only)
         "jocelyn-benson": "0521875",
@@ -71,6 +92,13 @@ COMMITTEES = {
         "aric-nesbitt": "0521877",
         "mike-cox": "0521871",
         # perry-johnson: no gubernatorial committee found as of Jul 2026
+        # Attorney General / Secretary of State
+        "eli-savit": "0606504",
+        "doug-lloyd": "0607449",
+        "mark-totten": "0606110",
+        "barb-byrum": "0606536",
+        "anthony-forlini": "0611210",
+        # garlin-gilchrist (SoS run) keeps committee 0521896 above
     },
     "fl": {  # queried by candidate last name against office=GOV
         "byron-donalds": "Donalds",
@@ -79,6 +107,17 @@ COMMITTEES = {
         "james-fishback": "Fishback",
         "paul-renner": "Renner",
         "jerry-demings": "Demings",
+        # Row offices — (last name, office code) pairs
+        "james-uthmeier": ("Uthmeier", "ATG"),
+        "jose-javier-rodriguez": ("Rodriguez", "ATG"),
+        "blaise-ingoglia": ("Ingoglia", "CFO"),
+        "annette-taddeo": ("Taddeo", "CFO"),
+        "frank-collige": ("Collige", "CFO"),
+        "earle-ford": ("Ford", "CFO"),
+        "wilton-simpson": ("Simpson", "AGR"),
+        "matt-taylor": ("Taylor", "AGR"),
+        "joey-mendoza-atkins": ("Mendoza Atkins", "AGR"),
+        "don-prichard": ("Prichard", "AGR"),
     },
 }
 
@@ -235,9 +274,9 @@ def fl_query(exe, fields):
     return raw.decode("utf-8", "replace")
 
 
-def fl_contrib_rows(base, last_name, date_from=None, date_to=None):
+def fl_contrib_rows(base, last_name, date_from=None, date_to=None, office="GOV"):
     f = dict(base)
-    f.update({"CanLName": last_name, "office": "GOV", "queryformat": "2",
+    f.update({"CanLName": last_name, "office": office, "queryformat": "2",
               "rowlimit": str(FL_ROW_LIMIT)})
     if date_from:
         f["cdatefrom"], f["cdateto"] = date_from, date_to
@@ -249,23 +288,24 @@ def fl_contrib_rows(base, last_name, date_from=None, date_to=None):
             out = []
             for a, b in [("01/01/2025", "06/30/2025"), ("07/01/2025", "12/31/2025"),
                          ("01/01/2026", "06/30/2026"), ("07/01/2026", "12/31/2026")]:
-                out += fl_contrib_rows(base, last_name, a, b)
+                out += fl_contrib_rows(base, last_name, a, b, office=office)
             return out
         # Window truncated: split it in half by month.
         fa, fb = date_from.split("/"), date_to.split("/")
         mid_m = (int(fa[0]) + int(fb[0])) // 2 or 1
         mid = f"{mid_m:02d}/15/{fa[2]}"
-        return (fl_contrib_rows(base, last_name, date_from, mid) +
-                fl_contrib_rows(base, last_name, mid, date_to))
+        return (fl_contrib_rows(base, last_name, date_from, mid, office=office) +
+                fl_contrib_rows(base, last_name, mid, date_to, office=office))
     return rows
 
 
 def import_florida(sink, cand_ids):
     con_base = fl_form_defaults("contributions")
     exp_base = fl_form_defaults("expenditures")
-    for slug, last in COMMITTEES["fl"].items():
+    for slug, spec in COMMITTEES["fl"].items():
+        last, office = spec if isinstance(spec, tuple) else (spec, "GOV")
         cid = cand_ids[slug]
-        for p in fl_contrib_rows(con_base, last):
+        for p in fl_contrib_rows(con_base, last, office=office):
             if len(p) < 8:
                 continue
             acct, dt, amount, typ, name, addr, csz, occ = p[:8]
@@ -297,7 +337,7 @@ def import_florida(sink, cand_ids):
                     "contribution_date": iso, "city": city, "state": st, "zip": zc,
                     "source_form_type": "INKIND" if typ.strip().upper() == "INK" else None})
         f = dict(exp_base)
-        f.update({"CanLName": last, "office": "GOV", "queryformat": "2",
+        f.update({"CanLName": last, "office": office, "queryformat": "2",
                   "rowlimit": str(FL_ROW_LIMIT)})
         for p in list(csv.reader(io.StringIO(fl_query("expend.exe", f)), delimiter="\t"))[1:]:
             if len(p) < 7:

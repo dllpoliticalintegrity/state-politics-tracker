@@ -11,12 +11,14 @@ import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCa
 import ContributionsTicker from "@/components/ContributionsTicker";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { isCandidateActiveForRace } from "@/lib/candidateStatus";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function Index() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
+  const hasPollingSource = !!race.pollingSourceUrl;
   const GENERAL_DATE = new Date(`${race.generalDate}T00:00:00`);
   const { data: candidates, isLoading } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
@@ -84,17 +86,21 @@ export default function Index() {
     }
   }
 
-  // Rank candidates: by poll % desc, then by total raised.
-  // Hide candidates who aren't carried in the RCP polling averages — the hero
-  // grid is labelled "ranked by polling," so minor candidates with no poll
-  // data would be rank-ordered arbitrarily and confuse the reader.
+  // Rank candidates. Polled races: by poll % desc (candidates without an
+  // average are hidden — the grid is labelled "ranked by polling"). Unpolled
+  // races: active candidates ranked by total raised.
   const ranked = (candidates ?? [])
     .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
-    .filter((x) => x.stats?.pollPct !== null && x.stats?.pollPct !== undefined)
-    .sort(
-      (a, b) =>
-        (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
-        (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0),
+    .filter((x) =>
+      hasPollingSource
+        ? x.stats?.pollPct !== null && x.stats?.pollPct !== undefined
+        : isCandidateActiveForRace(x.c.status) || x.c.status === "active",
+    )
+    .sort((a, b) =>
+      hasPollingSource
+        ? (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
+          (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)
+        : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0),
     );
 
   // ---------- Summary strip ----------
@@ -102,8 +108,9 @@ export default function Index() {
     0,
     Math.ceil((GENERAL_DATE.getTime() - today.getTime()) / DAY_MS),
   );
-  const totalRaised = [...(totalsMap?.values() ?? [])].reduce(
-    (s, t) => s + t.raised,
+  // Scope to this race's candidates — totalsMap spans every tracked race.
+  const totalRaised = (candidates ?? []).reduce(
+    (sum, c) => sum + (totalsMap?.get(c.id)?.raised ?? 0),
     0,
   );
   const leader = ranked[0] ?? null;
@@ -121,8 +128,9 @@ export default function Index() {
           {`Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          Polling averages, campaign finance, and outside spending, synced from 270toWin
-          and the {stateCfg.agency?.name}.
+          {hasPollingSource
+            ? `Polling averages, campaign finance, and outside spending, synced from 270toWin and the ${stateCfg.agency?.name}.`
+            : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
       </section>
 
@@ -135,9 +143,17 @@ export default function Index() {
             sub={GENERAL_DATE.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
           />
           <SummaryStat
-            label="Polling leader"
+            label={hasPollingSource ? "Polling leader" : "Money leader"}
             value={leader ? surnameOf(leader.c.name) : "—"}
-            sub={leader?.stats.pollPct != null ? `${leader.stats.pollPct}% average` : "No average yet"}
+            sub={
+              hasPollingSource
+                ? leader?.stats.pollPct != null
+                  ? `${leader.stats.pollPct}% average`
+                  : "No average yet"
+                : leader
+                  ? `${formatCurrency(leader.stats.raised)} raised`
+                  : "No filings yet"
+            }
           />
           <SummaryStat
             label="Raised this cycle"
@@ -147,7 +163,8 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Polling chart */}
+      {/* Polling chart (polled races only) */}
+      {hasPollingSource && (
       <section className="container pb-10">
         <Card className="p-4 md:p-6">
           <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
@@ -190,12 +207,15 @@ export default function Index() {
           </div>
         </Card>
       </section>
+      )}
 
       {/* Field overview */}
       <section className="container pb-16">
         <div className="flex items-baseline justify-between pb-2.5 border-b mb-5">
           <h2 className="font-display text-xl md:text-2xl font-semibold">The field</h2>
-          <div className="text-xs text-muted-foreground">Ranked by current poll average</div>
+          <div className="text-xs text-muted-foreground">
+            {hasPollingSource ? "Ranked by current poll average" : "Ranked by total raised"}
+          </div>
         </div>
         {isLoading && (
           <div className="text-sm text-muted-foreground py-10 text-center">Loading…</div>

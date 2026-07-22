@@ -10,6 +10,7 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { ThemeProvider } from "next-themes";
 import { StateProvider, RaceProvider, useActiveState } from "@/states/StateContext";
 import { getState, type StateConfig } from "@/states/registry";
+import RaceTabs from "@/components/RaceTabs";
 import StatePicker from "./pages/StatePicker";
 import ComingSoon from "./pages/ComingSoon";
 import Index from "./pages/Index";
@@ -53,6 +54,7 @@ function RaceArea({ cfg }: { cfg: StateConfig }) {
 
   return (
     <RaceProvider race={race}>
+      <RaceTabs />
       <Routes>
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />

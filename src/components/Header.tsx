@@ -134,7 +134,9 @@ export function Header() {
 
         {activeState && (
           <nav className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => (
+            {navItems
+              .filter((item) => item.to !== "polling" || activeRace?.pollingSourceUrl)
+              .map((item) => (
               <Link key={item.to} to={linkFor(item)}>
                 <Button
                   variant="ghost"
@@ -179,7 +181,9 @@ export function Header() {
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
             <nav className="flex flex-col gap-1 mt-6">
               {activeState &&
-                navItems.map((item) => (
+                navItems
+                  .filter((item) => item.to !== "polling" || activeRace?.pollingSourceUrl)
+                  .map((item) => (
                   <Link key={item.to} to={linkFor(item)} onClick={() => setOpen(false)}>
                     <Button variant="ghost" className="w-full justify-start text-sm">
                       {item.label}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import {
@@ -61,6 +61,7 @@ export default function TopDonors() {
   const { data: candidates } = useCandidates();
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
+  const raceBase = useRaceBase();
   const candDonors = useTopAggregatedDonors(50, kind);
   const ieDonors = useTopIeAggregatedDonors(50, kind);
 
@@ -314,7 +315,7 @@ export default function TopDonors() {
                   return cand?.slug ? (
                     <Link
                       key={s.candidate_id}
-                      to={`/candidates/${cand.slug}`}
+                      to={`${raceBase}/candidates/${cand.slug}`}
                       onClick={() => setSelectedCand(null)}
                     >
                       {row}

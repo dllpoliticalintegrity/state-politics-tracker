@@ -51,6 +51,13 @@ export function useActiveState(): StateConfig | null {
   return cfg && cfg.status === "live" ? cfg : null;
 }
 
+/** Base path for the active race's pages, e.g. "/mi/governor". */
+export function useRaceBase(): string {
+  const state = useStateConfig();
+  const race = useRaceConfig();
+  return `/${state.code}/${race.office}`;
+}
+
 /**
  * The race implied by the current URL's second segment, falling back to the
  * state's first race. Chrome uses this to build race-scoped nav links.

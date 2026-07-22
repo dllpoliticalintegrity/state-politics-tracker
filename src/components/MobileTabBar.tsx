@@ -32,7 +32,9 @@ export function MobileTabBar() {
       aria-label="Primary"
     >
       <ul className="flex items-stretch justify-around h-14">
-        {items.map((item) => {
+        {items
+          .filter((item) => item.to !== "/polling" || activeRace.pollingSourceUrl)
+          .map((item) => {
           const { to, label, icon: Icon } = item;
           const active = isActive(item);
           return (

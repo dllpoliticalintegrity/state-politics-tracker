@@ -49,8 +49,16 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       state+office from context; /:state/:office routing with
       RaceProvider; FL/MI/GA live in the registry; page copy reads from
       the registry (About rewritten multi-state; Statewide.tsx dropped).
+- [x] Down-ballot statewide races live (Jul 17, 2026): GA Lt. Gov / AG /
+      SoS, MI AG / SoS, FL AG / CFO / Agriculture Commissioner — real
+      candidates derived from each state's registry (GA Peachfile
+      GetCandidateDetails, FL extractCanList, MI committee search),
+      nominees/lost-primary statuses verified against press coverage,
+      finance imported (~45k more rows). Gilchrist moved from the MI
+      governor race to SoS (his actual 2026 run). Race tabs render on
+      race pages; unpolled races rank by money and hide polling chrome.
 - [ ] Race overview page at `/:state` (currently redirects to the first
-      race) and race tabs once a state has more than one tracked race.
+      race).
 - [x] Finance imported (Jul 17, 2026): 384k contributions, 16k
       expenditures loaded from FL DOE per-candidate queries, GA
       Peachfile bulk CSVs, and MI MiTN bulk ZIPs, scoped to the

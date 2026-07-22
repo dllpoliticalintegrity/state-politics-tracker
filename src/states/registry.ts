@@ -91,6 +91,24 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         raceSlug: "florida-governor-2026",
         pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/florida",
       },
+      {
+        office: "attorney-general",
+        title: "Attorney General",
+        generalDate: "2026-11-03",
+        raceSlug: "florida-attorney-general-2026",
+      },
+      {
+        office: "cfo",
+        title: "CFO",
+        generalDate: "2026-11-03",
+        raceSlug: "florida-cfo-2026",
+      },
+      {
+        office: "agriculture-commissioner",
+        title: "Agriculture Commissioner",
+        generalDate: "2026-11-03",
+        raceSlug: "florida-agriculture-commissioner-2026",
+      },
     ],
   },
   mi: {
@@ -106,6 +124,18 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         raceSlug: "michigan-governor-2026",
         pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/michigan",
       },
+      {
+        office: "attorney-general",
+        title: "Attorney General",
+        generalDate: "2026-11-03",
+        raceSlug: "michigan-attorney-general-2026",
+      },
+      {
+        office: "secretary-of-state",
+        title: "Secretary of State",
+        generalDate: "2026-11-03",
+        raceSlug: "michigan-secretary-of-state-2026",
+      },
     ],
   },
   ga: {
@@ -120,6 +150,24 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         generalDate: "2026-11-03",
         raceSlug: "georgia-governor-2026",
         pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/georgia",
+      },
+      {
+        office: "lt-governor",
+        title: "Lt. Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "georgia-lt-governor-2026",
+      },
+      {
+        office: "attorney-general",
+        title: "Attorney General",
+        generalDate: "2026-11-03",
+        raceSlug: "georgia-attorney-general-2026",
+      },
+      {
+        office: "secretary-of-state",
+        title: "Secretary of State",
+        generalDate: "2026-11-03",
+        raceSlug: "georgia-secretary-of-state-2026",
       },
     ],
   },
