@@ -30,3 +30,6 @@ dist-ssr
 # Python
 __pycache__/
 *.pyc
+
+# Generated review pages (rebuild with scripts/preview/*.py)
+*-preview.html
