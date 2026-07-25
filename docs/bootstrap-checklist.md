@@ -81,6 +81,13 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       `scripts/data-import/pilot/import_pilot_finance.py` re-runs it
       (idempotent upserts); `.github/workflows/finance-sync.yml` runs
       nightly once the SUPABASE_SERVICE_ROLE_KEY repo secret is added.
+- [x] Fields show only candidates with money on record (Jul 25, 2026):
+      `src/lib/field.ts` filters candidates with no filings out of the
+      race home and candidates pages and names them underneath instead
+      of ranking them at $0. Affects MI Gov Perry Johnson (polling ~42%
+      but no committee found) and FL Ag Commissioner Joey Mendoza
+      Atkins; GA's Raffensperger was already out of the polled field.
+      Closing the committee gaps below brings them back automatically.
 - [ ] Known finance gaps: FL affiliated political committees (e.g.
       "Friends of Byron Donalds" — FL's big money flows outside the
       $3k-capped candidate accounts) are not yet mapped into

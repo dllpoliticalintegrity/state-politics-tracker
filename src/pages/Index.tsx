@@ -1,18 +1,16 @@
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  useCandidates,
-  useCandidateTotals,
-} from "@/hooks/useCandidates";
-import { isGeneralMatchup, useRacePolling, useRacePolls } from "@/hooks/usePolling";
+import { useCandidates, useCandidateTotals } from "@/hooks/useCandidates";
+import { useRacePolling } from "@/hooks/usePolling";
+import { useRankedField } from "@/hooks/useRankedField";
 import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
-import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
+import CandidateCard from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
 import IncumbentCard from "@/components/IncumbentCard";
+import NoFilingsNote from "@/components/NoFilingsNote";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
-import { isCandidateActiveForRace } from "@/lib/candidateStatus";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,95 +19,21 @@ export default function Index() {
   const race = useRaceConfig();
   const hasPollingSource = !!race.pollingSourceUrl;
   const GENERAL_DATE = new Date(`${race.generalDate}T00:00:00`);
-  const { data: candidates, isLoading } = useCandidates();
+  const { data: candidates } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
   const { data: polling } = useRacePolling();
-  const { data: racePollsAll } = useRacePolls();
-  const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
-
-  // ---------- Per-candidate polling stats ----------
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
-  const ninetyDaysAgo = new Date(today.getTime() - 90 * DAY_MS).toISOString().slice(0, 10);
-
-  const statsBySlug = new Map<string, CandidateCardStats>();
-  if (polling && candidates) {
-    for (const c of candidates) {
-      const surname = c.name.trim().split(/\s+/).pop() ?? "";
-      // Collect all per-poll rows for this candidate from the 270toWin backfill.
-      const rawSeries = (racePolls ?? [])
-        .filter((r) => (r.candidate_name.trim().split(/\s+/).pop() ?? "") === surname)
-        .map((r) => {
-          const iso = (r.field_end ?? "").slice(0, 10);
-          const n = Number(r.pct);
-          if (!iso || iso > todayIso || !Number.isFinite(n)) return null;
-          return { iso, pct: n };
-        })
-        .filter((x): x is { iso: string; pct: number } => x !== null)
-        .sort((a, b) => a.iso.localeCompare(b.iso));
-
-      const pollSeries = rawSeries.map((r) => r.pct);
-      const avgPct =
-        polling.average && polling.average[surname] !== undefined
-          ? Number(polling.average[surname])
-          : null;
-      const validAvg = avgPct !== null && Number.isFinite(avgPct) && avgPct > 0 ? avgPct : null;
-
-      // 90-day delta: current avg minus mean of polls from ≥90 days ago
-      let pollDelta: number | null = null;
-      if (validAvg !== null && rawSeries.length >= 2) {
-        const earlier = rawSeries.filter((r) => r.iso <= ninetyDaysAgo);
-        if (earlier.length > 0) {
-          const earlyMean =
-            earlier.reduce((s, r) => s + r.pct, 0) / earlier.length;
-          pollDelta = Math.round((validAvg - earlyMean) * 10) / 10;
-        }
-      }
-
-      const totals = totalsMap?.get(c.id) ?? { raised: 0, spent: 0, cash: 0 };
-      statsBySlug.set(c.slug, {
-        pollPct: validAvg,
-        pollDelta,
-        pollSeries,
-        raised: totals.raised,
-      });
-    }
-  } else if (candidates) {
-    // Polling not loaded yet — render with finance only
-    for (const c of candidates) {
-      const totals = totalsMap?.get(c.id) ?? { raised: 0, spent: 0, cash: 0 };
-      statsBySlug.set(c.slug, {
-        pollPct: null,
-        pollDelta: null,
-        pollSeries: [],
-        raised: totals.raised,
-      });
-    }
-  }
-
-  // Rank candidates. Polled races: by poll % desc (candidates without an
-  // average are hidden — the grid is labelled "ranked by polling"). Unpolled
-  // races: active candidates ranked by total raised.
-  const ranked = (candidates ?? [])
-    .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
-    .filter((x) =>
-      hasPollingSource
-        ? x.stats?.pollPct !== null && x.stats?.pollPct !== undefined
-        : isCandidateActiveForRace(x.c.status) || x.c.status === "active",
-    )
-    .sort((a, b) =>
-      hasPollingSource
-        ? (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
-          (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)
-        : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0),
-    );
+  const { ranked, withoutFilings, isLoading } = useRankedField();
 
   // ---------- Summary strip ----------
+  const today = new Date();
   const daysToGeneral = Math.max(
     0,
     Math.ceil((GENERAL_DATE.getTime() - today.getTime()) / DAY_MS),
   );
-  // Scope to this race's candidates — totalsMap spans every tracked race.
+  // Scope to this race's candidates — totalsMap spans every tracked race. This
+  // counts the whole field, not just the ranked cards below: the strip reports
+  // what the race has raised, which doesn't change because a candidate is too
+  // far back to chart.
   const totalRaised = (candidates ?? []).reduce(
     (sum, c) => sum + (totalsMap?.get(c.id)?.raised ?? 0),
     0,
@@ -232,6 +156,7 @@ export default function Index() {
             <CandidateCard key={c.slug} candidate={c} stats={stats} rank={idx + 1} />
           ))}
         </div>
+        <NoFilingsNote candidates={withoutFilings} className="mt-6" />
       </section>
     </div>
   );
