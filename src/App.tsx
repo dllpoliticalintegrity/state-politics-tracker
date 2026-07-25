@@ -19,6 +19,7 @@ import CandidateDetail from "./pages/CandidateDetail";
 import IndependentExpenditures from "./pages/IndependentExpenditures";
 import TopDonors from "./pages/TopDonors";
 import Polling from "./pages/Polling";
+import Legislature from "./pages/Legislature";
 import About from "./pages/About";
 import NotFound from "./pages/NotFound";
 
@@ -39,6 +40,9 @@ function StateArea() {
     <StateProvider config={cfg}>
       <Routes>
         <Route index element={<Navigate to={cfg.races[0].office} replace />} />
+        {/* State-scoped (not race-scoped): the legislature is the same whichever
+            statewide race you arrived from. */}
+        <Route path="legislature" element={<Legislature />} />
         <Route path="about" element={<About />} />
         <Route path=":office/*" element={<RaceArea cfg={cfg} />} />
       </Routes>

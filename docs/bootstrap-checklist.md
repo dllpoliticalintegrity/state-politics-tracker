@@ -57,6 +57,21 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       finance imported (~45k more rows). Gilchrist moved from the MI
       governor race to SoS (his actual 2026 run). Race tabs render on
       race pages; unpolled races rank by money and hide polling chrome.
+- [x] Officeholders from Open States (Jul 25, 2026): `cf_officials` +
+      `cf_legislature_party_summary` applied to the shared project;
+      551 rows loaded for FL/GA/MI (12 statewide executives, 539
+      legislators). Race pages show an incumbent card;
+      `/:state/legislature` rosters both chambers.
+      `scripts/data-import/openstates/import_openstates_people.py`
+      re-runs it (idempotent upserts on `(os_person_id, role_type)`,
+      then prunes rows the run didn't touch);
+      `.github/workflows/openstates-sync.yml` runs weekly once the
+      SUPABASE_SERVICE_ROLE_KEY repo secret is added.
+- [ ] Open States API v3 path (`--source api`) is implemented but
+      unexercised — no `OPENSTATES_API_KEY` yet. The default `bulk`
+      path is what loaded the current data. Run
+      `--states mi --source api --dry-run` once a key exists before
+      pointing the workflow at it.
 - [ ] Race overview page at `/:state` (currently redirects to the first
       race).
 - [x] Finance imported (Jul 17, 2026): 384k contributions, 16k

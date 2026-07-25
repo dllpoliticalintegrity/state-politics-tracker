@@ -9,6 +9,7 @@ import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
+import IncumbentCard from "@/components/IncumbentCard";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { isCandidateActiveForRace } from "@/lib/candidateStatus";
@@ -161,6 +162,12 @@ export default function Index() {
             sub="Across all committees"
           />
         </div>
+      </section>
+
+      {/* Who holds the office today (Open States) — renders nothing when the
+          office isn't covered or the roster hasn't synced. */}
+      <section className="container pb-10 empty:hidden">
+        <IncumbentCard />
       </section>
 
       {/* Polling chart (polled races only) */}

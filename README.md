@@ -33,6 +33,21 @@ for the target UX (open in a browser; mock data).
 - Supabase (Postgres; project created in Phase 2)
 - Cloudflare Pages functions (`functions/`) for SEO middleware + sitemap
 
+## Data sources
+
+| Layer | Source |
+| --- | --- |
+| Campaign finance | Each state's disclosure agency, via `scripts/data-import/` (SLCF-shaped `cf_*` tables) |
+| Polling | 270toWin, via the `import-towin-polling-multi` edge function |
+| Officeholders | [Open States](https://openstates.org) — [openstates/people](https://github.com/openstates/people) (CC0), via `scripts/data-import/openstates/` |
+
+The Open States layer answers "who holds this office now" beside "who's
+running for it": every race page shows the sitting officeholder, and
+`/:state/legislature` rosters both chambers with party splits. It syncs
+weekly from the public-domain bulk data (no API key), or from the
+[API v3](https://docs.openstates.org/api-v3/) with
+`--source api` when an `OPENSTATES_API_KEY` is set.
+
 ## Deploying
 
 Two Cloudflare targets are supported; both share `shared/seo.ts`:

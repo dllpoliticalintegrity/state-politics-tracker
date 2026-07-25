@@ -1,0 +1,49 @@
+name: Open States officeholder sync
+
+on:
+  schedule:
+    # Weekly, Sundays at 06:40 UTC. Officeholder data changes on the scale of
+    # elections and appointments, not days — nightly would be wasted traffic on
+    # a volunteer-run dataset.
+    - cron: "40 6 * * 0"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "bulk (git repo + published CSVs) or api (Open States API v3)"
+        type: choice
+        default: bulk
+        options: [bulk, api]
+
+concurrency:
+  group: openstates-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install --quiet pyyaml
+
+      # Requires the SUPABASE_SERVICE_ROLE_KEY repository secret (Settings →
+      # Secrets and variables → Actions) — the same secret the finance sync
+      # uses. Upserts key on (os_person_id, role_type), so reruns are safe;
+      # rows the run didn't touch are pruned, so people who leave office drop
+      # out of cf_officials.
+      - name: Sync FL/GA/MI officeholders from openstates/people
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Only needed for --source api; the default bulk path uses no key.
+          OPENSTATES_API_KEY: ${{ secrets.OPENSTATES_API_KEY }}
+          SOURCE: ${{ inputs.source || 'bulk' }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping officeholder sync."
+            exit 0
+          fi
+          python3 scripts/data-import/openstates/import_openstates_people.py \
+            --states fl ga mi --source "$SOURCE"

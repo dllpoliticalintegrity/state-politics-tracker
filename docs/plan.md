@@ -178,6 +178,40 @@ New `scripts/data-import/slcf/import_slcf_finance.py`:
 A per-state GitHub Actions workflow matrix (modeled on
 `tx-finance-sync.yml`) runs nightly for `live` states only.
 
+### Officeholders (Open States)
+
+Campaign finance says who's *running*; it says nothing about who is
+already in office. [Open States](https://openstates.org) fills that in.
+Its [openstates/people](https://github.com/openstates/people) dataset is
+volunteer-curated, public domain (CC0), and covers both statewide
+executives and every sitting legislator.
+
+- **Schema**: `cf_officials`, one row per current person-role, keyed by
+  Open States' `ocd-person/…` id plus role type. Roles that match a
+  registry race (`governor`, `lt_governor`, `attorney general`,
+  `secretary of state`) carry the race's office slug, so a race page
+  looks up its incumbent with one indexed query. Legislators carry a
+  chamber instead. Nothing foreign-keys to `cf_candidates` — Open States
+  is synced wholesale and must never be able to break curated rows;
+  incumbent → candidate links are made by name at read time.
+- **Importer**: `scripts/data-import/openstates/import_openstates_people.py`,
+  two interchangeable sources. `--source bulk` (default, no key) shallow
+  sparse-clones the repo for `data/{state}/executive/*.yml` and reads the
+  published `data.openstates.org/people/current/{state}.csv` rosters;
+  `--source api` uses [API v3](https://docs.openstates.org/api-v3/) with
+  an `OPENSTATES_API_KEY`, which returns both groups in one call but no
+  term dates. Weekly via `.github/workflows/openstates-sync.yml` — this
+  data moves at the speed of elections, not filings.
+- **Surfaces**: an incumbent card on each race dashboard (term end, party,
+  official contact, and a link through to their candidate page when
+  they're running again) and `/:state/legislature` — chamber rosters with
+  party-split bars and search.
+- **Not used**: Open States has no CFO or Agriculture Commissioner record,
+  so those Florida races render without an incumbent card by design. Bills,
+  votes, committees, and events are all available through the same API and
+  are the obvious next thing to pull in — e.g. what the legislature
+  actually passed, beside who paid for the campaigns.
+
 ### Polling
 
 Port `import-towin-polling` and parameterize the 270toWin page URL from

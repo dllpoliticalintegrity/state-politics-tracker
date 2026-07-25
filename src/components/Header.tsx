@@ -29,6 +29,7 @@ const navItems = [
   { to: "candidates", label: "Candidates", race: true },
   { to: "polling", label: "Polling", race: true },
   { to: "money", label: "Money", race: true },
+  { to: "legislature", label: "Legislature", race: false },
   { to: "about", label: "About", race: false },
 ];
 

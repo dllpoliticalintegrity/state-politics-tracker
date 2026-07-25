@@ -69,6 +69,37 @@ export default function About() {
             averages cover general-election matchups from roughly the last 60 days;
             primary-only polls are shown but kept out of the head-to-head average.
           </p>
+          <p className="text-sm text-muted-foreground">
+            <strong className="text-foreground">Officeholders</strong> — who currently
+            holds each statewide office, and every sitting member of the{" "}
+            <a
+              href={`/${stateCfg.code}/legislature`}
+              className="text-primary hover:underline"
+            >
+              {stateCfg.name} legislature
+            </a>{" "}
+            — come from{" "}
+            <a
+              href="https://openstates.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Open States
+            </a>
+            , whose{" "}
+            <a
+              href="https://github.com/openstates/people"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              openstates/people
+            </a>{" "}
+            dataset is curated by volunteers and released into the public domain
+            (CC0). We sync it weekly and never edit it — incumbency and contact
+            details come from Open States, campaign filings from the state.
+          </p>
         </Card>
 
         <Card className="p-5 space-y-3">
