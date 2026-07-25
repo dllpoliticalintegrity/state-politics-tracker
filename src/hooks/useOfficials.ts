@@ -56,11 +56,26 @@ export function useIncumbent() {
   });
 }
 
+/** A member's campaign finance for the cycle, from cf_official_finance. */
+export type OfficialFinance = {
+  raised: number;
+  spent: number;
+  contribution_count: number;
+  committees: { filer_id: string; name: string; match_method: string }[];
+  /** Weakest match backing the total — anything but district_id is worth a flag. */
+  weakest_match: string | null;
+  as_of: string | null;
+};
+
 export type ChamberRoster = {
   chamber: Chamber;
-  members: Official[];
+  members: (Official & { finance?: OfficialFinance })[];
   /** Seat counts by party, largest caucus first. */
   parties: { party: string; seats: number }[];
+  /** Seats whose money we have — the honest denominator for the chamber total. */
+  seatsWithFinance: number;
+  totalRaised: number;
+  asOf: string | null;
 };
 
 /**
@@ -73,32 +88,58 @@ export function useLegislature() {
   return useQuery({
     queryKey: ["cf_officials", "legislature", stateCfg.code],
     queryFn: async (): Promise<ChamberRoster[]> => {
-      const { data, error } = await (supabase as any)
-        .from("cf_officials")
-        .select(OFFICIAL_COLUMNS)
-        .eq("state", stateCfg.code)
-        .not("chamber", "is", null)
-        .order("name");
-      if (error) throw error;
+      const [rosterRes, financeRes] = await Promise.all([
+        (supabase as any)
+          .from("cf_officials")
+          .select(OFFICIAL_COLUMNS)
+          .eq("state", stateCfg.code)
+          .not("chamber", "is", null)
+          .order("name"),
+        (supabase as any)
+          .from("cf_official_finance")
+          .select(
+            "official_id,raised,spent,contribution_count,committees,weakest_match,as_of",
+          )
+          .eq("state", stateCfg.code),
+      ]);
+      if (rosterRes.error) throw rosterRes.error;
+      if (financeRes.error) throw financeRes.error;
 
-      const rows = (data ?? []) as Official[];
+      const finance = new Map<string, OfficialFinance>();
+      for (const f of (financeRes.data ?? []) as any[]) {
+        finance.set(f.official_id, {
+          raised: Number(f.raised ?? 0),
+          spent: Number(f.spent ?? 0),
+          contribution_count: Number(f.contribution_count ?? 0),
+          committees: f.committees ?? [],
+          weakest_match: f.weakest_match,
+          as_of: f.as_of,
+        });
+      }
+
+      const rows = (rosterRes.data ?? []) as Official[];
       const chambers: Chamber[] = ["upper", "lower"];
       return chambers
         .map((chamber) => {
           const members = rows
             .filter((r) => r.chamber === chamber)
+            .map((r) => ({ ...r, finance: finance.get(r.id) }))
             .sort((a, b) => districtRank(a.district) - districtRank(b.district));
           const seats = new Map<string, number>();
           for (const m of members) {
             const key = (m.party ?? "").trim() || "Unknown";
             seats.set(key, (seats.get(key) ?? 0) + 1);
           }
+          const funded = members.filter((m) => m.finance);
           return {
             chamber,
             members,
             parties: [...seats.entries()]
               .map(([party, count]) => ({ party, seats: count }))
               .sort((a, b) => b.seats - a.seats),
+            seatsWithFinance: funded.length,
+            totalRaised: funded.reduce((s, m) => s + (m.finance?.raised ?? 0), 0),
+            asOf: funded[0]?.finance?.as_of ?? null,
           };
         })
         .filter((c) => c.members.length > 0);

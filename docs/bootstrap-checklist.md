@@ -72,6 +72,23 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       path is what loaded the current data. Run
       `--states mi --source api --dry-run` once a key exists before
       pointing the workflow at it.
+- [x] Michigan legislature money, end to end (Jul 25, 2026) — the
+      reference implementation of the identity-first pipeline:
+      `cf_filers` / `cf_filer_links` / `cf_official_finance`, loaded by
+      `scripts/data-import/michigan/import_mi_legislature.py`. All
+      **148/148** sitting members matched to a committee (147 on
+      office+district+surname, 1 — Polehanki, redistricted since her
+      committee filed — on a unique office+surname); **$10.76M raised /
+      $9.38M spent** for the 2025–26 cycle, rendered per member on
+      `/mi/legislature`. `--check` gates the weekly workflow on match
+      rate, implausible totals, and cycle scoping.
+- [ ] MI raw legislator transactions: only per-member rollups are stored
+      today (the page needs totals; 48k rows/cycle would need the service
+      key to load). Add `official_id` to cf_contributions/cf_expenditures
+      when per-legislator donor lists are wanted.
+- [ ] Load `cf_filers` + `cf_filer_links` (1,735 committees, 149 links) —
+      the importer writes them on its first keyed run; the rollup's
+      `committees` jsonb carries the audit trail meanwhile.
 - [ ] Race overview page at `/:state` (currently redirects to the first
       race).
 - [x] Finance imported (Jul 17, 2026): 384k contributions, 16k

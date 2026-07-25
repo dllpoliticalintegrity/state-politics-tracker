@@ -1,0 +1,41 @@
+name: Michigan legislature finance sync
+
+on:
+  schedule:
+    # Weekly, Mondays 08:10 UTC. Michigan republishes the bulk exports on its
+    # own schedule; the whole cycle is re-read each run, so the totals are
+    # rebuilt rather than accumulated.
+    - cron: "10 8 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: mi-legislature-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The checks run first and on their own: they need no credentials, and a
+      # failure here means the exports changed shape or the match rate dropped.
+      # Better to fail with the old numbers still live than to publish new bad
+      # ones.
+      - name: Test the matcher's normalization rules
+        run: python3 scripts/data-import/michigan/test_matcher.py
+
+      - name: Verify match rate and cycle scoping
+        run: python3 scripts/data-import/michigan/import_mi_legislature.py --check
+
+      - name: Load rollups
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — checks ran, nothing loaded."
+            exit 0
+          fi
+          python3 scripts/data-import/michigan/import_mi_legislature.py

@@ -212,6 +212,44 @@ executives and every sitting legislator.
   are the obvious next thing to pull in — e.g. what the legislature
   actually passed, beside who paid for the campaigns.
 
+### Identity layer (cf_filers / cf_filer_links / cf_official_finance)
+
+Candidate → committee mapping was hand-curated: a `COMMITTEES` dict in
+the importer mirrored by `cf_candidates.filer_refs`. That holds for 55
+curated statewide candidates and breaks at a legislature. The identity
+layer replaces it:
+
+- **`cf_filers`** — every committee a state discloses, imported
+  wholesale. Michigan's bulk export doubles as its own registry: each
+  row carries the committee id, type, and — for candidate committees —
+  the candidate's name, party, office sought, and district sought.
+- **`cf_filer_links`** — officeholder/candidate ↔ filer, storing *how*
+  the match was made (`state_id` > `district_id` > `name_unique` >
+  `manual`). Nothing weaker than `name_unique` is ever written by an
+  importer; unmatched people are reported instead of guessed at.
+- **`cf_official_finance`** — per-officeholder cycle rollup. A
+  legislature is hundreds of members per state; aggregating raw
+  transactions live doesn't survive 25 states, and the roster page only
+  shows totals. Each row records the committees behind it, the weakest
+  match backing it, the cycle date window, and when it was computed.
+
+Two invariants, both learned from auditing a competing tracker that
+publishes a $1B Illinois figure including members who left in 2023:
+
+1. **The roster is the denominator.** Coverage is measured against the
+   Open States seat count (148 in Michigan), never against however many
+   filers a state's dump happens to contain.
+2. **Cycle is a date range, not a filename.** Michigan names its exports
+   by filing-statement year, so the 2025 and 2026 files carry 146,318
+   rows dated outside the cycle. Every row is filtered by transaction
+   date before it counts.
+
+Michigan is the reference implementation
+(`scripts/data-import/michigan/import_mi_legislature.py`): 148/148
+members matched, `--check` gating the sync on match rate, implausible
+totals, and cycle scoping. Each further state is a new importer writing
+the same three tables and passing the same checks.
+
 ### Polling
 
 Port `import-towin-polling` and parameterize the 270toWin page URL from
