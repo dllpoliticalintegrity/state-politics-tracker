@@ -52,7 +52,7 @@ export default function IndependentExpenditures() {
     <div className="min-h-[80vh]">
       <section className="container pt-12 pb-6 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {`Money in the 2026 ${stateCfg.name} ${race.title}'s race`}
+          {`Money in the ${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">
           Outside spending

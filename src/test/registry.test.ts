@@ -17,15 +17,15 @@ describe("state registry", () => {
     }
   });
 
-  it("marks the pilot states live and the rest of SLCF ready", () => {
-    for (const code of ["fl", "mi", "ga"]) {
+  it("marks the live states live and the rest of SLCF ready", () => {
+    for (const code of ["fl", "mi", "ga", "az", "ky", "me"]) {
       expect(getState(code)?.status).toBe("live");
     }
     for (const code of ["pa", "al", "mn"]) {
       expect(getState(code)?.status).toBe("ready");
     }
-    // 24 SLCF states minus the 3 live pilots.
-    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(21);
+    // 24 SLCF states + ME, minus the 6 live states (AZ/KY/ME were SLCF-listed).
+    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(18);
   });
 
   it("live states carry the config the dashboard needs", () => {
@@ -39,7 +39,10 @@ describe("state registry", () => {
         expect(r.office).toMatch(/^[a-z0-9-]+$/);
         expect(r.title, `${s.code}/${r.office} title`).toBeTruthy();
         expect(r.generalDate, `${s.code}/${r.office} generalDate`).toBeTruthy();
-        expect(r.raceSlug, `${s.code}/${r.office} raceSlug`).toMatch(/-2026$/);
+        // Slug year must match the race's general-election year (KY is 2027).
+        expect(r.raceSlug, `${s.code}/${r.office} raceSlug`).toMatch(
+          new RegExp(`-${r.generalDate.slice(0, 4)}$`),
+        );
       }
     }
   });

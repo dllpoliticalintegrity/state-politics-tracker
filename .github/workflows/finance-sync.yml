@@ -29,4 +29,4 @@ jobs:
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."
             exit 0
           fi
-          python3 scripts/data-import/pilot/import_pilot_finance.py --states fl ga mi
+          python3 scripts/data-import/pilot/import_pilot_finance.py --states fl ga mi az ky

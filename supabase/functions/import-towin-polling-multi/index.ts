@@ -25,6 +25,8 @@ const RACES = [
   { slug: "florida-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/florida",  state: "fl", office: "governor" },
   { slug: "michigan-governor-2026", url: "https://www.270towin.com/2026-governor-polls/michigan", state: "mi", office: "governor" },
   { slug: "georgia-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/georgia",  state: "ga", office: "governor" },
+  { slug: "arizona-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/arizona",  state: "az", office: "governor" },
+  { slug: "maine-governor-2026",    url: "https://www.270towin.com/2026-governor-polls/maine",    state: "me", office: "governor" },
 ];
 
 const GENERIC_CHOICE = new Set([

@@ -24,8 +24,16 @@ Auth: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (GitHub Actions secret).
 Committee mappings live in COMMITTEES below — extend them when new candidates
 or states are curated, and keep them in sync with cf_candidates.filer_refs.
 
+  AZ  SeeTheMoney AdvancedSearch JSON API, per exact committee name
+      (DataTables POST; search params in the query string).
+  KY  KREF flat CSV exports (contributions/expenditures per year), matched by
+      recipient candidate name — KREF publishes no filer ids. KY statewide
+      races run in odd years; the tracked race is the 2027 governor's race.
+  ME  Not importable from datacenter IPs (Cloudflare WAF on the Maine
+      disclosure system) — Maine runs with candidates + polling only.
+
 Usage:
-    python3 import_pilot_finance.py --states fl ga mi [--workdir /tmp/cf-import]
+    python3 import_pilot_finance.py --states fl ga mi az ky
 """
 
 import argparse
@@ -99,6 +107,26 @@ COMMITTEES = {
         "barb-byrum": "0606536",
         "anthony-forlini": "0611210",
         # garlin-gilchrist (SoS run) keeps committee 0521896 above
+    },
+    "az": {  # SeeTheMoney: slug -> (exact committee name, committee id)
+        "katie-hobbs": ("Elect Katie Hobbs", 201800057),
+        "karrin-taylor-robson": ("Karrin for Arizona", 100592),
+        "andy-biggs": ("Biggs for Arizona", 101830),
+        "david-schweikert": ("David Schweikert for Governor", 101980),
+        "kris-mayes": ("Kris Mayes for Arizona", 100626),
+        "warren-petersen": ("Friends of Warren Petersen", 201600171),
+        "rodney-glassman": ("Glassman for Attorney General", 101445),
+        "adrian-fontes": ("Fontes for AZ", 100622),
+        "gina-swoboda": ("Gina Swoboda for Arizona Secretary of State", 102117),
+        # alexander-kolodin: no candidate committee found as of Jul 2026
+    },
+    "ky": {  # KREF: slug -> (recipient last, recipient first) — name-keyed
+        "jacqueline-coleman": ("COLEMAN", "JACQUELINE"),
+        "rocky-adkins": ("ADKINS", "ROCKY"),
+        "rick-hardin": ("HARDIN", "RICK"),
+        "brett-st-amand": ("ST. AMAND", "BRETT"),
+        "charles-bruiser-martin": ("MARTIN", "CHARLES"),
+        "geary-cooney": ("COONEY", "GEARY"),
     },
     "fl": {  # queried by candidate last name against office=GOV
         "byron-donalds": "Donalds",
@@ -513,13 +541,193 @@ def import_michigan(sink, cand_ids):
 
 
 # --------------------------------------------------------------------------
+# Arizona (SeeTheMoney AdvancedSearch JSON API)
+# --------------------------------------------------------------------------
+
+AZ_BASE = "https://seethemoney.az.gov/Reporting/AdvancedSearch/"
+AZ_CYCLE = "44~1/1/2025 12:00:00 AM~12/31/2026 11:59:59 PM"
+AZ_COLS = ["CommitteeID", "CommitteeName", "TransactionDate", "Amount",
+           "TransactionName", "TransactionType", "Occupation", "Employer",
+           "City", "State", "ZipCode", "FirstName", "LastName", "FilerName", "Memo"]
+
+
+def az_net_date(sv):
+    m = re.search(r"/Date\((\-?\d+)\)/", sv or "")
+    if not m:
+        return None
+    import datetime
+    return datetime.datetime.utcfromtimestamp(int(m.group(1)) / 1000).strftime("%Y-%m-%d")
+
+
+def az_fetch(cat, filer_name, start, length=3000):
+    qp = {"CommiteeReportId": "", "CategoryType": cat, "JurisdictionId": "0",
+          "CycleId": AZ_CYCLE, "StartDate": "2025-01-01", "EndDate": "2026-12-31",
+          "FilerName": filer_name, "FilerId": "", "BallotName": "", "BallotMeasureId": "",
+          "FilerTypeId": "130", "OfficeTypeId": "", "OfficeId": "", "PartyId": "",
+          "ContributorName": "", "VendorName": "", "StateId": "", "City": "",
+          "Employer": "", "Occupation": "", "CandidateName": "", "CandidateFilerId": "",
+          "Position": "Support", "LowAmount": "", "HighAmount": ""}
+    body = {"draw": "1", "start": str(start), "length": str(length),
+            "search[value]": "", "search[regex]": "false",
+            "order[0][column]": "0", "order[0][dir]": "asc"}
+    for i, c in enumerate(AZ_COLS):
+        body[f"columns[{i}][data]"] = c
+        body[f"columns[{i}][name]"] = ""
+        body[f"columns[{i}][searchable]"] = "true"
+        body[f"columns[{i}][orderable]"] = "true"
+        body[f"columns[{i}][search][value]"] = ""
+        body[f"columns[{i}][search][regex]"] = "false"
+    url = AZ_BASE + "?" + parse.urlencode(qp)
+    d = json.loads(http(url, data=parse.urlencode(body).encode(), headers={
+        "User-Agent": BROWSER_UA, "Referer": AZ_BASE,
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}))
+    return d.get("recordsTotal") or 0, d.get("data") or []
+
+
+def import_arizona(sink, cand_ids):
+    http(AZ_BASE, headers={"User-Agent": BROWSER_UA})  # session cookies
+    for slug, (cname, cid_num) in COMMITTEES["az"].items():
+        cid = cand_ids[slug]
+        for cat in ("Income", "Expenditures"):
+            start = 0
+            while True:
+                total, rows = az_fetch(cat, cname, start)
+                for r in rows:
+                    if r.get("CommitteeID") != cid_num:
+                        continue
+                    amt = r.get("Amount")
+                    if amt is None:
+                        continue
+                    iso = az_net_date(r.get("TransactionDate"))
+                    ttype = (r.get("TransactionType") or "").strip()
+                    name = (r.get("TransactionName") or "").strip()
+                    first = (r.get("FirstName") or "").strip() or None
+                    last = (r.get("LastName") or "").strip() or None
+                    if not last and name:
+                        if "," in name:
+                            parts = [x.strip().title() or None for x in (name.split(",", 1) + [""])[:2]]
+                            last, first = parts[0], parts[1]
+                        else:
+                            last = name
+                    committee = f"az:{r.get('CommitteeID')}"
+                    t = sink.txn_id("az", slug, cat, iso, amt, name, r.get("Memo"))
+                    if cat == "Expenditures":
+                        sink.emit("cf_expenditures", {
+                            "candidate_id": cid, "committee_id": committee, "source_txn_id": t,
+                            "payee_last_name": name or last,
+                            "payee_city": (r.get("City") or "").strip() or None,
+                            "payee_state": (r.get("State") or "").strip() or None,
+                            "payee_zip": (r.get("ZipCode") or "").strip() or None,
+                            "amount": amt, "expenditure_date": iso, "category": ttype or None,
+                            "description": (r.get("Memo") or "").strip() or None})
+                        continue
+                    is_ind = any(k in ttype.lower() for k in ("individual", "personal", "family"))
+                    if "loan" in ttype.lower():
+                        sink.emit("cf_loans", {
+                            "candidate_id": cid, "committee_id": committee, "source_txn_id": t,
+                            "lender_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                            "lender_last_name": last, "lender_first_name": first,
+                            "amount": amt, "loan_date": iso})
+                        continue
+                    sink.emit("cf_contributions", {
+                        "candidate_id": cid, "committee_id": committee, "source_txn_id": t,
+                        "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                        "contributor_last_name": last, "contributor_first_name": first,
+                        "employer": (r.get("Employer") or "").strip() or None,
+                        "occupation": (r.get("Occupation") or "").strip() or None,
+                        "amount": amt, "contribution_date": iso,
+                        "city": (r.get("City") or "").strip() or None,
+                        "state": (r.get("State") or "").strip() or None,
+                        "zip": (r.get("ZipCode") or "").strip() or None})
+                start += 3000
+                if start >= total or not rows:
+                    break
+                time.sleep(0.3)
+
+
+# --------------------------------------------------------------------------
+# Kentucky (KREF flat CSV exports; 2027 governor cycle)
+# --------------------------------------------------------------------------
+
+KY_BASE = "https://secure.kentucky.gov/kref/publicsearch"
+KY_YEARS = [2025, 2026, 2027]
+
+
+def import_kentucky(sink, cand_ids):
+    name_to_slug = {v: k for k, v in COMMITTEES["ky"].items()}
+    for year in KY_YEARS:
+        try:
+            text = http(f"{KY_BASE}/ExportContributors?ElectionDate=01%2F01%2F0001%2000%3A00%3A00"
+                        f"&ContributionSearchType=All&MinimalDate={year}-01-01&MaximalDate={year}-12-31",
+                        headers={"User-Agent": BROWSER_UA}).decode("utf-8", "replace")
+        except Exception:
+            continue
+        for row in csv.DictReader(io.StringIO(text)):
+            if (row.get("Office Sought") or "").strip().upper() != "GOVERNOR":
+                continue
+            if "2027" not in (row.get("Election Date") or ""):
+                continue
+            first_tok = ((row.get("Recipient First Name") or "").strip().upper().split() or [""])[0]
+            key = ((row.get("Recipient Last Name") or "").strip().upper(), first_tok)
+            slug = name_to_slug.get(key)
+            if not slug:
+                continue
+            amt = money(row.get("Amount"))
+            if amt is None:
+                continue
+            org = (row.get("From Organization Name") or "").strip()
+            sink.emit("cf_contributions", {
+                "candidate_id": cand_ids[slug], "committee_id": f"ky:{key[0]},{key[1]}",
+                "source_txn_id": sink.txn_id("ky", year, slug, row.get("Contributor Last Name"),
+                                             row.get("Contributor First Name"), org,
+                                             row.get("Amount"), row.get("Address 1")),
+                "contributor_type": "ENTITY" if org else "INDIVIDUAL",
+                "contributor_last_name": org or (row.get("Contributor Last Name") or "").strip() or None,
+                "contributor_first_name": None if org else ((row.get("Contributor First Name") or "").strip() or None),
+                "amount": amt, "contribution_date": None,
+                "city": (row.get("City") or "").strip() or None,
+                "state": (row.get("State") or "").strip() or None,
+                "zip": (row.get("Zip") or "").strip() or None, "cycle": "2027"})
+    for year in KY_YEARS:
+        min_date = parse.quote(f"01/01/{year} 00:00:00")
+        max_date = parse.quote(f"12/31/{year} 00:00:00")
+        try:
+            text = http(f"{KY_BASE}/Export?ElectionDate=01%2F01%2F0001%2000%3A00%3A00"
+                        f"&MinimalDate={min_date}&MaximalDate={max_date}",
+                        headers={"User-Agent": BROWSER_UA}).decode("utf-8", "replace")
+        except Exception:
+            continue
+        for row in csv.DictReader(io.StringIO(text)):
+            fc_last = (row.get("From Candidate Last Name") or "").strip().upper()
+            fc_first = ((row.get("From Candidate First Name") or "").strip().upper().split() or [""])[0]
+            slug = name_to_slug.get((fc_last, fc_first))
+            if not slug:
+                continue
+            if (row.get("Office Sought") or "GOVERNOR").strip().upper() != "GOVERNOR":
+                continue
+            amt = money(row.get("Disbursement Amount"))
+            if amt is None:
+                continue
+            sink.emit("cf_expenditures", {
+                "candidate_id": cand_ids[slug], "committee_id": f"ky:{fc_last},{fc_first}",
+                "source_txn_id": sink.txn_id("ky", "exp", year, slug, row.get("Recipient Last Name"),
+                                             row.get("Organization Name"), row.get("Disbursement Amount"),
+                                             row.get("Disbursement Date")),
+                "payee_last_name": (row.get("Organization Name") or row.get("Recipient Last Name") or "").strip() or None,
+                "payee_first_name": (row.get("Recipient First Name") or "").strip() or None,
+                "amount": amt, "expenditure_date": mdy_to_iso(row.get("Disbursement Date")),
+                "description": (row.get("Purpose") or "").strip() or None, "cycle": "2027"})
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--states", nargs="+", default=["fl", "ga", "mi"],
-                    choices=["fl", "ga", "mi"])
+    ap.add_argument("--states", nargs="+", default=["fl", "ga", "mi", "az", "ky"],
+                    choices=["fl", "ga", "mi", "az", "ky"])
     args = ap.parse_args()
 
     if not SUPABASE_URL or not SERVICE_KEY:
@@ -527,7 +735,8 @@ def main():
 
     cand_ids = {c["slug"]: c["id"] for c in sb_get("cf_candidates?select=id,slug")}
     sink = Sink()
-    importers = {"fl": import_florida, "ga": import_georgia, "mi": import_michigan}
+    importers = {"fl": import_florida, "ga": import_georgia, "mi": import_michigan,
+                 "az": import_arizona, "ky": import_kentucky}
     for st in args.states:
         print(f"== importing {st} ==", flush=True)
         importers[st](sink, cand_ids)

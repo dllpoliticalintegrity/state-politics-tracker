@@ -173,6 +173,72 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
   },
 };
 
+const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
+  az: {
+    agency: {
+      name: "Arizona Secretary of State — See The Money",
+      url: "https://seethemoney.az.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "arizona-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/arizona",
+      },
+      {
+        office: "attorney-general",
+        title: "Attorney General",
+        generalDate: "2026-11-03",
+        raceSlug: "arizona-attorney-general-2026",
+      },
+      {
+        office: "secretary-of-state",
+        title: "Secretary of State",
+        generalDate: "2026-11-03",
+        raceSlug: "arizona-secretary-of-state-2026",
+      },
+    ],
+  },
+  // Kentucky elects statewide officers in odd years — its 2026 statewide race
+  // (US Senate) is federal and out of scope, so the dashboard tracks the 2027
+  // governor's race, where fundraising is already underway.
+  ky: {
+    agency: {
+      name: "Kentucky Registry of Election Finance",
+      url: "https://kref.ky.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2027-11-02",
+        raceSlug: "kentucky-governor-2027",
+      },
+    ],
+  },
+  // Maine's governor is its only elected statewide executive (SoS/AG/Treasurer
+  // are chosen by the legislature), so one race is full coverage. Finance is
+  // pending: the Maine disclosure system's WAF blocks datacenter IPs.
+  me: {
+    agency: {
+      name: "Maine Ethics Commission",
+      url: "https://www.maine.gov/ethics/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "maine-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/maine",
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2);
+
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,
   name,

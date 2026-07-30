@@ -122,7 +122,7 @@ export default function Index() {
       {/* Hero */}
       <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {`2026 ${stateCfg.name} ${race.title}'s race`}
+          {`${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
           {`Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}

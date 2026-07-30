@@ -72,6 +72,13 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       filer_refs; GA Raffensperger and MI Perry Johnson have no
       committee registrations found as of Jul 2026; outside-spending
       (IE) tables remain empty pending per-state IE source research.
+- [x] AZ / KY / ME live (Jul 2026 wave 2): AZ Governor + AG + SoS
+      (SeeTheMoney API import; Kolodin has no candidate committee), KY
+      Governor **2027** (odd-year state — 2026 statewide is federal-only;
+      KREF name-keyed import), ME Governor (Pingree vs Charles vs
+      Bennett; polling live, finance pending — Maine's disclosure system
+      WAF blocks datacenter IPs, needs a residential-egress run).
+      Polling importer covers AZ + ME governor pages.
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
       schema (hooks currently use `as any`, so this is cleanup).
 
