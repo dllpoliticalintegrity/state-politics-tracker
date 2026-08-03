@@ -237,7 +237,119 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
     ],
   },
 };
-Object.assign(LIVE_CONFIG, LIVE_CONFIG_2);
+// Wave 3 (Aug 2026): the bulk-open-data states — governor races first,
+// down-ballot to follow as candidates are curated. Polling URLs are set only
+// where 270toWin actually lists polls for the race.
+const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
+  pa: {
+    agency: {
+      name: "Pennsylvania Dept. of State — Campaign Finance",
+      url: "https://www.pa.gov/agencies/dos/programs/voting-and-elections/campaign-finance.html",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "pennsylvania-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/pennsylvania",
+      },
+    ],
+  },
+  ma: {
+    agency: {
+      name: "Massachusetts Office of Campaign & Political Finance",
+      url: "https://www.ocpf.us/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "massachusetts-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/massachusetts",
+      },
+    ],
+  },
+  mn: {
+    agency: {
+      name: "Minnesota Campaign Finance Board",
+      url: "https://cfb.mn.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "minnesota-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/minnesota",
+      },
+    ],
+  },
+  co: {
+    agency: {
+      name: "Colorado Secretary of State — TRACER",
+      url: "https://tracer.sos.colorado.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin lists only primary polls for CO so far — no general H2H
+        // to average yet; the race ranks by money until that changes.
+        raceSlug: "colorado-governor-2026",
+      },
+    ],
+  },
+  ia: {
+    agency: {
+      name: "Iowa Ethics & Campaign Disclosure Board",
+      url: "https://webapp.iecdb.iowa.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "iowa-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/iowa",
+      },
+    ],
+  },
+  md: {
+    agency: {
+      name: "Maryland State Board of Elections — MDCRIS",
+      url: "https://campaignfinance.maryland.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin has no Maryland governor polls page (verified Jul 2026) —
+        // the race ranks by money until public polling appears.
+        raceSlug: "maryland-governor-2026",
+      },
+    ],
+  },
+  hi: {
+    agency: {
+      name: "Hawaii Campaign Spending Commission",
+      url: "https://ags.hawaii.gov/campaign/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // No public polling exists for this race (270toWin has no HI page).
+        raceSlug: "hawaii-governor-2026",
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3);
 
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,

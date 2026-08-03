@@ -79,6 +79,21 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       Bennett; polling live, finance pending — Maine's disclosure system
       WAF blocks datacenter IPs, needs a residential-egress run).
       Polling importer covers AZ + ME governor pages.
+- [x] PA / MA / MN / CO / IA / MD / HI live (Aug 2026 wave 3, governor
+      races): ~537k finance rows loaded and verified against each
+      state's official totals; the nightly importer now covers all ten
+      importable states. Polling live for PA / MA / MN / IA (270toWin
+      has no CO/HI/MD general-election pages yet). Source notes: PA DOS
+      annual ZIPs (amended filings deduped by max CampaignFinanceID; names
+      are plain "First Last" — entity-keyword classification), CO TRACER
+      bulk CSVs (stable RecordIDs, year files overlap), MN CFB itemized
+      >$200 CSVs, MA OCPF textOutput TSVs per CPF ID, HI CKAN datastore
+      (Reg No + 2022-2026 period), IA Data Hub bulk ZIPs (Socrata API is
+      dead; Sand/Sherman committees cycle-filtered — they predate the
+      race; Lahn's $2.5M self-loans land in cf_loans), MD MDCRIS open
+      JSON API (CSV export per committee; refund rows negated). No
+      committees found: PA Krawchuk/Dastra, CO Lopez, MD Ellis/White,
+      HI Bourgoin/Fujiyama.
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
       schema (hooks currently use `as any`, so this is cleanup).
 

@@ -6,7 +6,7 @@
 //
 // POST body {} imports every race; { "slugs": ["florida-governor-2026"] }
 // restricts to a subset. Response reports per-race results.
-// build-tag: 270towin-multi-v1
+// build-tag: 270towin-multi-v4
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.46/deno-dom-wasm.ts";
@@ -27,6 +27,12 @@ const RACES = [
   { slug: "georgia-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/georgia",  state: "ga", office: "governor" },
   { slug: "arizona-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/arizona",  state: "az", office: "governor" },
   { slug: "maine-governor-2026",    url: "https://www.270towin.com/2026-governor-polls/maine",    state: "me", office: "governor" },
+  { slug: "pennsylvania-governor-2026",  url: "https://www.270towin.com/2026-governor-polls/pennsylvania",  state: "pa", office: "governor" },
+  { slug: "massachusetts-governor-2026", url: "https://www.270towin.com/2026-governor-polls/massachusetts", state: "ma", office: "governor" },
+  { slug: "minnesota-governor-2026",     url: "https://www.270towin.com/2026-governor-polls/minnesota",     state: "mn", office: "governor" },
+  { slug: "iowa-governor-2026",          url: "https://www.270towin.com/2026-governor-polls/iowa",          state: "ia", office: "governor" },
+  // CO/HI/MD: no 270toWin general-election polls yet (CO is primary-only,
+  // HI and MD have no page) — add entries here when they appear.
 ];
 
 const GENERIC_CHOICE = new Set([

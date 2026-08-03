@@ -18,14 +18,18 @@ describe("state registry", () => {
   });
 
   it("marks the live states live and the rest of SLCF ready", () => {
-    for (const code of ["fl", "mi", "ga", "az", "ky", "me"]) {
+    const live = [
+      "fl", "mi", "ga", "az", "ky", "me",
+      "pa", "ma", "mn", "co", "ia", "md", "hi",
+    ];
+    for (const code of live) {
       expect(getState(code)?.status).toBe("live");
     }
-    for (const code of ["pa", "al", "mn"]) {
+    for (const code of ["al", "ak", "il"]) {
       expect(getState(code)?.status).toBe("ready");
     }
-    // 24 SLCF states + ME, minus the 6 live states (AZ/KY/ME were SLCF-listed).
-    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(18);
+    // 24 SLCF states, minus the 13 live states (all SLCF-listed).
+    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(11);
   });
 
   it("live states carry the config the dashboard needs", () => {

@@ -31,9 +31,23 @@ or states are curated, and keep them in sync with cf_candidates.filer_refs.
       races run in odd years; the tracked race is the 2027 governor's race.
   ME  Not importable from datacenter IPs (Cloudflare WAF on the Maine
       disclosure system) — Maine runs with candidates + polling only.
+  PA  DOS annual full-export ZIPs (contrib/expense files keyed by FILERID);
+      amended filings are deduped by keeping the max CampaignFinanceID per
+      (filer, year, cycle).
+  CO  TRACER bulk CSV zips, filtered by CO_ID; stable RecordIDs, amended
+      rows skipped, year files overlap so RecordIDs are deduped in-run.
+  MN  Campaign Finance Board bulk CSVs (itemized >$200 only), keyed by
+      committee reg num.
+  MA  OCPF api.ocpf.us textOutput TSV per CPF ID (schedules A and B).
+  HI  Campaign Spending Commission datasets on opendata.hawaii.gov (CKAN
+      datastore API, filtered by Reg No + Election Period).
+  IA  Iowa Data Hub bulk ZIP download (datasets 917/918) — the old Socrata
+      API is dead. Committees that predate the race are cycle-filtered.
+  MD  MDCRIS open JSON API (api-campaignfinance.maryland.gov); per-committee
+      CSV export with stable TransactionIDs; refund rows negated.
 
 Usage:
-    python3 import_pilot_finance.py --states fl ga mi az ky
+    python3 import_pilot_finance.py --states fl ga mi az ky pa co mn ma hi ia md
 """
 
 import argparse
@@ -127,6 +141,54 @@ COMMITTEES = {
         "brett-st-amand": ("ST. AMAND", "BRETT"),
         "charles-bruiser-martin": ("MARTIN", "CHARLES"),
         "geary-cooney": ("COONEY", "GEARY"),
+    },
+    "pa": {  # PA DOS full-export FILERID (committee records, FILERTYPE 2)
+        "josh-shapiro": "20160016",
+        "stacy-garrity": "20200025",
+        # ken-krawchuk / tony-dastra: no committee filings as of Jul 2026
+    },
+    "co": {  # TRACER CO_ID
+        "phil-weiser": "20255047944",
+        "victor-marx": "20255051136",
+        "michael-bennet": "20255048909",
+        "barbara-kirkmeyer": "20255050775",
+        "scott-bottoms": "20255047962",
+        "jason-mikesell": "20255048097",
+        # greg-lopez: no 2026 committee found as of Jul 2026
+    },
+    "mn": {  # CFB principal campaign committee reg num
+        "amy-klobuchar": "19369",
+        "mike-lindell": "19315",
+        "lisa-demuth": "19287",
+        "kendall-qualls": "19218",  # 2026 cmte; 18742 is his identically-named 2022 cmte
+        "brad-kohler": "19215",
+    },
+    "ma": {  # OCPF CPF ID
+        "maura-healey": "15710",
+        "mike-minogue": "19431",
+        "brian-shortsleeve": "19172",
+        "mike-kennealy": "19091",
+        "andrea-james": "19010",
+    },
+    "ia": {  # Iowa Data Hub committee_cd (dataset 917/918)
+        "rob-sand": "5185",          # pre-existing auditor cmte — cycle-filtered
+        "zach-lahn": "SWGA51409",
+        "randy-feenstra": "SWGA51419",
+        "adam-steen": "SWGA51203",
+        "brad-sherman": "2640",      # pre-existing state-rep cmte — cycle-filtered
+        "eddie-andrews": "SWGA51147",
+        "nicholas-gluba": "SWGA51623",
+    },
+    "md": {  # MDCRIS: slug -> (Filing Entity ID, exact committee name)
+        "wes-moore": ("1013630", "Moore, Wes For Maryland"),
+        "dan-cox": ("1013697", "Cox, Dan for Governor"),
+        "ed-hale": ("1015605", "Hale, (Edwin) for Gov"),
+        # andy-ellis / cathy-white: no MDCRIS committees found as of Jul 2026
+    },
+    "hi": {  # Campaign Spending Commission Reg No (CKAN datasets)
+        "josh-green": "CC10174",
+        "gary-cordery": "CC11747",
+        # bourgoin / fujiyama: no CSC filings for the 2022-2026 period
     },
     "fl": {  # queried by candidate last name against office=GOV
         "byron-donalds": "Donalds",
@@ -721,13 +783,507 @@ def import_kentucky(sink, cand_ids):
 
 
 # --------------------------------------------------------------------------
+# Pennsylvania — DOS annual full-export ZIPs (header row, cp1252, quoted CSV)
+# --------------------------------------------------------------------------
+
+PA_BASE = ("https://www.pa.gov/content/dam/copapwp-pagov/en/dos/resources/"
+           "voting-and-elections/campaign-finance/campaign-finance-data")
+
+
+def pa_date(s):
+    s = (s or "").strip()
+    return f"{s[:4]}-{s[4:6]}-{s[6:]}" if len(s) == 8 and s.isdigit() else None
+
+
+def import_pennsylvania(sink, cand_ids):
+    ids = {v: k for k, v in COMMITTEES["pa"].items()}
+
+    def rows_of(zf, name):
+        with zf.open(name) as f:
+            yield from csv.DictReader(io.TextIOWrapper(f, encoding="cp1252", errors="replace"))
+
+    def cfid_of(row):
+        return int(row[next(k for k in row if k.lower() == "campaignfinanceid")])
+
+    for year in YEARS:
+        try:
+            blob = http(f"{PA_BASE}/{year}.zip", headers={"User-Agent": UA})
+        except Exception:
+            continue
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+        for kind, fname, filer_col in (("con", f"contrib_{year}.txt", "FilerID"),
+                                       ("exp", f"expense_{year}.txt", "FILERID")):
+            # The export repeats rows for amended filings — keep only the
+            # latest filing (max CampaignFinanceID) per (filer, EYEAR, CYCLE).
+            best = {}
+            for row in rows_of(zf, fname):
+                filer = (row.get(filer_col) or "").strip()
+                if filer not in ids:
+                    continue
+                key = (filer, row["EYEAR"], row["CYCLE"])
+                best[key] = max(best.get(key, 0), cfid_of(row))
+            for row in rows_of(zf, fname):
+                filer = (row.get(filer_col) or "").strip()
+                if filer not in ids:
+                    continue
+                if cfid_of(row) != best[(filer, row["EYEAR"], row["CYCLE"])]:
+                    continue
+                slug = ids[filer]
+                if kind == "exp":
+                    amt = money(row.get("EXPAMT"))
+                    if not amt:
+                        continue
+                    d = pa_date(row.get("EXPDATE"))
+                    sink.emit("cf_expenditures", {
+                        "candidate_id": cand_ids[slug], "committee_id": f"pa:{filer}",
+                        "source_txn_id": sink.txn_id("pa", filer, "exp", year, row["CYCLE"],
+                                                     row.get("EXPNAME"), d, amt),
+                        "payee_last_name": (row.get("EXPNAME") or "").strip() or None,
+                        "amount": amt, "expenditure_date": d,
+                        "description": (row.get("EXPDESC") or "").strip() or None,
+                        "payee_city": (row.get("CITY") or "").strip() or None,
+                        "payee_state": (row.get("STATE") or "").strip() or None,
+                        "payee_zip": (row.get("ZIPCODE") or "").strip() or None,
+                        "cycle": "2026"})
+                    continue
+                # PA contributor names are "First Last" plain strings with no
+                # entity flag — classify by entity keywords, like FL.
+                name = (row.get("CONTRIBUTOR") or "").strip()
+                if ENTITY_PAT.search(name):
+                    last, first, ctype = name, "", "ENTITY"
+                else:
+                    ctype = "INDIVIDUAL"
+                    if "," in name:
+                        last, _, first = [x.strip() for x in name.partition(",")]
+                    else:
+                        parts = name.rsplit(None, 1)
+                        first, last = (parts[0], parts[1]) if len(parts) == 2 else ("", name)
+                for i in ("1", "2", "3"):
+                    amt = money(row.get(f"CONTAMT{i}"))
+                    if not amt:
+                        continue
+                    d = pa_date(row.get(f"CONTDATE{i}"))
+                    sink.emit("cf_contributions", {
+                        "candidate_id": cand_ids[slug], "committee_id": f"pa:{filer}",
+                        "source_txn_id": sink.txn_id("pa", filer, year, row["CYCLE"], name, d, amt),
+                        "contributor_type": ctype,
+                        "contributor_last_name": last or None,
+                        "contributor_first_name": first or None,
+                        "employer": (row.get("ENAME") or "").strip() or None,
+                        "occupation": (row.get("OCCUPATION") or "").strip() or None,
+                        "amount": amt, "contribution_date": d,
+                        "city": (row.get("CITY") or "").strip() or None,
+                        "state": (row.get("STATE") or "").strip() or None,
+                        "zip": (row.get("ZIPCODE") or "").strip() or None,
+                        "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
+# Colorado — TRACER bulk CSV zips; rows carry stable RecordIDs
+# --------------------------------------------------------------------------
+
+CO_BASE = "https://tracer.sos.colorado.gov/PublicSite/Docs/BulkDataDownloads"
+
+
+def import_colorado(sink, cand_ids):
+    ids = {v: k for k, v in COMMITTEES["co"].items()}
+    seen = set()
+    for year in YEARS:
+        for kind, fname in (("con", f"{year}_ContributionData.csv.zip"),
+                            ("exp", f"{year}_ExpenditureData.csv.zip"),
+                            ("loan", f"{year}_LoanData.csv.zip")):
+            try:
+                blob = http(f"{CO_BASE}/{fname}", headers={"User-Agent": UA})
+            except Exception:
+                continue
+            zf = zipfile.ZipFile(io.BytesIO(blob))
+            inner = zf.namelist()[0]
+            reader = csv.DictReader(io.TextIOWrapper(zf.open(inner), encoding="utf-8",
+                                                     errors="replace"))
+            for row in reader:
+                co_id = row.get("CO_ID")
+                if co_id not in ids or row.get("Amended") == "Y":
+                    continue
+                rec = row["RecordID"]
+                if rec in seen:  # year files overlap by filing period
+                    continue
+                seen.add(rec)
+                slug = ids[co_id]
+                base = {"candidate_id": cand_ids[slug], "committee_id": f"co:{co_id}",
+                        "source_txn_id": f"co:{rec}", "cycle": "2026"}
+                if kind == "con":
+                    amt = money(row.get("ContributionAmount"))
+                    if amt is None:
+                        continue
+                    is_ind = (row.get("ContributorType") or "").strip().lower() == "individual"
+                    sink.emit("cf_contributions", {**base,
+                        "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                        "contributor_last_name": (row.get("LastName") or "").strip() or None,
+                        "contributor_first_name": (row.get("FirstName") or "").strip() or None,
+                        "employer": (row.get("Employer") or "").strip() or None,
+                        "occupation": (row.get("Occupation") or "").strip() or None,
+                        "amount": amt,
+                        "contribution_date": (row.get("ContributionDate") or "")[:10] or None,
+                        "city": (row.get("City") or "").strip() or None,
+                        "state": (row.get("State") or "").strip() or None,
+                        "zip": (row.get("Zip") or "").strip() or None})
+                elif kind == "exp":
+                    amt = money(row.get("ExpenditureAmount"))
+                    if amt is None:
+                        continue
+                    payee = " ".join(x for x in ((row.get("FirstName") or "").strip(),
+                                                 (row.get("LastName") or "").strip()) if x)
+                    sink.emit("cf_expenditures", {**base,
+                        "payee_last_name": payee or None, "amount": amt,
+                        "expenditure_date": (row.get("ExpenditureDate") or "")[:10] or None,
+                        "category": (row.get("ExpenditureType") or "").strip() or None,
+                        "description": (row.get("Explanation") or "").strip() or None,
+                        "payee_city": (row.get("City") or "").strip() or None,
+                        "payee_state": (row.get("State") or "").strip() or None,
+                        "payee_zip": (row.get("Zip") or "").strip() or None})
+                else:
+                    amt = money(row.get("LoanAmount")) or money(row.get("PaymentAmount"))
+                    if not amt:
+                        continue
+                    src = (row.get("LoanSourceType") or "").lower()
+                    sink.emit("cf_loans", {**base,
+                        "lender_type": "INDIVIDUAL" if ("candidate" in src or "individual" in src) else "ENTITY",
+                        "lender_last_name": (row.get("Name") or "").strip() or None,
+                        "amount": amt,
+                        "loan_date": (row.get("LoanDate") or row.get("PaymentDate") or "")[:10] or None})
+
+
+# --------------------------------------------------------------------------
+# Minnesota — CFB bulk CSVs (itemized >$200, 2015-present snapshots)
+# --------------------------------------------------------------------------
+
+MN_URL = "https://cfb.mn.gov/reports-and-data/self-help/data-downloads/campaign-finance"
+MN_CONTRIB_DL = "-2026985457"   # itemized contributions to candidate committees
+MN_EXPEND_DL = "-1315784544"    # expenditures incl. contributions made
+
+
+def import_minnesota(sink, cand_ids):
+    ids = {v: k for k, v in COMMITTEES["mn"].items()}
+    text = http(f"{MN_URL}?download={MN_CONTRIB_DL}",
+                headers={"User-Agent": BROWSER_UA}).decode("utf-8-sig", "replace")
+    for row in csv.DictReader(io.StringIO(text)):
+        reg = (row.get("Recipient reg num") or "").strip()
+        if reg not in ids:
+            continue
+        amt = money(row.get("Amount"))
+        if not amt:
+            continue
+        name = (row.get("Contributor") or "").strip()
+        is_ind = (row.get("Contrib type") or "").strip().lower() in ("individual", "self", "candidate")
+        if is_ind and "," in name:
+            last, _, first = [x.strip() for x in name.partition(",")]
+        else:
+            last, first = name, ""
+        d = (row.get("Receipt date") or "").strip() or None
+        sink.emit("cf_contributions", {
+            "candidate_id": cand_ids[ids[reg]], "committee_id": f"mn:{reg}",
+            "source_txn_id": sink.txn_id("mn", reg, d, name, amt, row.get("In kind?")),
+            "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+            "contributor_last_name": last or None, "contributor_first_name": first or None,
+            "employer": (row.get("Contrib Employer name") or "").strip() or None,
+            "amount": amt, "contribution_date": d,
+            "zip": (row.get("Contrib zip") or "").strip() or None, "cycle": "2026"})
+    text = http(f"{MN_URL}?download={MN_EXPEND_DL}",
+                headers={"User-Agent": BROWSER_UA}).decode("utf-8-sig", "replace")
+    for row in csv.DictReader(io.StringIO(text)):
+        reg = (row.get("Committee reg num") or "").strip()
+        if reg not in ids:
+            continue
+        amt = money(row.get("Amount"))
+        if not amt:
+            continue
+        d = (row.get("Date") or "").strip() or None
+        vendor = (row.get("Vendor name") or "").strip()
+        sink.emit("cf_expenditures", {
+            "candidate_id": cand_ids[ids[reg]], "committee_id": f"mn:{reg}",
+            "source_txn_id": sink.txn_id("mn", reg, "exp", d, vendor, amt),
+            "payee_last_name": vendor or None, "amount": amt, "expenditure_date": d,
+            "category": (row.get("Type") or "").strip() or None,
+            "description": (row.get("Purpose") or "").strip() or None,
+            "payee_city": (row.get("Vendor city") or "").strip() or None,
+            "payee_state": (row.get("Vendor state") or "").strip() or None,
+            "payee_zip": (row.get("Vendor zip") or "").strip() or None, "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
+# Massachusetts — OCPF textOutput TSV per committee (A=receipts, B=expends)
+# --------------------------------------------------------------------------
+
+MA_BASE = "https://api.ocpf.us/search/textOutput"
+
+
+def import_massachusetts(sink, cand_ids):
+    for slug, cpf in COMMITTEES["ma"].items():
+        for cat in ("A", "B"):
+            url = (f"{MA_BASE}?searchTypeCategory={cat}&cpfId={cpf}"
+                   f"&startDate=01/01/2025&endDate=12/31/2026"
+                   f"&sortDirection=DESC&recordTypeId=-1")
+            try:
+                text = http(url, headers={"User-Agent": UA}).decode("utf-8-sig", "replace")
+            except Exception:
+                continue
+            for row in csv.DictReader(io.StringIO(text), delimiter="\t"):
+                amt = money(row.get("Amount"))
+                if not amt:
+                    continue
+                d = mdy_to_iso((row.get("Date") or "").strip('"'))
+                if cat == "B":
+                    payee = " ".join(x for x in ((row.get("First Name") or "").strip(),
+                                                 (row.get("Name") or "").strip()) if x)
+                    sink.emit("cf_expenditures", {
+                        "candidate_id": cand_ids[slug], "committee_id": f"ma:{cpf}",
+                        "source_txn_id": sink.txn_id("ma", cpf, "exp", d, payee, amt),
+                        "payee_last_name": payee or None, "amount": amt,
+                        "expenditure_date": d,
+                        "description": (row.get("Description") or "").strip() or None,
+                        "payee_city": (row.get("City") or "").strip() or None,
+                        "payee_state": (row.get("State") or "").strip() or None,
+                        "payee_zip": (row.get("Zip Code") or "").strip() or None,
+                        "cycle": "2026"})
+                    continue
+                last = (row.get("Name") or "").strip() or None
+                first = (row.get("First Name") or "").strip() or None
+                sink.emit("cf_contributions", {
+                    "candidate_id": cand_ids[slug], "committee_id": f"ma:{cpf}",
+                    "source_txn_id": sink.txn_id("ma", cpf, d, last, first, amt,
+                                                 row.get("Tender Type ID")),
+                    "contributor_type": "INDIVIDUAL" if (row.get("Record Type ID") or "").strip() == "201" else "ENTITY",
+                    "contributor_last_name": last, "contributor_first_name": first,
+                    "employer": (row.get("Employer") or "").strip() or None,
+                    "occupation": (row.get("Occupation") or "").strip() or None,
+                    "amount": amt, "contribution_date": d,
+                    "city": (row.get("City") or "").strip() or None,
+                    "state": (row.get("State") or "").strip() or None,
+                    "zip": (row.get("Zip Code") or "").strip() or None, "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
+# Hawaii — Campaign Spending Commission datasets on opendata.hawaii.gov (CKAN)
+# --------------------------------------------------------------------------
+
+HI_API = "https://opendata.hawaii.gov/api/3/action/datastore_search"
+HI_CON_RES = "443bd998-1ef3-47da-9170-c2c376b2e41c"
+HI_EXP_RES = "ca3ac02a-eb44-4b44-b3a7-5f60653cc1d3"
+HI_PERIOD = "2022-2026"
+
+
+def hi_fetch(resource, reg):
+    q = parse.urlencode({
+        "resource_id": resource,
+        "filters": json.dumps({"Reg No": reg, "Election Period": HI_PERIOD}),
+        "limit": 50000})
+    data = json.loads(http(f"{HI_API}?{q}", headers={"User-Agent": UA}))
+    return data["result"]["records"]
+
+
+def import_hawaii(sink, cand_ids):
+    for slug, reg in COMMITTEES["hi"].items():
+        for r in hi_fetch(HI_CON_RES, reg):
+            amt = money(str(r.get("Amount")))
+            if amt is None:
+                continue
+            name = (r.get("Contributor Name") or "").strip()
+            is_ind = (r.get("Contributor Type") or "").strip().lower() in (
+                "individual", "immediate family", "candidate")
+            if is_ind and "," in name:
+                last, _, first = [x.strip() for x in name.partition(",")]
+            else:
+                last, first = name, ""
+            sink.emit("cf_contributions", {
+                "candidate_id": cand_ids[slug], "committee_id": f"hi:{reg}",
+                "source_txn_id": f"hi:con:{r['_id']}",
+                "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                "contributor_last_name": last or None, "contributor_first_name": first or None,
+                "employer": (r.get("Employer") or "").strip() or None,
+                "occupation": (r.get("Occupation") or "").strip() or None,
+                "amount": amt, "contribution_date": (r.get("Date") or "")[:10] or None,
+                "city": (r.get("City") or "").strip() or None,
+                "state": ((r.get("State") or "").strip() or None),
+                "zip": (r.get("Zip Code") or "").strip() or None, "cycle": "2026"})
+        for r in hi_fetch(HI_EXP_RES, reg):
+            amt = money(str(r.get("Amount")))
+            if amt is None:
+                continue
+            sink.emit("cf_expenditures", {
+                "candidate_id": cand_ids[slug], "committee_id": f"hi:{reg}",
+                "source_txn_id": f"hi:exp:{r['_id']}",
+                "payee_last_name": (r.get("Vendor Name") or "").strip() or None,
+                "amount": amt, "expenditure_date": (r.get("Date") or "")[:10] or None,
+                "category": (r.get("Expenditure Category") or "").strip() or None,
+                "description": (r.get("Purpose of Expenditure") or "").strip() or None,
+                "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
+# Iowa — Data Hub bulk ZIPs (the old Socrata/SODA API is gone; data.iowa.gov
+# is now a Next.js app over BigQuery). /api/dataset-download works directly
+# and unauthenticated; dataset 917 = contributions (multi-part CSV zip),
+# 918 = expenditures. Rows carry no ids -> deterministic hash txn ids.
+# --------------------------------------------------------------------------
+
+IA_DL = "https://data.iowa.gov/api/dataset-download?path=datasets%2F{}%2Frows.csv"
+# Sand (5185) and Sherman (2640) reuse committees that predate the 2026
+# governor's race — only rows from the 2026 cycle belong in the tracker.
+IA_CYCLE_FILTERED = {"5185", "2640"}
+IA_CYCLE_START = "2025-01-01"
+
+
+def import_iowa(sink, cand_ids):
+    ids = {v: k for k, v in COMMITTEES["ia"].items()}
+
+    def rows_of(dataset):
+        zf = zipfile.ZipFile(io.BytesIO(http(IA_DL.format(dataset), headers={"User-Agent": UA})))
+        for inner in zf.namelist():
+            with zf.open(inner) as f:
+                yield from csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", errors="replace"))
+
+    for row in rows_of("917"):
+        code = (row.get("committee_cd") or "").strip()
+        if code not in ids:
+            continue
+        d = (row.get("contribution_received_date") or "").strip()[:10] or None
+        if code in IA_CYCLE_FILTERED and (not d or d < IA_CYCLE_START):
+            continue
+        amt = money(row.get("amount"))
+        if amt is None:
+            continue
+        slug = ids[code]
+        org = (row.get("organization_nm") or "").strip()
+        first = (row.get("first_nm") or "").strip()
+        last = (row.get("last_nm") or "").strip()
+        txn = sink.txn_id("ia", code, d, first, last, org, row.get("amount"),
+                          row.get("check_number"), row.get("address_line_1"))
+        if row.get("transaction_type") == "LOANREC":
+            sink.emit("cf_loans", {
+                "candidate_id": cand_ids[slug], "committee_id": f"ia:{code}",
+                "source_txn_id": txn,
+                "lender_type": "ENTITY" if org else "INDIVIDUAL",
+                "lender_last_name": org or last or None,
+                "lender_first_name": None if org else (first or None),
+                "amount": amt, "loan_date": d, "cycle": "2026"})
+            continue
+        sink.emit("cf_contributions", {
+            "candidate_id": cand_ids[slug], "committee_id": f"ia:{code}",
+            "source_txn_id": txn,
+            "contributor_type": "ENTITY" if org else "INDIVIDUAL",
+            "contributor_last_name": org or last or None,
+            "contributor_first_name": None if org else (first or None),
+            "amount": amt, "contribution_date": d,
+            "city": (row.get("city") or "").strip() or None,
+            "state": (row.get("state") or "").strip() or None,
+            "zip": (row.get("zip_code") or "").strip() or None,
+            "source_form_type": "INKIND" if row.get("transaction_type") == "INK" else None,
+            "cycle": "2026"})
+
+    for row in rows_of("918"):
+        code = (row.get("committee_cd") or "").strip()
+        if code not in ids:
+            continue
+        d = (row.get("calendar_date") or "").strip()[:10] or None
+        if code in IA_CYCLE_FILTERED and (not d or d < IA_CYCLE_START):
+            continue
+        amt = money(row.get("amount"))
+        if amt is None:
+            continue
+        slug = ids[code]
+        org = (row.get("organization_nm") or "").strip()
+        first = (row.get("first_nm") or "").strip()
+        last = (row.get("last_nm") or "").strip()
+        sink.emit("cf_expenditures", {
+            "candidate_id": cand_ids[slug], "committee_id": f"ia:{code}",
+            "source_txn_id": sink.txn_id("ia", "exp", code, d, org, last,
+                                         row.get("amount"), row.get("check_number")),
+            "payee_last_name": org or last or None,
+            "payee_first_name": None if org else (first or None),
+            "amount": amt, "expenditure_date": d,
+            "payee_city": (row.get("city") or "").strip() or None,
+            "payee_state": (row.get("state_cd") or "").strip() or None,
+            "payee_zip": (row.get("zip_code") or "").strip() or None,
+            "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
+# Maryland — MDCRIS open JSON API; DownloadPublicGridData returns the ENTIRE
+# filtered set as CSV (line 1 is a title, real header on line 2). Rows carry
+# stable TransactionIDs. Refund rows ("(Return)") export positive — negate.
+# --------------------------------------------------------------------------
+
+MD_API = "https://api-campaignfinance.maryland.gov/api/PublicGrid/DownloadPublicGridData"
+
+
+def md_csv(grid, filter_key, committee_name, extra=None):
+    body = {"publicGridName": grid, "fileName": "export", "type": "CSV",
+            filter_key: {"pageNumber": 1, "pageSize": 100, "sortBy": "TransactionDate",
+                         "sortType": "DESC", "filerName": committee_name,
+                         "fromDate": "2025-01-01", "toDate": "2026-12-31",
+                         **(extra or {})}}
+    text = http(MD_API, data=json.dumps(body).encode(),
+                headers={"User-Agent": UA, "Content-Type": "application/json"}
+                ).decode("utf-8-sig", "replace")
+    lines = io.StringIO(text)
+    next(lines)  # title line
+    return csv.DictReader(lines)
+
+
+def import_maryland(sink, cand_ids):
+    for slug, (entity_id, cmte_name) in COMMITTEES["md"].items():
+        for row in md_csv("ContributionPublicGrid", "contributionSearchFilter",
+                          cmte_name, {"transactionTypeCode": "TCON"}):
+            amt = money(row.get("Transaction Amount"))
+            if amt is None:
+                continue
+            if "(Return)" in (row.get("Contribution Type") or "") and amt > 0:
+                amt = -amt
+            is_ind = (row.get("Contributor Type") or "").strip() == "Individual"
+            name = (row.get("Contributor Name") or "").strip()
+            if is_ind and "," in name:
+                last, _, first = [x.strip() for x in name.partition(",")]
+            else:
+                last, first = name, ""
+            sink.emit("cf_contributions", {
+                "candidate_id": cand_ids[slug], "committee_id": f"md:{entity_id}",
+                "source_txn_id": f"md:con:{row['TransactionID']}",
+                "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                "contributor_last_name": last or None,
+                "contributor_first_name": first or None,
+                "amount": amt, "contribution_date": mdy_to_iso(row.get("Transaction Date")),
+                "city": (row.get("Contributor City") or "").strip() or None,
+                "state": (row.get("Contributor State") or "").strip() or None,
+                "zip": (row.get("Contributor Zip Code") or "").strip() or None,
+                "source_form_type": "INKIND" if "In-Kind" in (row.get("Contribution Type") or "") else None,
+                "cycle": "2026"})
+        for row in md_csv("ExpenditurePublicGrid", "expenditureSearchFilter", cmte_name):
+            amt = money(row.get("Transaction Amount"))
+            if amt is None:
+                continue
+            payee = (row.get("Payee Name") or "").strip() or (row.get("Vendor Name") or "").strip()
+            sink.emit("cf_expenditures", {
+                "candidate_id": cand_ids[slug], "committee_id": f"md:{entity_id}",
+                "source_txn_id": f"md:exp:{row['TransactionID']}",
+                "payee_last_name": payee or None,
+                "amount": amt, "expenditure_date": mdy_to_iso(row.get("Transaction Date")),
+                "category": (row.get("Category") or "").strip() or None,
+                "description": (row.get("Purpose") or "").strip() or None,
+                "payee_city": (row.get("Payee City") or "").strip() or None,
+                "payee_state": (row.get("Payee State") or "").strip() or None,
+                "payee_zip": (row.get("Payee Zip Code") or "").strip() or None,
+                "cycle": "2026"})
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--states", nargs="+", default=["fl", "ga", "mi", "az", "ky"],
-                    choices=["fl", "ga", "mi", "az", "ky"])
+    ap.add_argument("--states", nargs="+",
+                    default=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md"],
+                    choices=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md"])
     args = ap.parse_args()
 
     if not SUPABASE_URL or not SERVICE_KEY:
@@ -736,7 +1292,10 @@ def main():
     cand_ids = {c["slug"]: c["id"] for c in sb_get("cf_candidates?select=id,slug")}
     sink = Sink()
     importers = {"fl": import_florida, "ga": import_georgia, "mi": import_michigan,
-                 "az": import_arizona, "ky": import_kentucky}
+                 "az": import_arizona, "ky": import_kentucky,
+                 "pa": import_pennsylvania, "co": import_colorado,
+                 "mn": import_minnesota, "ma": import_massachusetts,
+                 "hi": import_hawaii, "ia": import_iowa, "md": import_maryland}
     for st in args.states:
         print(f"== importing {st} ==", flush=True)
         importers[st](sink, cand_ids)
