@@ -45,9 +45,14 @@ or states are curated, and keep them in sync with cf_candidates.filer_refs.
       API is dead. Committees that predate the race are cycle-filtered.
   MD  MDCRIS open JSON API (api-campaignfinance.maryland.gov); per-committee
       CSV export with stable TransactionIDs; refund rows negated.
+  WI  Sunshine data-download API (campaignfinance.wi.gov), date-windowed
+      statewide CSV filtered client-side to tracked committees (stable
+      transaction IDs; server truncates every download at 99,999 rows, so
+      capped windows are split). Nightly runs cover the last 45 days;
+      WI_SINCE=2025-01-01 for a full backfill.
 
 Usage:
-    python3 import_pilot_finance.py --states fl ga mi az ky pa co mn ma hi ia md
+    python3 import_pilot_finance.py --states fl ga mi az ky pa co mn ma hi ia md wi
 """
 
 import argparse
@@ -60,7 +65,7 @@ import re
 import sys
 import time
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib import request, parse
 
@@ -189,6 +194,19 @@ COMMITTEES = {
         "josh-green": "CC10174",
         "gary-cordery": "CC11747",
         # bourgoin / fujiyama: no CSC filings for the 2022-2026 period
+    },
+    "wi": {  # Sunshine entity id (payee on contributions, payer on disbursements)
+        "francesca-hong": "1145867",
+        "david-crowley": "16295",
+        "kelda-roys": "15992",
+        "joel-brennan": "11966062",
+        "mandela-barnes": "15552",
+        "sara-rodriguez": "16403",
+        "missy-hughes": "11957166",
+        "tom-tiffany": "16621",
+        "andy-manske": "11948172",
+        "josh-schoemann": "7885743",
+        "bill-berrien": "11948157",
     },
     "fl": {  # queried by candidate last name against office=GOV
         "byron-donalds": "Donalds",
@@ -879,6 +897,106 @@ def import_pennsylvania(sink, cand_ids):
 
 
 # --------------------------------------------------------------------------
+# Wisconsin — Sunshine data-download API (date-windowed statewide CSV)
+# --------------------------------------------------------------------------
+
+WI_API = "https://campaignfinance.wi.gov/api/data-download/transactions"
+WI_ROW_CAP = 99_999
+
+
+def import_wisconsin(sink, cand_ids):
+    """Sunshine (campaignfinance.wi.gov) data-download API: date-windowed CSV
+    pulls of the statewide transactions feed, filtered client-side to tracked
+    committees (the endpoint ignores committee filters). Every download is
+    silently truncated at 99,999 rows, so windows that come back at the cap
+    are split in half and re-fetched. The committee's entity id appears as
+    the Payee on Contribution rows and as the Contributor/payer on
+    Disbursement rows; Conduit Contribution rows are pass-through duplicates
+    and are skipped. Backfill from 2025-01-01 ran Aug 2026 (source_txn_id
+    'wi:<ID>' upserts keep re-runs idempotent); WI_SINCE overrides the
+    default window start for a fresh backfill."""
+    eids = {v: k for k, v in COMMITTEES["wi"].items()}
+    since = os.environ.get("WI_SINCE") or (date.today() - timedelta(days=45)).isoformat()
+    today = date.today().isoformat()
+
+    def fetch_window(d_from, d_to):
+        q = parse.quote(json.dumps({"dateFrom": f"{d_from}T00:00:00.000Z",
+                                    "dateTo": f"{d_to}T00:00:00.000Z"}))
+        blob = http(f"{WI_API}?queryParams={q}", headers={"User-Agent": UA})
+        text = blob.decode("utf-8-sig", errors="replace")
+        rows = list(csv.DictReader(io.StringIO(text)))
+        if len(rows) >= WI_ROW_CAP and d_from != d_to:
+            mid = date.fromordinal((date.fromisoformat(d_from).toordinal() +
+                                    date.fromisoformat(d_to).toordinal()) // 2).isoformat()
+            return fetch_window(d_from, mid) + fetch_window(
+                (date.fromordinal(date.fromisoformat(mid).toordinal() + 1)).isoformat(), d_to)
+        return rows
+
+    def split_name(name):
+        name = (name or "").strip()
+        if "," in name:
+            last, _, first = [x.strip() for x in name.partition(",")]
+            return first, last
+        parts = name.rsplit(None, 1)
+        return (parts[0], parts[1]) if len(parts) == 2 else ("", name)
+
+    seen = set()
+    for row in fetch_window(since, today):
+        ttype = row.get("Transaction Type")
+        if ttype == "Contribution":
+            eid = (row.get("Payee Entity ID") or "").strip()
+        elif ttype == "Disbursement":
+            eid = (row.get("Contributor Entity ID (-> Related Payer Entity ID if applicable)") or "").strip()
+        else:
+            continue  # Conduit Contribution etc. — pass-through duplicates
+        slug = eids.get(eid)
+        if not slug:
+            continue
+        tid = row.get("ID")
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        amt = money(row.get("Amount"))
+        if amt is None:
+            continue
+        cat = row.get("Transaction Category") or ""
+        d = mdy_to_iso(row.get("Date"))
+        base = {"candidate_id": cand_ids[slug], "committee_id": f"wi:{eid}",
+                "source_txn_id": f"wi:{tid}", "cycle": "2026"}
+        if ttype == "Contribution":
+            name = row.get("Contributor Name (-> Related Payer Name if applicable)") or ""
+            is_ind = row.get("Contributor Entity Type") == "Individual"
+            first, last = split_name(name) if is_ind else ("", name.strip())
+            if "Loan" in cat and cat != "Loan Forgiven":
+                sink.emit("cf_loans", {**base,
+                    "lender_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                    "lender_last_name": last or None,
+                    "lender_first_name": first or None,
+                    "amount": amt, "loan_date": d})
+            else:
+                sink.emit("cf_contributions", {**base,
+                    "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                    "contributor_last_name": last or None,
+                    "contributor_first_name": first or None,
+                    "occupation": (row.get("Contributor Occupation") or "").strip() or None,
+                    "amount": amt, "contribution_date": d,
+                    "city": (row.get("Contributor City") or "").strip() or None,
+                    "state": (row.get("Contributor State") or "").strip() or None,
+                    "zip": (row.get("Contributor Zip") or "").strip() or None,
+                    "source_form_type": "INKIND" if cat == "In-Kind" else None})
+        else:
+            payee = (row.get("Payee Name") or "").strip()
+            sink.emit("cf_expenditures", {**base,
+                "payee_last_name": payee or None,
+                "amount": amt, "expenditure_date": d,
+                "category": cat or None,
+                "description": (row.get("Transaction Purpose") or "").strip() or None,
+                "payee_city": (row.get("Payee City") or "").strip() or None,
+                "payee_state": (row.get("Payee State") or "").strip() or None,
+                "payee_zip": (row.get("Payee Zip") or "").strip() or None})
+
+
+# --------------------------------------------------------------------------
 # Colorado — TRACER bulk CSV zips; rows carry stable RecordIDs
 # --------------------------------------------------------------------------
 
@@ -1282,8 +1400,8 @@ def import_maryland(sink, cand_ids):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--states", nargs="+",
-                    default=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md"],
-                    choices=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md"])
+                    default=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md", "wi"],
+                    choices=["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi", "ia", "md", "wi"])
     args = ap.parse_args()
 
     if not SUPABASE_URL or not SERVICE_KEY:
@@ -1295,7 +1413,8 @@ def main():
                  "az": import_arizona, "ky": import_kentucky,
                  "pa": import_pennsylvania, "co": import_colorado,
                  "mn": import_minnesota, "ma": import_massachusetts,
-                 "hi": import_hawaii, "ia": import_iowa, "md": import_maryland}
+                 "hi": import_hawaii, "ia": import_iowa, "md": import_maryland,
+                 "wi": import_wisconsin}
     for st in args.states:
         print(f"== importing {st} ==", flush=True)
         importers[st](sink, cand_ids)

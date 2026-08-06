@@ -348,6 +348,51 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
       },
     ],
   },
+  oh: {
+    agency: {
+      name: "Ohio Secretary of State — Campaign Finance",
+      url: "https://campaignfinance.ohiosos.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "ohio-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/ohio",
+      },
+    ],
+  },
+  wi: {
+    agency: {
+      name: "Wisconsin Ethics Commission — CFIS",
+      url: "https://cfis.wi.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "wisconsin-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/wisconsin",
+      },
+    ],
+  },
+  nv: {
+    agency: {
+      name: "Nevada Secretary of State — Aurora",
+      url: "https://www.nvsos.gov/sos/online-services/campaign-finance-disclosure",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "nevada-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/nevada",
+      },
+    ],
+  },
 };
 Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3);
 

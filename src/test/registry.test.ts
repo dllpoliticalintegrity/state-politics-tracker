@@ -21,6 +21,7 @@ describe("state registry", () => {
     const live = [
       "fl", "mi", "ga", "az", "ky", "me",
       "pa", "ma", "mn", "co", "ia", "md", "hi",
+      "oh", "wi", "nv",
     ];
     for (const code of live) {
       expect(getState(code)?.status).toBe("live");

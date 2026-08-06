@@ -94,6 +94,22 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       JSON API (CSV export per committee; refund rows negated). No
       committees found: PA Krawchuk/Dastra, CO Lopez, MD Ellis/White,
       HI Bourgoin/Fujiyama.
+- [x] OH / WI / NV live (Aug 2026 wave 4, governor races): rosters
+      curated (OH 6, WI 11 — pre-Aug-11-primary field, NV 10:
+      Lombardo vs Aaron Ford plus ballot-qualified independents;
+      NV filer_refs empty pending Aurora access). WI finance live:
+      ~83k rows backfilled from Sunshine per-committee exports, and
+      the nightly importer now covers WI via the date-windowed
+      data-download API (last 45 days per run; WI_SINCE overrides
+      for backfills). Polling live for all three (270toWin pages).
+- [ ] Wave 4 finance gaps: OH — ohiosos.gov serves its 403/maintenance
+      page to this egress (TLS-fingerprint block ahead of the ORDS
+      File Transfer Page; SLCF's curl_cffi trick can't help because
+      the agent proxy re-originates TLS) — candidates carry oh:<id>
+      filer_refs ready for a residential-egress run, like Maine.
+      NV — Aurora and the SoS data-download page sit behind Incapsula,
+      which denies datacenter IPs outright; NV runs candidates +
+      polling only.
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
       schema (hooks currently use `as any`, so this is cleanup).
 
