@@ -2023,10 +2023,25 @@ IL_FILES = "https://www.elections.il.gov/CampaignDisclosureDataFiles"
 def il_lines(fname, max_tries=30):
     """Stream a huge ISBE dump line by line, resuming with Range requests
     when the transfer gets cut off (the server honors 206; verified). The
-    try budget resets whenever a retry makes progress."""
+    try budget resets whenever a retry makes progress.
+
+    IL_TAIL_BYTES (optional) starts the stream that many bytes from the end
+    instead of at byte 0 — rows are append-ordered by ID, so on a slow link
+    a generous tail still covers the whole 2025+ cycle window. The header
+    line is always fetched from the file head first."""
     offset = 0
     buf = b""
     tries = 0
+    tail = int(os.environ.get("IL_TAIL_BYTES") or 0)
+    if tail:
+        head = http(f"{IL_FILES}/{fname}", headers={
+            "User-Agent": BROWSER_UA, "Range": "bytes=0-4095"}, timeout=120)
+        yield head.split(b"\n")[0].decode("latin-1", "replace")
+        req = request.Request(f"{IL_FILES}/{fname}", method="HEAD",
+                              headers={"User-Agent": BROWSER_UA})
+        size = int(request.urlopen(req, timeout=120).headers["Content-Length"])
+        offset = max(0, size - tail)
+        buf = b"\0"  # sentinel: discard the partial line at the cut point
     while True:
         headers = {"User-Agent": BROWSER_UA}
         if offset:
