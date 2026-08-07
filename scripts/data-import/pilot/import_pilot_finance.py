@@ -2032,14 +2032,14 @@ def il_lines(fname, max_tries=30):
     offset = 0
     buf = b""
     tries = 0
+    req = request.Request(f"{IL_FILES}/{fname}", method="HEAD",
+                          headers={"User-Agent": BROWSER_UA})
+    size = int(request.urlopen(req, timeout=120).headers["Content-Length"])
     tail = int(os.environ.get("IL_TAIL_BYTES") or 0)
     if tail:
         head = http(f"{IL_FILES}/{fname}", headers={
             "User-Agent": BROWSER_UA, "Range": "bytes=0-4095"}, timeout=120)
         yield head.split(b"\n")[0].decode("latin-1", "replace")
-        req = request.Request(f"{IL_FILES}/{fname}", method="HEAD",
-                              headers={"User-Agent": BROWSER_UA})
-        size = int(request.urlopen(req, timeout=120).headers["Content-Length"])
         offset = max(0, size - tail)
         buf = b"\0"  # sentinel: discard the partial line at the cut point
     while True:
@@ -2055,6 +2055,11 @@ def il_lines(fname, max_tries=30):
             while True:
                 chunk = r.read(1 << 20)
                 if not chunk:
+                    # A dropped connection can surface as a clean-looking
+                    # EOF — only the byte count says whether we're done.
+                    if offset < size:
+                        raise RuntimeError(
+                            f"stream cut at byte {offset}/{size}")
                     if buf:
                         yield buf.decode("latin-1", "replace")
                     return
