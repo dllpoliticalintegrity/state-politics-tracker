@@ -22,15 +22,17 @@ describe("state registry", () => {
       "fl", "mi", "ga", "az", "ky", "me",
       "pa", "ma", "mn", "co", "ia", "md", "hi",
       "oh", "wi", "nv",
+      "al", "ak", "ar", "ct", "id", "il", "ks",
     ];
     for (const code of live) {
       expect(getState(code)?.status).toBe("live");
     }
-    for (const code of ["al", "ak", "il"]) {
+    for (const code of ["de", "in", "la", "ms"]) {
       expect(getState(code)?.status).toBe("ready");
     }
-    // 24 SLCF states, minus the 13 live states (all SLCF-listed).
-    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(11);
+    // 24 SLCF states, minus the 20 live SLCF states (OH/WI/NV are live
+    // without an SLCF pipeline).
+    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(4);
   });
 
   it("live states carry the config the dashboard needs", () => {

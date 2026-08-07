@@ -110,6 +110,41 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       NV — Aurora and the SoS data-download page sit behind Incapsula,
       which denies datacenter IPs outright; NV runs candidates +
       polling only.
+- [x] AL / AK / AR / CT / ID / IL / KS live (Aug 2026 wave 5, governor
+      races — the last seven SLCF-ready states): rosters curated
+      (AL 9: Tuberville vs Doug Jones 2020-Senate rematch, primaries
+      done; AK 19: the full top-four-primary field ahead of Aug 18,
+      nine majors with APOC filer refs; AR 4: Sanders re-elect;
+      CT 6: Lamont-Elliott Dem primary Aug 11 + Fazio; ID 7; IL 8:
+      Pritzker-Bailey 2022 rematch; KS 12: Masterson vs Holscher,
+      primary called Aug 4). All seven have working finance importers
+      in the nightly sync — none of the wave-4-style WAF blocks.
+      Source notes: AL FCPA bulk extracts (entellitrak like MI;
+      leaf-only TLS chain fixed by trusting the GlobalSign
+      intermediate at runtime; Cash extract already contains in-kind
+      rows), AK APOC per-candidate CSV exports (name-keyed, WebForms
+      session + Export-button dialog link — the bare exportAll URL
+      returns empty; Office=Governor filter; retries mandatory),
+      AR + ID the same Civix bulk-CSV API as GA (fetched gzipped —
+      AR's ~100 MB files get cut off uncompressed; Return
+      Contributions negated; non-itemized lumps labeled), CT SEEC
+      eCRIS static cycle CSVs (no txn ids — hashed; CEP public
+      grants labeled as such — Fazio $807k, Elliott $3.75M, with
+      ~$18M general grants coming), IL ISBE 1 GB dumps streamed with
+      Range-resume and cycle-filtered to 2025+ (committees date to
+      2017), KS SoS CFR viewer HTML scrape (no bulk data, no ids —
+      WebForms chain per candidate/report/schedule, hashes exclude
+      report id so amended re-filings dedupe; Schedule C parse
+      verified to the penny against the filed totals). Polling
+      importer v6 adds AL/AK/CT pages plus a wrong-page-cache guard
+      (270toWin's CDN once served Kansas content at /connecticut);
+      AR/ID have no 270toWin page, IL/KS are primary-only so far.
+- [ ] Wave 5 follow-ups: AK primary Aug 18 (mark lost_primary after,
+      top four advance to RCV general), CT Dem primary Aug 11; add
+      IL/KS polling entries when 270toWin posts general polls; KS
+      pre-general R&E report lands late Oct (next scrape target
+      202610); IL third-party candidates Romero/Pierce have no ISBE
+      committees (below $5k threshold).
 - [ ] Regenerate `src/integrations/supabase/types.ts` from the shared
       schema (hooks currently use `as any`, so this is cleanup).
 

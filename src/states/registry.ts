@@ -394,7 +394,119 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
     ],
   },
 };
-Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3);
+// Wave 5 (Aug 2026): the last seven SLCF-ready states, all with 2026
+// governor races. Polling URLs only where 270toWin lists general-election
+// polls (AR/ID have no page; IL/KS list primary polls only so far).
+const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
+  al: {
+    agency: {
+      name: "Alabama Secretary of State — FCPA",
+      url: "https://fcpa.alabamavotes.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "alabama-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alabama",
+      },
+    ],
+  },
+  ak: {
+    agency: {
+      name: "Alaska Public Offices Commission",
+      url: "https://aws.state.ak.us/ApocReports/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "alaska-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alaska",
+      },
+    ],
+  },
+  ar: {
+    agency: {
+      name: "Arkansas Secretary of State — Financial Disclosure",
+      url: "https://ethics-disclosures.sos.arkansas.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin has no Arkansas governor polls page (verified Aug 2026).
+        raceSlug: "arkansas-governor-2026",
+      },
+    ],
+  },
+  ct: {
+    agency: {
+      name: "Connecticut State Elections Enforcement Commission — eCRIS",
+      url: "https://seec.ct.gov/Portal/eCRIS/eCRISlanding",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "connecticut-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/connecticut",
+      },
+    ],
+  },
+  id: {
+    agency: {
+      name: "Idaho Secretary of State — Sunshine",
+      url: "https://sunshine.voteidaho.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin has no Idaho governor polls page (verified Aug 2026).
+        raceSlug: "idaho-governor-2026",
+      },
+    ],
+  },
+  il: {
+    agency: {
+      name: "Illinois State Board of Elections",
+      url: "https://elections.il.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin lists only a GOP-primary poll for IL so far — no general
+        // H2H to average yet; the race ranks by money until that changes.
+        raceSlug: "illinois-governor-2026",
+      },
+    ],
+  },
+  ks: {
+    agency: {
+      name: "Kansas Public Disclosure Commission",
+      url: "https://kpdc.kansas.gov/",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        // 270toWin lists only a Dem-primary poll for KS so far (primary was
+        // Aug 4, 2026) — add the polling URL when general polls appear.
+        raceSlug: "kansas-governor-2026",
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4);
 
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,

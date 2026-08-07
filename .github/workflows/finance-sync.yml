@@ -5,6 +5,11 @@ on:
     # Nightly at 07:20 UTC — after state systems have posted the day's filings
     - cron: "20 7 * * *"
   workflow_dispatch:
+    inputs:
+      states:
+        description: "Space-separated state codes (blank = all)"
+        required: false
+        default: ""
 
 concurrency:
   group: finance-sync
@@ -13,7 +18,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -24,9 +29,11 @@ jobs:
         env:
           SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STATES: ${{ inputs.states }}
         run: |
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."
             exit 0
           fi
-          python3 scripts/data-import/pilot/import_pilot_finance.py --states fl ga mi az ky pa co mn ma hi ia md wi
+          # shellcheck disable=SC2086 — states is intentionally word-split
+          python3 scripts/data-import/pilot/import_pilot_finance.py ${STATES:+--states $STATES}

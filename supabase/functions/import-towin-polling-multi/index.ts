@@ -6,7 +6,7 @@
 //
 // POST body {} imports every race; { "slugs": ["florida-governor-2026"] }
 // restricts to a subset. Response reports per-race results.
-// build-tag: 270towin-multi-v5
+// build-tag: 270towin-multi-v6
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.46/deno-dom-wasm.ts";
@@ -34,8 +34,12 @@ const RACES = [
   { slug: "ohio-governor-2026",          url: "https://www.270towin.com/2026-governor-polls/ohio",          state: "oh", office: "governor" },
   { slug: "wisconsin-governor-2026",     url: "https://www.270towin.com/2026-governor-polls/wisconsin",     state: "wi", office: "governor" },
   { slug: "nevada-governor-2026",        url: "https://www.270towin.com/2026-governor-polls/nevada",        state: "nv", office: "governor" },
-  // CO/HI/MD: no 270toWin general-election polls yet (CO is primary-only,
-  // HI and MD have no page) — add entries here when they appear.
+  { slug: "alabama-governor-2026",       url: "https://www.270towin.com/2026-governor-polls/alabama",       state: "al", office: "governor" },
+  { slug: "alaska-governor-2026",        url: "https://www.270towin.com/2026-governor-polls/alaska",        state: "ak", office: "governor" },
+  { slug: "connecticut-governor-2026",   url: "https://www.270towin.com/2026-governor-polls/connecticut",   state: "ct", office: "governor" },
+  // CO/HI/MD/AR/ID/IL/KS: no 270toWin general-election polls yet (CO and IL
+  // and KS are primary-only, HI/MD/AR/ID have no page) — add entries here
+  // when they appear.
 ];
 
 const GENERIC_CHOICE = new Set([
@@ -193,12 +197,23 @@ async function importRace(supabase: any, race: typeof RACES[number]) {
   if (raceErr || !raceRow) throw new Error(`race not found: ${race.slug} ${raceErr?.message ?? ""}`);
   const race_id = raceRow.race_id as string;
 
-  const html = await fetch(race.url, {
-    headers: { "User-Agent": UA, "Accept": "text/html" },
-  }).then((r) => {
-    if (!r.ok) throw new Error(`fetch ${race.url} -> ${r.status}`);
-    return r.text();
-  });
+  // 270toWin's CDN has been observed serving a different state's page at a
+  // state URL (e.g. Kansas content at /connecticut) — validate the <title>
+  // against the race slug and refetch once before giving up.
+  const stateName = race.slug.split("-governor")[0].replace(/-/g, " ");
+  const expectTitle = `2026 polls: ${stateName} governor`;
+  let html = "";
+  for (let attempt = 0; ; attempt++) {
+    html = await fetch(race.url, {
+      headers: { "User-Agent": UA, "Accept": "text/html" },
+    }).then((r) => {
+      if (!r.ok) throw new Error(`fetch ${race.url} -> ${r.status}`);
+      return r.text();
+    });
+    const title = (html.match(/<title>([^<]*)<\/title>/i)?.[1] ?? "").toLowerCase();
+    if (title.includes(expectTitle)) break;
+    if (attempt >= 1) throw new Error(`wrong page cached for ${race.slug}: title "${title}"`);
+  }
 
   const raw = parsePolls(html);
 
