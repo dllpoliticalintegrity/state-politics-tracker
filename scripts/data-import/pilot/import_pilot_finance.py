@@ -658,12 +658,18 @@ def import_michigan(sink, cand_ids):
         raw = http(f"{MI_BASE}?page=gov.mi.boe.component.cfrexport.page.cfrexportfile"
                    f"&id={meta['download']}", headers={"User-Agent": BROWSER_UA})
         z = zipfile.ZipFile(io.BytesIO(raw))
-        with io.TextIOWrapper(z.open(z.namelist()[0]), encoding="utf-8", errors="replace") as f:
-            cols = f.readline().rstrip("\n").split("\t")
-            idx = {c: i for i, c in enumerate(cols)}
+        # Large extracts are split across numbered zip members — read every
+        # member, skipping repeated header lines in continuation files.
+        readers = [io.TextIOWrapper(z.open(n), encoding="utf-8",
+                                    errors="replace")
+                   for n in sorted(z.namelist())]
+        hdr = readers[0].readline().rstrip("\n")
+        cols = hdr.split("\t")
+        idx = {c: i for i, c in enumerate(cols)}
+        for f in readers:
             for line in f:
                 p = line.rstrip("\n").split("\t")
-                if len(p) < 10:
+                if len(p) < 10 or line.rstrip("\n") == hdr:
                     continue
 
                 def g(c):
@@ -856,11 +862,12 @@ def import_kentucky(sink, cand_ids):
                 "candidate_id": cand_ids[slug], "committee_id": f"ky:{key[0]},{key[1]}",
                 "source_txn_id": sink.txn_id("ky", year, slug, row.get("Contributor Last Name"),
                                              row.get("Contributor First Name"), org,
-                                             row.get("Amount"), row.get("Address 1")),
+                                             row.get("Amount"), row.get("Address 1"),
+                                             row.get("Receipt Date")),
                 "contributor_type": "ENTITY" if org else "INDIVIDUAL",
                 "contributor_last_name": org or (row.get("Contributor Last Name") or "").strip() or None,
                 "contributor_first_name": None if org else ((row.get("Contributor First Name") or "").strip() or None),
-                "amount": amt, "contribution_date": None,
+                "amount": amt, "contribution_date": mdy_to_iso(row.get("Receipt Date")),
                 "city": (row.get("City") or "").strip() or None,
                 "state": (row.get("State") or "").strip() or None,
                 "zip": (row.get("Zip") or "").strip() or None, "cycle": "2027"})
@@ -1573,10 +1580,12 @@ def import_alabama(sink, cand_ids):
                 seen.add(rid)
                 ctype_raw = (row.get("ContributorType") or "").strip().lower()
                 is_ind = "individual" in ctype_raw or ctype_raw == "self"
+                nonitem = "non-itemized" in (row.get("ContributionType") or "").lower()
                 sink.emit("cf_contributions", {
                     "candidate_id": cid, "committee_id": f"al:{ent}",
                     "source_txn_id": f"al:c{rid}",
-                    "contributor_type": "INDIVIDUAL" if is_ind else "ENTITY",
+                    "contributor_type": None if nonitem and not ctype_raw
+                        else ("INDIVIDUAL" if is_ind else "ENTITY"),
                     "contributor_last_name": (row.get("LastName") or "").strip() or None,
                     "contributor_first_name": (row.get("FirstName") or "").strip() or None,
                     "amount": amt,
@@ -1585,7 +1594,8 @@ def import_alabama(sink, cand_ids):
                     "state": (row.get("State") or "").strip() or None,
                     "zip": (row.get("Zip") or "").strip() or None,
                     "source_form_type": "INKIND" if "in-kind" in
-                        (row.get("ContributionType") or "").lower() else None})
+                        (row.get("ContributionType") or "").lower()
+                        else ("NON-ITEMIZED" if nonitem else None)})
 
 
 # --------------------------------------------------------------------------
@@ -2271,6 +2281,10 @@ def import_kansas(sink, cand_ids):
                     if not dm or amt is None:
                         continue
                     iso = f"20{dm.group(3)}-{dm.group(1).zfill(2)}-{dm.group(2).zfill(2)}"
+                    # Filing histories reach back to prior offices — keep
+                    # only current-cycle activity.
+                    if iso < "2025-01-01":
+                        continue
                     name, st, zp = ks_name_addr(r[ni])
                     ptype = r[pi] if pi is not None and pi < len(r) else ""
                     occ = r[oi] if oi is not None and oi < len(r) else ""
