@@ -578,8 +578,8 @@ def import_georgia(sink, cand_ids):
         for code in ("TCON", "TEXP"):
             body = json.dumps({"Type": "CSV", "FilingYear": year,
                                "TransactionTypeCode": code}).encode()
-            text = http(f"{GA_API}/ExportPublicData/GetExportPublicDownloadData",
-                        data=body, headers=GA_HEADERS).decode("utf-8", "replace")
+            text = http_retry(f"{GA_API}/ExportPublicData/GetExportPublicDownloadData",
+                              data=body, headers=GA_HEADERS).decode("utf-8", "replace")
             rd = csv.DictReader(io.StringIO(text))
             rd.fieldnames = [c.strip() for c in rd.fieldnames]
             for row in rd:
