@@ -35,7 +35,7 @@ export default function Index() {
   if (polling && candidates) {
     for (const c of candidates) {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
-      // Collect all per-poll rows for this candidate from the 270toWin backfill.
+      // Collect all per-poll rows for this candidate from the FiftyPlusOne feed.
       const rawSeries = (racePolls ?? [])
         .filter((r) => (r.candidate_name.trim().split(/\s+/).pop() ?? "") === surname)
         .map((r) => {
@@ -129,7 +129,7 @@ export default function Index() {
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           {hasPollingSource
-            ? `Polling averages, campaign finance, and outside spending, synced from 270toWin and the ${stateCfg.agency?.name}.`
+            ? `Polling averages, campaign finance, and outside spending, synced from FiftyPlusOne and the ${stateCfg.agency?.name}.`
             : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
       </section>
@@ -177,7 +177,7 @@ export default function Index() {
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                Source: 270toWin ↗
+                Source: FiftyPlusOne ↗
               </a>
             </div>
           </div>

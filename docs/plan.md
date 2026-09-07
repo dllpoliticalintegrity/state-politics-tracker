@@ -53,7 +53,7 @@ site and normalizes everything to one canonical format:
 - **Operation**: `python3 src/main.py sync AZ FL GA` (or `sync all`),
   with year-range and data-type flags.
 
-What SLCF does **not** provide: polling (we keep 270toWin per state),
+What SLCF does **not** provide: polling (FiftyPlusOne's CSV feed, one file for every state),
 independent/outside spending as a distinct concept in every state, and
 candidate curation (photos, slugs, featured flags — still editorial work
 per state, as `tx_candidates` is today).
@@ -69,7 +69,7 @@ export interface RaceConfig {
   office: string;          // URL segment: "governor", "attorney-general"
   title: string;           // "Governor"
   generalDate: string;     // "2026-11-03"
-  pollingSourceUrl?: string;  // 270toWin page, where polling exists
+  pollingSourceUrl?: string;  // FiftyPlusOne page, where polling exists
 }
 
 export interface StateConfig {
@@ -180,8 +180,9 @@ A per-state GitHub Actions workflow matrix (modeled on
 
 ### Polling
 
-Port `import-towin-polling` and parameterize the 270toWin page URL from
-the registry, looping over live states. States without a tracked
+`import-fiftyplusone-polling-multi` pulls FiftyPlusOne's `governor_general`
+CSV once per run and splits it by state for every live race (270toWin was
+retired in Sep 2026 after it dropped state pages). States without a tracked
 governor's race hide the polling sections (the components already
 handle empty data).
 

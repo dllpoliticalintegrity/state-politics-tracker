@@ -15,18 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The import-towin-polling-multi Supabase edge function scrapes the
-      # 270toWin page for every live race (see RACES in
-      # supabase/functions/import-towin-polling-multi/index.ts) and refreshes
-      # race_polls + the race_polling aggregates using the project's own
-      # service role. The apikey below is the project's publishable (anon)
-      # key — public by design, needed only to pass the edge-function JWT
-      # check. It fails loudly (non-2xx) if any race's scrape breaks.
-      - name: Trigger 270toWin import (all live races)
+      # The import-fiftyplusone-polling-multi Supabase edge function pulls
+      # FiftyPlusOne's CSV API (governor_general) once and refreshes
+      # race_polls + the race_polling aggregates for every live race (see
+      # RACES in supabase/functions/import-fiftyplusone-polling-multi/index.ts)
+      # using the project's own service role. The apikey below is the
+      # project's publishable (anon) key — public by design, needed only to
+      # pass the edge-function JWT check.
+      #
+      # No `-f` on curl: a per-race failure comes back as a 500 whose JSON
+      # body names the race and the error, and we want that in the log. The
+      # python check on `ok` is what fails the job.
+      - name: Trigger FiftyPlusOne import (all live races)
         run: |
           ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvaHhkZnJ4bnh1eGpkdnZ5ZmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ5NzQsImV4cCI6MjA5ODU5MDk3NH0.vAaUdkMmbFPEO-1usZaTj9J4EcyJjnYzjAiDkSeaVYo"
-          RESP=$(curl -fsS -X POST \
-            "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-towin-polling-multi" \
+          RESP=$(curl -sS -X POST \
+            "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-fiftyplusone-polling-multi" \
             -H "Authorization: Bearer $ANON" \
             -H "apikey: $ANON" \
             -H "Content-Type: application/json" \

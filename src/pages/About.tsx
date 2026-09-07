@@ -60,12 +60,12 @@ export default function About() {
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                270toWin
+                FiftyPlusOne
               </a>
             ) : (
-              "270toWin"
+              "FiftyPlusOne"
             )}
-            's {stateCfg.name} pages — both individual polls and the aggregate. Our
+            's {stateCfg.name} general-election feed — both individual polls and our aggregate. Our
             averages cover general-election matchups from roughly the last 60 days;
             primary-only polls are shown but kept out of the head-to-head average.
           </p>

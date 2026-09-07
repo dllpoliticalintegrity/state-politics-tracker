@@ -42,9 +42,12 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       to the shared project's publishable key.
 - [x] Pilot candidates seeded (FL/MI/GA governor, July 2026 fields);
       races registered in the shared polling tables.
-- [x] Polling: `supabase/functions/import-towin-polling-multi` scrapes
-      270toWin for every live race (roster from cf_candidates); synced
-      every 6h by `.github/workflows/polling-sync.yml`.
+- [x] Polling: `supabase/functions/import-fiftyplusone-polling-multi`
+      pulls FiftyPlusOne's `governor_general` CSV feed for every live race
+      (roster from cf_candidates); synced every 6h by
+      `.github/workflows/polling-sync.yml`. Replaced the 270toWin scrape in
+      Sep 2026 after 270toWin pulled its Alaska page (the scrape had been
+      failing every run since Sep 1).
 - [x] Frontend on live data: hooks query cf_*/races scoped by
       state+office from context; /:state/:office routing with
       RaceProvider; FL/MI/GA live in the registry; page copy reads from
@@ -82,8 +85,8 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
 - [x] PA / MA / MN / CO / IA / MD / HI live (Aug 2026 wave 3, governor
       races): ~537k finance rows loaded and verified against each
       state's official totals; the nightly importer now covers all ten
-      importable states. Polling live for PA / MA / MN / IA (270toWin
-      has no CO/HI/MD general-election pages yet). Source notes: PA DOS
+      importable states. Polling live for PA / MA / MN / IA (no CO/HI
+      general-election polls in the feed; MD has three, not yet enabled). Source notes: PA DOS
       annual ZIPs (amended filings deduped by max CampaignFinanceID; names
       are plain "First Last" — entity-keyword classification), CO TRACER
       bulk CSVs (stable RecordIDs, year files overlap), MN CFB itemized
@@ -101,7 +104,7 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       ~83k rows backfilled from Sunshine per-committee exports, and
       the nightly importer now covers WI via the date-windowed
       data-download API (last 45 days per run; WI_SINCE overrides
-      for backfills). Polling live for all three (270toWin pages).
+      for backfills). Polling live for all three.
 - [ ] Wave 4 finance gaps: OH — ohiosos.gov serves its 403/maintenance
       page to this egress (TLS-fingerprint block ahead of the ORDS
       File Transfer Page; SLCF's curl_cffi trick can't help because
@@ -136,12 +139,17 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       WebForms chain per candidate/report/schedule, hashes exclude
       report id so amended re-filings dedupe; Schedule C parse
       verified to the penny against the filed totals). Polling
-      importer v6 adds AL/AK/CT pages plus a wrong-page-cache guard
-      (270toWin's CDN once served Kansas content at /connecticut);
-      AR/ID have no 270toWin page, IL/KS are primary-only so far.
+      live for AL/AK/CT; AR/ID/IL/KS each have a single general poll in
+      the FiftyPlusOne feed so far and stay money-ranked.
+- [ ] Roster statuses after the Aug primaries: MI (Swanson, P. Johnson,
+      Cox, Nesbitt), CT (Elliott), WI (Hong, Brennan, Roys, Manske) and
+      FL (Demings, Fishback, Collins, Renner) primary losers are still
+      `active` in cf_candidates. The FiftyPlusOne importer leans on the
+      feed's hypothetical flag to keep them out of the headline average,
+      but the status is what the charts and the candidate pages read.
 - [ ] Wave 5 follow-ups: AK primary Aug 18 (mark lost_primary after,
       top four advance to RCV general), CT Dem primary Aug 11; add
-      IL/KS polling entries when 270toWin posts general polls; KS
+      IL/KS polling entries when FiftyPlusOne carries more general polls; KS
       pre-general R&E report lands late Oct (next scrape target
       202610); IL third-party candidates Romero/Pierce have no ISBE
       committees (below $5k threshold).

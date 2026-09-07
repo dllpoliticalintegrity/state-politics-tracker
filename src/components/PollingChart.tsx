@@ -40,7 +40,7 @@ export default function PollingChart() {
       .sort((a, b) => b.avgPct - a.avgPct);
 
     // Normalize each poll into {iso, values: {surname -> pct}}; drop polls with unparseable
-    // dates or dates beyond today. Prefer per-poll rows from race_polls (270toWin backfill);
+    // dates or dates beyond today. Prefer per-poll rows from race_polls (FiftyPlusOne feed);
     // fall back to the legacy RCP raw_data array.
     type NormalizedPoll = { iso: string; values: Record<string, number> };
     const normalized: NormalizedPoll[] = [];

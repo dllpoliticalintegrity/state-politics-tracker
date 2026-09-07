@@ -28,19 +28,20 @@ async function fetchRacePolling(slug: string): Promise<PollingBundle | null> {
   if (raceErr) throw raceErr;
   if (!race) return null;
 
-  // Only use 270toWin data; RCP has been deprecated.
+  // FiftyPlusOne is the only polling source (270toWin and RCP are retired).
   const { data: rows, error } = await (supabase as any)
     .from("race_polling")
     .select("source,rcp_url,source_url,last_updated,spread,raw_data")
     .eq("race_id", race.race_id)
-    .eq("source", "270towin");
+    .eq("source", "fiftyplusone");
   if (error) throw error;
   if (!rows || rows.length === 0) return null;
 
   const pick = rows[0];
 
-  // 270toWin aggregator stores { all_candidates: [...] }; RCP stores an array
-  // of poll rows with an "RCP Average" entry. Normalize both to PollRow[].
+  // The FiftyPlusOne importer stores { all_candidates: [...] }; legacy RCP rows
+  // stored an array of poll rows with an "RCP Average" entry. Normalize both to
+  // PollRow[].
   const raw = pick.raw_data;
   let average: PollRow | null = null;
   let polls: PollRow[] = [];
@@ -55,7 +56,7 @@ async function fetchRacePolling(slug: string): Promise<PollingBundle | null> {
   } else if (raw && Array.isArray(raw.all_candidates)) {
     // Synthesize a single "average" row keyed by surname → pct so the
     // existing readCandidatePct helper continues to work.
-    const avgRow: PollRow = { Poll: "270toWin Average", Date: "", Sample: "", MoE: "" };
+    const avgRow: PollRow = { Poll: "Polling Average", Date: "", Sample: "", MoE: "" };
     for (const c of raw.all_candidates as Array<{ name: string; avg_pct: number }>) {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
       avgRow[surname] = String(c.avg_pct);
@@ -101,7 +102,7 @@ export function useRacePolling() {
 }
 
 /**
- * Per-poll rows from the 270toWin importer (one row per candidate per poll).
+ * Per-poll rows from the FiftyPlusOne importer (one row per candidate per poll).
  * Used by the trend chart so we don't depend on RCP's "raw_data" array.
  */
 export type RacePollRow = {
@@ -140,7 +141,7 @@ export function useRacePolls() {
           "candidate_name,candidate_party,pct,pollster,field_end,sample_size,sample_kind,source_url,matchup",
         )
         .eq("race_id", race.race_id)
-        .eq("source", "270towin")
+        .eq("source", "fiftyplusone")
         .order("field_end", { ascending: false });
       if (error) throw error;
       return (data ?? []) as RacePollRow[];

@@ -21,7 +21,7 @@ export interface RaceConfig {
   generalDate: string;
   /** Slug in the shared `races` polling table, e.g. "michigan-governor-2026". */
   raceSlug: string;
-  /** 270toWin page, where public polling exists (mostly governor races). */
+  /** FiftyPlusOne page, where public polling exists (mostly governor races). */
   pollingSourceUrl?: string;
 }
 
@@ -74,8 +74,8 @@ const ALL_STATES: Array<[string, string]> = [
   ["wy", "Wyoming"],
 ];
 
-// Pilot states live since July 2026: polling synced from 270toWin via the
-// import-towin-polling-multi edge function; finance lands via the SLCF
+// Pilot states live since July 2026: polling synced from FiftyPlusOne via the
+// import-fiftyplusone-polling-multi edge function; finance lands via the SLCF
 // importer. Down-ballot races get added here as their candidates are curated.
 const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
   fl: {
@@ -89,7 +89,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "florida-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/florida",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/florida",
       },
       {
         office: "attorney-general",
@@ -122,7 +122,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "michigan-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/michigan",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/michigan",
       },
       {
         office: "attorney-general",
@@ -149,7 +149,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "georgia-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/georgia",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/georgia",
       },
       {
         office: "lt-governor",
@@ -185,7 +185,7 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "arizona-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/arizona",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/arizona",
       },
       {
         office: "attorney-general",
@@ -232,14 +232,14 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "maine-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/maine",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/maine",
       },
     ],
   },
 };
 // Wave 3 (Aug 2026): the bulk-open-data states — governor races first,
 // down-ballot to follow as candidates are curated. Polling URLs are set only
-// where 270toWin actually lists polls for the race.
+// where FiftyPlusOne actually lists general-election polls for the race.
 const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
   pa: {
     agency: {
@@ -252,7 +252,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "pennsylvania-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/pennsylvania",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/pennsylvania",
       },
     ],
   },
@@ -267,7 +267,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "massachusetts-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/massachusetts",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/massachusetts",
       },
     ],
   },
@@ -282,7 +282,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "minnesota-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/minnesota",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/minnesota",
       },
     ],
   },
@@ -296,8 +296,8 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only primary polls for CO so far — no general H2H
-        // to average yet; the race ranks by money until that changes.
+        // FiftyPlusOne has no CO governor general-election polls yet (Sep
+        // 2026) — the race ranks by money until that changes.
         raceSlug: "colorado-governor-2026",
       },
     ],
@@ -313,7 +313,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "iowa-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/iowa",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/iowa",
       },
     ],
   },
@@ -327,8 +327,9 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Maryland governor polls page (verified Jul 2026) —
-        // the race ranks by money until public polling appears.
+        // FiftyPlusOne lists only a handful of MD general polls (3 as of Sep
+        // 2026); the race ranks by money until the URL is enabled here and in
+        // the importer's RACES list.
         raceSlug: "maryland-governor-2026",
       },
     ],
@@ -343,7 +344,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // No public polling exists for this race (270toWin has no HI page).
+        // No public polling exists for this race (none in the FiftyPlusOne feed).
         raceSlug: "hawaii-governor-2026",
       },
     ],
@@ -359,7 +360,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "ohio-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/ohio",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/ohio",
       },
     ],
   },
@@ -374,7 +375,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "wisconsin-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/wisconsin",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/wisconsin",
       },
     ],
   },
@@ -389,14 +390,14 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "nevada-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/nevada",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/nevada",
       },
     ],
   },
 };
 // Wave 5 (Aug 2026): the last seven SLCF-ready states, all with 2026
-// governor races. Polling URLs only where 270toWin lists general-election
-// polls (AR/ID have no page; IL/KS list primary polls only so far).
+// governor races. Polling URLs only where FiftyPlusOne lists general-election
+// polls (AR/ID/IL/KS each have a single general poll so far — not enabled).
 const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
   al: {
     agency: {
@@ -409,7 +410,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "alabama-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alabama",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/alabama",
       },
     ],
   },
@@ -424,7 +425,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "alaska-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alaska",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/alaska",
       },
     ],
   },
@@ -438,7 +439,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Arkansas governor polls page (verified Aug 2026).
+        // FiftyPlusOne has a single AR general poll so far (Sep 2026) — not enabled.
         raceSlug: "arkansas-governor-2026",
       },
     ],
@@ -454,7 +455,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "connecticut-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/connecticut",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/connecticut",
       },
     ],
   },
@@ -468,7 +469,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Idaho governor polls page (verified Aug 2026).
+        // FiftyPlusOne has a single ID general poll so far (Sep 2026) — not enabled.
         raceSlug: "idaho-governor-2026",
       },
     ],
@@ -483,8 +484,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only a GOP-primary poll for IL so far — no general
-        // H2H to average yet; the race ranks by money until that changes.
+        // FiftyPlusOne has a single IL general poll (Nov 2025) — too thin to
+        // average; the race ranks by money until that changes.
         raceSlug: "illinois-governor-2026",
       },
     ],
@@ -499,8 +500,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only a Dem-primary poll for KS so far (primary was
-        // Aug 4, 2026) — add the polling URL when general polls appear.
+        // FiftyPlusOne has a single KS general poll so far (primary was Aug 4,
+        // 2026) — add the polling URL when more general polls appear.
         raceSlug: "kansas-governor-2026",
       },
     ],

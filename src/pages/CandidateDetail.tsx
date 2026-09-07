@@ -209,7 +209,7 @@ export default function CandidateDetail() {
         <Card className="p-6">
           <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
             <h2 className="font-display text-xl font-semibold">Polling history</h2>
-            <span className="text-xs text-muted-foreground">Source: 270toWin aggregate</span>
+            <span className="text-xs text-muted-foreground">Source: FiftyPlusOne polls</span>
           </div>
           <CandidatePollingChart
             candidate={{ slug: candidate.slug, name: candidate.name, party: candidate.party }}

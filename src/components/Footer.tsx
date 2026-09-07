@@ -62,8 +62,8 @@ export function Footer() {
         <div className="pt-6 border-t text-xs text-muted-foreground space-y-1">
           <p>
             {activeState?.agency
-              ? `Updated nightly from the ${activeState.agency.name} and 270toWin. `
-              : "Updated nightly from each state's disclosure agency and 270toWin. "}
+              ? `Updated nightly from the ${activeState.agency.name} and FiftyPlusOne. `
+              : "Updated nightly from each state's disclosure agency and FiftyPlusOne. "}
             Data is presented as filed; corrections and amendments appear after the next sync.
           </p>
           <p>© 2026 Political Integrity Project</p>

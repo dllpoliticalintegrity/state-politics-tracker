@@ -200,7 +200,7 @@
     <h1>Who's winning your state — and who's paying for it</h1>
     <p>Polling averages, campaign finance, and outside spending for statewide
        races across the country — governor on down — synced from each state's
-       disclosure agency and 270toWin. Pick your state to start.</p>
+       disclosure agency and FiftyPlusOne. Pick your state to start.</p>
   </div>
   <div class="legend">
     <span><span class="dot dot--live"></span> Dashboard live</span>
@@ -245,7 +245,7 @@
     <div class="panel" id="polling">
       <div class="panel__head">
         <h2>Polling average</h2>
-        <span class="src">Source: <a href="#" onclick="return false;" id="dPollSrc">270toWin ↗</a></span>
+        <span class="src">Source: <a href="#" onclick="return false;" id="dPollSrc">FiftyPlusOne ↗</a></span>
       </div>
       <div class="poll-layout">
         <svg id="dChart" viewBox="0 0 640 260" width="100%" role="img" aria-label="Polling average time series"></svg>
@@ -276,7 +276,7 @@
 
 <footer class="site" id="about">
   <div class="container">
-    <span id="fSource">Data: state disclosure agencies + 270toWin. Synced nightly for live states.</span>
+    <span id="fSource">Data: state disclosure agencies + FiftyPlusOne. Synced nightly for live states.</span>
     <span>A <a href="#" onclick="return false;">Political Integrity Project</a> site · Preview build, mock data</span>
   </div>
 </footer>
@@ -579,7 +579,7 @@ function showState(code, officeSlug) {
   document.getElementById("dSub").innerHTML =
     (race.polled
       ? `Polling averages, campaign finance, and outside spending, synced nightly from ` +
-        `270toWin and the <a href="#" onclick="return false;">${s.agency.name}</a>.`
+        `FiftyPlusOne and the <a href="#" onclick="return false;">${s.agency.name}</a>.`
       : `Campaign finance and outside spending, synced nightly from the ` +
         `<a href="#" onclick="return false;">${s.agency.name}</a>. No public polling ` +
         `is tracked for this race yet.`);
@@ -595,7 +595,7 @@ function showState(code, officeSlug) {
   document.getElementById("dDonorSrc").innerHTML =
     `Itemized contributions via ${s.agency.short} · pipeline: ${s.pipeline}`;
   document.getElementById("fSource").textContent =
-    `Data: ${s.agency.name}${race.polled ? " + 270toWin" : ""}. Synced nightly. Preview build — all figures are mock.`;
+    `Data: ${s.agency.name}${race.polled ? " + FiftyPlusOne" : ""}. Synced nightly. Preview build — all figures are mock.`;
 
   document.getElementById("polling").classList.toggle("hidden", !race.polled);
   if (race.polled) {
