@@ -6,7 +6,7 @@
 //
 // POST body {} imports every race; { "slugs": ["florida-governor-2026"] }
 // restricts to a subset. Response reports per-race results.
-// build-tag: 270towin-multi-v6
+// build-tag: 270towin-multi-v7
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.46/deno-dom-wasm.ts";
@@ -35,11 +35,13 @@ const RACES = [
   { slug: "wisconsin-governor-2026",     url: "https://www.270towin.com/2026-governor-polls/wisconsin",     state: "wi", office: "governor" },
   { slug: "nevada-governor-2026",        url: "https://www.270towin.com/2026-governor-polls/nevada",        state: "nv", office: "governor" },
   { slug: "alabama-governor-2026",       url: "https://www.270towin.com/2026-governor-polls/alabama",       state: "al", office: "governor" },
-  { slug: "alaska-governor-2026",        url: "https://www.270towin.com/2026-governor-polls/alaska",        state: "ak", office: "governor" },
   { slug: "connecticut-governor-2026",   url: "https://www.270towin.com/2026-governor-polls/connecticut",   state: "ct", office: "governor" },
   // CO/HI/MD/AR/ID/IL/KS: no 270toWin general-election polls yet (CO and IL
   // and KS are primary-only, HI/MD/AR/ID have no page) — add entries here
   // when they appear.
+  // AK: 270toWin removed /2026-governor-polls/alaska on 2026-09-01 (it now
+  // 302s to the generic governor-polls hub). The pre-removal rows stay in
+  // race_polls; re-add the entry if the page comes back.
 ];
 
 const GENERIC_CHOICE = new Set([
@@ -200,16 +202,27 @@ async function importRace(supabase: any, race: typeof RACES[number]) {
   // 270toWin's CDN has been observed serving a different state's page at a
   // state URL (e.g. Kansas content at /connecticut) — validate the <title>
   // against the race slug and refetch once before giving up.
+  //
+  // Separately, 270toWin retires a state page by 302-redirecting it to the
+  // generic governor-polls hub (Alaska, 2026-09-01). That is not a transient
+  // cache problem, so don't fail the whole run for it: leave the race's
+  // existing rows untouched and report it as skipped.
   const stateName = race.slug.split("-governor")[0].replace(/-/g, " ");
   const expectTitle = `2026 polls: ${stateName} governor`;
   let html = "";
   for (let attempt = 0; ; attempt++) {
-    html = await fetch(race.url, {
+    const res = await fetch(race.url, {
       headers: { "User-Agent": UA, "Accept": "text/html" },
-    }).then((r) => {
-      if (!r.ok) throw new Error(`fetch ${race.url} -> ${r.status}`);
-      return r.text();
     });
+    if (!res.ok) throw new Error(`fetch ${race.url} -> ${res.status}`);
+    if (res.redirected && new URL(res.url).pathname !== new URL(race.url).pathname) {
+      return {
+        slug: race.slug,
+        skipped: `page removed: ${race.url} redirects to ${res.url}`,
+        parsed_rows: 0, inserted: 0, unresolved: [], spread: null, summary: [],
+      };
+    }
+    html = await res.text();
     const title = (html.match(/<title>([^<]*)<\/title>/i)?.[1] ?? "").toLowerCase();
     if (title.includes(expectTitle)) break;
     if (attempt >= 1) throw new Error(`wrong page cached for ${race.slug}: title "${title}"`);
@@ -320,6 +333,7 @@ async function importRace(supabase: any, race: typeof RACES[number]) {
 
   return {
     slug: race.slug,
+    skipped: null as string | null,
     parsed_rows: raw.length,
     inserted: clean.length,
     unresolved: Array.from(unresolved).sort(),
@@ -354,8 +368,11 @@ Deno.serve(async (req) => {
     }
 
     const ok = Object.keys(errors).length === 0;
+    const skipped = Object.fromEntries(
+      results.filter(r => r.skipped).map(r => [r.slug, r.skipped]),
+    );
     return new Response(
-      JSON.stringify({ ok, results, errors }),
+      JSON.stringify({ ok, results, skipped, errors }),
       { status: ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

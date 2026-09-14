@@ -423,8 +423,11 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
+        // 270toWin removed its Alaska page on 2026-09-01 (the URL now
+        // redirects to the generic governor-polls hub), so the race ranks by
+        // money until public polling reappears. Restore pollingSourceUrl and
+        // the RACES entry in import-towin-polling-multi if it comes back.
         raceSlug: "alaska-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alaska",
       },
     ],
   },
