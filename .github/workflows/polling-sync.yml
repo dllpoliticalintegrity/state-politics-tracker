@@ -21,15 +21,38 @@ jobs:
       # race_polls + the race_polling aggregates using the project's own
       # service role. The apikey below is the project's publishable (anon)
       # key — public by design, needed only to pass the edge-function JWT
-      # check. It fails loudly (non-2xx) if any race's scrape breaks.
+      # check. It fails loudly (non-2xx, ok:false) if any race's scrape
+      # breaks; a state whose 270toWin page has been retired is reported
+      # under "skipped" and does not fail the run.
+      #
+      # No curl -f here: on a 500 it would exit before the body is echoed,
+      # hiding the per-race error list that says which state broke.
       - name: Trigger 270toWin import (all live races)
         run: |
           ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvaHhkZnJ4bnh1eGpkdnZ5ZmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ5NzQsImV4cCI6MjA5ODU5MDk3NH0.vAaUdkMmbFPEO-1usZaTj9J4EcyJjnYzjAiDkSeaVYo"
-          RESP=$(curl -fsS -X POST \
+          CODE=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
             "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-towin-polling-multi" \
             -H "Authorization: Bearer $ANON" \
             -H "apikey: $ANON" \
             -H "Content-Type: application/json" \
             -d '{}')
-          echo "$RESP"
-          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)"
+          echo "HTTP $CODE"
+          cat resp.json; echo
+          python3 - "$CODE" <<'PY'
+          import json, sys
+          code = sys.argv[1]
+          try:
+              d = json.load(open("resp.json"))
+          except Exception as e:
+              print(f"::error::non-JSON response (HTTP {code}): {e}")
+              sys.exit(1)
+          for slug, why in (d.get("skipped") or {}).items():
+              print(f"::warning::{slug} skipped: {why}")
+          for slug, err in (d.get("errors") or {}).items():
+              print(f"::error::{slug}: {err}")
+          if d.get("error"):
+              print(f"::error::{d['error']}")
+          ok = code.startswith("2") and bool(d.get("ok"))
+          print("ok" if ok else "FAILED")
+          sys.exit(0 if ok else 1)
+          PY
