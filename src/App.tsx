@@ -9,11 +9,20 @@ import { Footer } from "@/components/Footer";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { ThemeProvider } from "next-themes";
 import { StateProvider, RaceProvider, useActiveState } from "@/states/StateContext";
-import { getState, type StateConfig } from "@/states/registry";
+import {
+  districtRace,
+  getChamber,
+  getState,
+  isValidDistrict,
+  type ChamberConfig,
+  type RaceConfig,
+  type StateConfig,
+} from "@/states/registry";
 import { SITE_NAME, SITE_STATE } from "@/states/site";
 import { routeMeta } from "../shared/seo";
 import RaceTabs from "@/components/RaceTabs";
 import StatePicker from "./pages/StatePicker";
+import Chamber from "./pages/Chamber";
 import ComingSoon from "./pages/ComingSoon";
 import Index from "./pages/Index";
 import Candidates from "./pages/Candidates";
@@ -49,12 +58,44 @@ function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
   );
 }
 
-// Everything under /:state/:office — the race-scoped dashboard pages.
+// Everything under /:state/:office — a statewide race's dashboard pages, or,
+// for a legislative chamber, the district overview plus one dashboard per
+// district under /:state/:office/:district.
 function RaceArea({ cfg }: { cfg: StateConfig }) {
   const { office } = useParams();
   const race = cfg.races!.find((r) => r.office === office);
-  if (!race) return <NotFound />;
+  const chamber = getChamber(cfg, office);
 
+  if (chamber) {
+    return (
+      <Routes>
+        <Route
+          index
+          element={
+            // A chamber-level pseudo race so RaceTabs (and anything else
+            // race-contextual on the overview) has a RaceProvider.
+            <RaceProvider race={{ office: chamber.office, title: chamber.title, generalDate: chamber.generalDate, raceSlug: "" }}>
+              <Chamber chamber={chamber} />
+            </RaceProvider>
+          }
+        />
+        <Route path=":district/*" element={<DistrictArea cfg={cfg} chamber={chamber} />} />
+      </Routes>
+    );
+  }
+
+  if (!race) return <NotFound />;
+  return <RaceRoutes race={race} />;
+}
+
+function DistrictArea({ cfg, chamber }: { cfg: StateConfig; chamber: ChamberConfig }) {
+  const { district } = useParams();
+  if (!isValidDistrict(chamber, district)) return <NotFound />;
+  return <RaceRoutes race={districtRace(cfg, chamber, district!)} />;
+}
+
+// The race-scoped dashboard pages, shared by statewide and district races.
+function RaceRoutes({ race }: { race: RaceConfig }) {
   return (
     <RaceProvider race={race}>
       <RaceTabs />

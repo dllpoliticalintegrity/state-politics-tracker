@@ -47,6 +47,17 @@ Two Cloudflare targets are supported; both share `shared/seo.ts`:
 Node is pinned to 22 via `.node-version`. No environment variables are
 needed until a state is live.
 
+### Legislative races
+
+A state can also track a legislative chamber district by district
+(`chambers` in `src/states/registry.ts`; Michigan's State Senate and
+State House to start). These are finance-only: `/mi/state-senate` is the
+chamber overview and `/mi/state-senate/11` is the ordinary race dashboard
+for that district. The roster is not curated — the nightly finance
+importer derives it from the state's committee registry (MiTN's active
+candidate committees for the office) and writes `cf_candidates` rows with
+`district` set. See `docs/plan.md`, "Legislative races".
+
 ### Dedicated single-state sites
 
 The same build also ships as per-state sites — currently

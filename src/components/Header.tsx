@@ -20,7 +20,7 @@ import {
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import DonationPanel from "@/components/donate/DonationPanel";
-import { useActiveRace, useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveRace, useActiveRaceBase, useActiveState, useStateBase } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
 import { ALL_STATES_URL, SITE_NAME, isSingleStateSite } from "@/states/site";
 import star from "@/assets/star.svg";
@@ -99,10 +99,14 @@ export function Header() {
   const { theme, setTheme } = useTheme();
 
   const stateBase = useStateBase();
+  const raceBase = useActiveRaceBase();
+  // Race-scoped items need an active race (on a chamber overview there is
+  // none, so only About remains); polling needs a polling source.
+  const visibleItems = navItems.filter(
+    (item) => !item.race || (raceBase && (item.to !== "polling" || activeRace?.pollingSourceUrl)),
+  );
   const linkFor = (item: { to: string; race: boolean }) =>
-    item.race && activeRace
-      ? `${stateBase}/${activeRace.office}/${item.to}`
-      : `${stateBase}/${item.to}`;
+    item.race && raceBase ? `${raceBase}/${item.to}` : `${stateBase}/${item.to}`;
   const isActive = (item: { to: string; race: boolean }) =>
     activeState ? location.pathname.startsWith(linkFor(item)) : false;
 
@@ -135,9 +139,7 @@ export function Header() {
 
         {activeState && (
           <nav className="hidden md:flex items-center gap-1">
-            {navItems
-              .filter((item) => item.to !== "polling" || activeRace?.pollingSourceUrl)
-              .map((item) => (
+            {visibleItems.map((item) => (
               <Link key={item.to} to={linkFor(item)}>
                 <Button
                   variant="ghost"
@@ -182,9 +184,7 @@ export function Header() {
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
             <nav className="flex flex-col gap-1 mt-6">
               {activeState &&
-                navItems
-                  .filter((item) => item.to !== "polling" || activeRace?.pollingSourceUrl)
-                  .map((item) => (
+                visibleItems.map((item) => (
                   <Link key={item.to} to={linkFor(item)} onClick={() => setOpen(false)}>
                     <Button variant="ghost" className="w-full justify-start text-sm">
                       {item.label}

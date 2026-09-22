@@ -59,7 +59,9 @@ describe("single-state metadata", () => {
     expect(routeMeta("/", "mi")!.title).toBe(
       "Michigan Politics Tracker — Money & Polling in Michigan's 2026 Statewide Races",
     );
-    expect(routeMeta("/", "mi")!.description).toContain("Governor, Attorney General and Secretary of State");
+    expect(routeMeta("/", "mi")!.description).toContain(
+      "Governor, Attorney General, Secretary of State, State Senate and State House",
+    );
     expect(routeMeta("/governor", "mi")!.title).toBe(
       "Michigan Governor 2026 Race — Polls & Campaign Finance | Michigan Politics Tracker",
     );

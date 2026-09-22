@@ -23,6 +23,30 @@ export interface RaceConfig {
   raceSlug: string;
   /** 270toWin page, where public polling exists (mostly governor races). */
   pollingSourceUrl?: string;
+  /**
+   * Set on the per-district races synthesized from a ChamberConfig (see
+   * districtRace): the district number as it appears in the URL and in
+   * cf_candidates.district. Statewide races leave it undefined.
+   */
+  district?: string;
+}
+
+/**
+ * A legislative chamber tracked as a set of district races: finance only
+ * (no polling), rosters built nightly from the state's committee registry
+ * by the finance importer, one dashboard per district at
+ * /:state/:office/:district. The chamber page at /:state/:office lists
+ * every district.
+ */
+export interface ChamberConfig {
+  /** URL segment: "state-senate", "state-house". */
+  office: string;
+  /** "State Senate", "State House". */
+  title: string;
+  /** Number of districts, numbered 1..districts. */
+  districts: number;
+  /** ISO date of the general election. */
+  generalDate: string;
 }
 
 export interface StateConfig {
@@ -35,6 +59,8 @@ export interface StateConfig {
    * polling rank the field by money raised.
    */
   races?: RaceConfig[];
+  /** Legislative chambers tracked district by district (finance only). */
+  chambers?: ChamberConfig[];
   /** The state's campaign-finance disclosure agency. */
   agency?: { name: string; url: string };
   /** Required when status is "external". */
@@ -77,7 +103,7 @@ const ALL_STATES: Array<[string, string]> = [
 // Pilot states live since July 2026: polling synced from 270toWin via the
 // import-towin-polling-multi edge function; finance lands via the SLCF
 // importer. Down-ballot races get added here as their candidates are curated.
-const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
+const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   fl: {
     agency: {
       name: "Florida Division of Elections",
@@ -136,6 +162,14 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency">> = {
         generalDate: "2026-11-03",
         raceSlug: "michigan-secretary-of-state-2026",
       },
+    ],
+    // Legislature (Sep 2026): finance only. Rosters are the active candidate
+    // committees MiTN lists for "State Senator" / "Representative in State
+    // Legislature", refreshed nightly by import_pilot_finance.py; all 38
+    // Senate and 110 House seats are on the 2026 ballot.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 38, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 110, generalDate: "2026-11-03" },
     ],
   },
   ga: {
@@ -532,3 +566,35 @@ export function getState(code: string | undefined): StateConfig | undefined {
 }
 
 export const liveStates = () => STATES.filter((s) => s.status === "live");
+
+/** The chamber a state tracks under this office segment, if any. */
+export function getChamber(state: StateConfig, office: string | undefined): ChamberConfig | undefined {
+  return office ? state.chambers?.find((c) => c.office === office) : undefined;
+}
+
+/** "11" → true for a chamber with 38 districts; rejects "0", "011", "abc". */
+export function isValidDistrict(chamber: ChamberConfig, district: string | undefined): boolean {
+  if (!district || !/^[1-9]\d*$/.test(district)) return false;
+  const n = Number(district);
+  return n >= 1 && n <= chamber.districts;
+}
+
+/**
+ * The RaceConfig for one district of a chamber — what the race-scoped pages
+ * and hooks consume, so a district dashboard is the ordinary race dashboard
+ * with `district` set (no polling: pollingSourceUrl stays undefined).
+ */
+export function districtRace(state: StateConfig, chamber: ChamberConfig, district: string): RaceConfig {
+  return {
+    office: chamber.office,
+    title: `${chamber.title} District ${district}`,
+    generalDate: chamber.generalDate,
+    raceSlug: `${state.name.toLowerCase().replace(/\s+/g, "-")}-${chamber.office}-${district}-${chamber.generalDate.slice(0, 4)}`,
+    district,
+  };
+}
+
+/** Every district of a chamber, 1..n as strings. */
+export function chamberDistricts(chamber: ChamberConfig): string[] {
+  return Array.from({ length: chamber.districts }, (_, i) => String(i + 1));
+}

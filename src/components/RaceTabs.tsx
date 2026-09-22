@@ -3,8 +3,9 @@ import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContex
 import { statePath } from "@/states/site";
 
 /**
- * Pill tabs switching between a state's tracked races. Hidden when a state
- * has only one race.
+ * Pill tabs switching between a state's tracked races — the statewide
+ * offices plus each legislative chamber (whose pill opens the chamber's
+ * district overview). Hidden when a state has only one race.
  *
  * Rendered in two places: at the top of every race sub-page (RaceArea in
  * App), and inline on the race home (Index) where they sit under the hero
@@ -16,19 +17,22 @@ export default function RaceTabs({ inline = false }: { inline?: boolean }) {
   const race = useRaceConfig();
   const raceBase = useRaceBase();
   const { pathname } = useLocation();
-  const races = state.races ?? [];
-  if (races.length < 2) return null;
+  const pills = [
+    ...(state.races ?? []).map((r) => ({ office: r.office, title: r.title })),
+    ...(state.chambers ?? []).map((c) => ({ office: c.office, title: c.title })),
+  ];
+  if (pills.length < 2) return null;
   if (!inline && pathname.replace(/\/+$/, "") === raceBase) return null;
 
   return (
     <div className={inline ? "container pb-8" : "container pt-5 -mb-1"}>
       <nav aria-label="Races" className="flex flex-wrap justify-center gap-1.5">
-        {races.map((r) => {
-          const active = r.office === race.office;
+        {pills.map((p) => {
+          const active = p.office === race.office;
           return (
             <Link
-              key={r.office}
-              to={`${statePath(state.code)}/${r.office}`}
+              key={p.office}
+              to={`${statePath(state.code)}/${p.office}`}
               aria-current={active ? "page" : undefined}
               className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition-colors ${
                 active
@@ -36,7 +40,7 @@ export default function RaceTabs({ inline = false }: { inline?: boolean }) {
                   : "bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
-              {r.title}
+              {p.title}
             </Link>
           );
         })}

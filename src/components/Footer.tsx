@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useActiveRace, useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveRace, useActiveRaceBase, useActiveState, useStateBase } from "@/states/StateContext";
 import { ALL_STATES_URL, SITE_NAME, SITE_STATE, isSingleStateSite } from "@/states/site";
 
 const footerLinks = [
@@ -13,6 +13,7 @@ export function Footer() {
   const activeState = useActiveState();
   const activeRace = useActiveRace();
   const stateBase = useStateBase();
+  const raceBase = useActiveRaceBase();
 
   return (
     <footer className="border-t mt-16">
@@ -38,19 +39,19 @@ export function Footer() {
           </div>
           <nav aria-label="Footer" className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
             {activeState &&
-              footerLinks.map(({ to, label, race }) => (
-                <Link
-                  key={to}
-                  to={
-                    race && activeRace
-                      ? `${stateBase}/${activeRace.office}/${to}`
-                      : `${stateBase}/${to}`
-                  }
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {label}
-                </Link>
-              ))}
+              footerLinks
+                // Race-scoped links need an active race (none on a chamber
+                // overview); polling needs a polling source.
+                .filter(({ to, race }) => !race || (raceBase && (to !== "polling" || activeRace?.pollingSourceUrl)))
+                .map(({ to, label, race }) => (
+                  <Link
+                    key={to}
+                    to={race && raceBase ? `${raceBase}/${to}` : `${stateBase}/${to}`}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {label}
+                  </Link>
+                ))}
             {ALL_STATES_URL &&
               (isSingleStateSite ? (
                 <a href={ALL_STATES_URL} className="text-muted-foreground hover:text-foreground">
