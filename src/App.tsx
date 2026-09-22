@@ -62,7 +62,8 @@ function RaceArea({ cfg }: { cfg: StateConfig }) {
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />
         <Route path="candidates/:slug" element={<CandidateDetail />} />
-        <Route path="money" element={<Navigate to="money/donors" replace />} />
+        {/* Relative to this route's own path (…/money), so "donors" → …/money/donors. */}
+        <Route path="money" element={<Navigate to="donors" replace />} />
         <Route path="money/donors" element={<TopDonors />} />
         <Route path="money/outside-spending" element={<IndependentExpenditures />} />
         <Route path="polling" element={<Polling />} />
