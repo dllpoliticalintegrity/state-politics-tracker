@@ -209,6 +209,44 @@ dedicated site. Data, importers and design tokens are shared by
 construction. Adding another state's site is one hostname entry and one
 `env` block in `wrangler.jsonc`.
 
+## Legislative races
+
+**Decision (Sep 2026): a state can track a legislative chamber as a set
+of district races — finance only, no polling, no hand curation.**
+Michigan is first (State Senate, 38 seats; State House, 110 seats; all on
+the 2026 ballot).
+
+- **Model.** `StateConfig.chambers` lists each chamber (office segment,
+  title, district count, general date). A district is an ordinary
+  `RaceConfig` synthesized at runtime by `districtRace()` with `district`
+  set, so the race dashboard, hooks and SEO all work unchanged: they
+  filter `cf_candidates` on `(state, office, district)` via
+  `scopeToRace()`. `cf_candidates.district` was added for this
+  (`20260922210000_cf_candidates_district.sql`).
+- **Routes.** `/:state/:office` is the chamber overview (one row per
+  district: candidates, party, raised → district page); `/:state/:office/
+  :district/*` is the usual race dashboard. Chrome hides the race-scoped
+  nav on the overview. Race pills include the chambers.
+- **Roster.** Not curated: `sync_michigan_legislature()` in the finance
+  importer runs the MiTN committee search for *active candidate
+  committees* with Office Sought = State Senator / Representative in
+  State Legislature — the same search + detail calls SLCF's Michigan
+  scraper makes, filtered server-side to the two offices instead of
+  sweeping all ~10,700 committees — reads party and district from each
+  new committee's detail page, and inserts `cf_candidates` rows
+  (`slug` = `first-last-sd11` / `-hd110`, `filer_refs` = `["mi:<cfr_com_id>"]`).
+  Existing rows are only topped up with missing filer refs, so
+  editorial edits survive. The Michigan finance import then reads its
+  committee map from the database (`mi_committee_map()`), so the new
+  committees get contributions/expenditures the same night.
+- **Known limits.** "Active committee" over-includes: incumbents not on
+  the 2026 ballot and primary losers (Michigan's primary was Aug 4,
+  2026) still have active committees. District pages rank by money so
+  dormant committees sink; marking `lost_primary`/`withdrawn` is
+  editorial or a later results import. MiTN's campaigns search (which
+  knows election dates) did not answer our request shape — worth a
+  second look to get the true 2026 field.
+
 ## Keeping two repos honest
 
 The cost of the separate-repo decision is drift: this repo and the new

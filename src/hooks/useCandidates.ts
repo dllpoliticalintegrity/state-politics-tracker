@@ -1,6 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import type { RaceConfig, StateConfig } from "@/states/registry";
+
+/**
+ * Restrict a cf_candidates query (or a query joined to it via `prefix`) to
+ * the race: state + office, plus district for a legislative seat. Statewide
+ * races carry no district filter — their rows have district null and are
+ * the only rows for that office.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function scopeToRace<Q extends { eq: (col: string, v: any) => Q }>(
+  q: Q,
+  state: StateConfig,
+  race: RaceConfig,
+  prefix = "",
+): Q {
+  let out = q.eq(`${prefix}state`, state.code).eq(`${prefix}office`, race.office);
+  if (race.district) out = out.eq(`${prefix}district`, race.district);
+  return out;
+}
 
 export type TxCandidate = {
   id: string;
@@ -18,6 +37,8 @@ export type TxCandidate = {
   committee_name: string | null;
   filer_refs?: unknown;
   office: string;
+  /** District number for legislative seats; null for statewide offices. */
+  district?: string | null;
   status: string | null;
   featured: boolean;
 };
@@ -112,20 +133,43 @@ export type TxIeRow = {
 // Candidates
 // ---------------------------------------------------------------------------
 
+/**
+ * Every candidate across a chamber's districts (the /state-senate overview),
+ * ordered by district then name. Not race-scoped: the overview renders
+ * outside any RaceProvider.
+ */
+export function useChamberCandidates(office: string) {
+  const stateCfg = useStateConfig();
+  return useQuery({
+    queryKey: ["cf_chamber_candidates", stateCfg.code, office],
+    queryFn: async (): Promise<TxCandidate[]> => {
+      const { data, error } = await (supabase as any)
+        .from("cf_candidates")
+        .select("id,slug,name,party,photo_url_thumb,state,office,district,status,featured")
+        .eq("state", stateCfg.code)
+        .eq("office", office)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as TxCandidate[];
+    },
+  });
+}
+
 export function useCandidates() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   return useQuery({
-    queryKey: ["cf_candidates", stateCfg.code, race.office],
+    queryKey: ["cf_candidates", stateCfg.code, race.office, race.district ?? null],
     queryFn: async (): Promise<TxCandidate[]> => {
-      const { data, error } = await (supabase as any)
-        .from("cf_candidates")
-        .select(
-          "id,slug,name,party,title,bio,photo_url,photo_url_medium,photo_url_large,photo_url_thumb,website,state,committee_name,filer_refs,office,status,featured",
-        )
-        .eq("state", stateCfg.code)
-        .eq("office", race.office)
-        .order("name");
+      const { data, error } = await scopeToRace(
+        (supabase as any)
+          .from("cf_candidates")
+          .select(
+            "id,slug,name,party,title,bio,photo_url,photo_url_medium,photo_url_large,photo_url_thumb,website,state,committee_name,filer_refs,office,district,status,featured",
+          ),
+        stateCfg,
+        race,
+      ).order("name");
       if (error) throw error;
       return (data ?? []) as TxCandidate[];
     },
@@ -259,14 +303,14 @@ export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   return useQuery({
-    queryKey: ["cf_top_aggregated_donors", stateCfg.code, race.office, limit, kind],
+    queryKey: ["cf_top_aggregated_donors", stateCfg.code, race.office, race.district ?? null, limit, kind],
     queryFn: async (): Promise<TxCrossCandidateDonor[]> => {
       // The view spans every race we track; scope to this race's candidates.
-      const { data: cands, error: candErr } = await (supabase as any)
-        .from("cf_candidates")
-        .select("id")
-        .eq("state", stateCfg.code)
-        .eq("office", race.office);
+      const { data: cands, error: candErr } = await scopeToRace(
+        (supabase as any).from("cf_candidates").select("id"),
+        stateCfg,
+        race,
+      );
       if (candErr) throw candErr;
       const ids = ((cands ?? []) as { id: string }[]).map((c) => c.id);
       if (!ids.length) return [];
@@ -401,15 +445,18 @@ export function useTopIeAggregatedDonors(limit = 50, kind: DonorKind = "all") {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   return useQuery({
-    queryKey: ["cf_top_ie_donors_aggregated", stateCfg.code, race.office, limit, kind],
+    queryKey: ["cf_top_ie_donors_aggregated", stateCfg.code, race.office, race.district ?? null, limit, kind],
     queryFn: async (): Promise<TxIeCrossCommitteeDonor[]> => {
       // Committees are shared across races; keep only those with independent
       // expenditures benefiting this office's candidates.
-      const { data: ieRows, error: ieErr } = await (supabase as any)
-        .from("cf_independent_expenditures")
-        .select("ie_filer_ident,cf_candidates!inner(office,state)")
-        .eq("cf_candidates.state", stateCfg.code)
-        .eq("cf_candidates.office", race.office);
+      const { data: ieRows, error: ieErr } = await scopeToRace(
+        (supabase as any)
+          .from("cf_independent_expenditures")
+          .select("ie_filer_ident,cf_candidates!inner(office,state,district)"),
+        stateCfg,
+        race,
+        "cf_candidates.",
+      );
       if (ieErr) throw ieErr;
       const idents = [...new Set(((ieRows ?? []) as any[]).map((r) => r.ie_filer_ident))];
       if (!idents.length) return [];
@@ -822,14 +869,14 @@ export function useIEByCandidate() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   return useQuery({
-    queryKey: ["cf_ie_by_candidate", stateCfg.code, race.office],
+    queryKey: ["cf_ie_by_candidate", stateCfg.code, race.office, race.district ?? null],
     queryFn: async (): Promise<TxIeByCandidate[]> => {
       // The matview spans every race we track; scope to this race.
-      const { data: cands, error: candErr } = await (supabase as any)
-        .from("cf_candidates")
-        .select("id")
-        .eq("state", stateCfg.code)
-        .eq("office", race.office);
+      const { data: cands, error: candErr } = await scopeToRace(
+        (supabase as any).from("cf_candidates").select("id"),
+        stateCfg,
+        race,
+      );
       if (candErr) throw candErr;
       const ids = ((cands ?? []) as { id: string }[]).map((c) => c.id);
       if (!ids.length) return [];

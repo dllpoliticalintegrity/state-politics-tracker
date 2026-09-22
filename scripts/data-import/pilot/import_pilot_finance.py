@@ -14,7 +14,9 @@ races):
   GA  Peachfile bulk CSV export (TCON/TEXP per filing year), filtered by
       Filing Entity ID. Rows carry a stable Transaction Id.
   MI  MiTN bulk ZIP export (Contribution/Expenditure per year), filtered by
-      cfr_com_id. Rows carry stable contribution/expense ids.
+      cfr_com_id. Rows carry stable contribution/expense ids. The legislature
+      roster (State Senate / State House districts) is refreshed first from
+      the MiTN committee search — see sync_michigan_legislature.
 
 Loan-type rows land in cf_loans; in-kind rows keep source_form_type='INKIND';
 GA "Unitemized Contribution" lump rows are labeled so they read sensibly in
@@ -322,8 +324,8 @@ ENTITY_PAT = re.compile(
 )
 
 
-def http(url, data=None, headers=None, timeout=300, context=None):
-    req = request.Request(url, data=data, headers=headers or {})
+def http(url, data=None, headers=None, timeout=300, context=None, method=None):
+    req = request.Request(url, data=data, headers=headers or {}, method=method)
     with request.urlopen(req, timeout=timeout, context=context) as r:
         return r.read()
 
@@ -649,8 +651,190 @@ def mi_file_list():
     return json.loads(raw)["data"]["list"]
 
 
-def import_michigan(sink, cand_ids):
+# --- Legislature roster -----------------------------------------------------
+# The State Senate / State House dashboards (registry `chambers`) are not
+# hand-curated: the roster is every *active* candidate committee MiTN lists
+# for the chamber's office, with party and district read from the committee
+# detail page — the same search + detail calls SLCF's michigan scraper makes
+# (hderyke/state-level-campaign-finance, src/pipeline/scrapers/michigan.py),
+# but filtered server-side to the two offices instead of sweeping all 10,700
+# committees. New committees are inserted into cf_candidates with
+# district + filer_refs; existing rows are only ever topped up with a missing
+# filer ref, so editorial edits (photos, status, names) survive the nightly
+# run. Set MI_ROSTER=0 to skip the roster step.
+
+MI_SEARCH = f"{MI_BASE}?page=page.miboeCommitteePublicSearch"
+MI_CHAMBERS = {  # registry office -> (MiTN "Office Sought" lookup value, slug suffix)
+    "state-senate": ("162", "sd"),   # State Senator
+    "state-house": ("127", "hd"),    # Representative in State Legislature
+}
+MI_COMMITTEE_TYPE_CANDIDATE = "13"
+MI_STATUS_ACTIVE = "45"
+MI_PARTY = {
+    "Democratic Party": "Democrat", "Republican Party": "Republican",
+    "Libertarian Party": "Libertarian", "Green Party": "Green",
+    "No Party Affiliation": "Independent", "Non Partisan": "Independent",
+}
+MI_SEARCH_FIELDS = [
+    "committeeId", "committeeType", "committeeStatus", "committeeName",
+    "committeeAcronym", "candidateFirstName", "candidateMiddleName",
+    "candidateLastName", "countyOfResidence", "party", "county",
+    "congressionalDistrict", "officeSought", "officeSoughtDistrict",
+    "officeHeld", "officeHeldDistrict", "termExpirationDateBegin",
+    "termExpirationDateEnd", "sponsoringOrganization",
+]
+
+
+def slugify(s):
+    s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    return re.sub(r"-{2,}", "-", s)
+
+
+def strip_tags(s):
+    import html as _html
+    return _html.unescape(re.sub(r"<.*?>", " ", s)).strip()
+
+
+class MiTN:
+    """Cookie-holding client for the MiTN committee search (needs a JSESSIONID)."""
+
+    def __init__(self):
+        import http.cookiejar
+        self.opener = request.build_opener(
+            request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.get(MI_SEARCH)  # establishes the session
+
+    def get(self, url, data=None, headers=None, tries=4):
+        hdr = {"User-Agent": BROWSER_UA, "Referer": MI_SEARCH, **(headers or {})}
+        for attempt in range(tries):
+            try:
+                return self.opener.open(request.Request(url, data=data, headers=hdr),
+                                        timeout=120).read().decode("utf-8", "replace")
+            except Exception as e:  # noqa: BLE001 — MiTN resets connections routinely
+                if attempt == tries - 1:
+                    raise
+                time.sleep(3 * (attempt + 1))
+
+    def search(self, office_value, status=MI_STATUS_ACTIVE):
+        """Every candidate committee for an office (paged, 100/page)."""
+        rows, page = [], 1
+        while True:
+            form = {"form." + k: "" for k in MI_SEARCH_FIELDS}
+            form.update({
+                "sortColumn": "createdOn", "sortDirection": "desc",
+                "form.committeeType": MI_COMMITTEE_TYPE_CANDIDATE,
+                "form.committeeStatus": status, "form.officeSought": office_value,
+                "perPage": "100", "option": "committee", "currentPage": str(page),
+            })
+            html_ = self.get(f"{MI_SEARCH}&action=search",
+                             parse.urlencode(form).encode(),
+                             {"hx-request": "true", "hx-target": "search-results",
+                              "hx-trigger": "searchForm",
+                              "Content-Type": "application/x-www-form-urlencoded"})
+            n = 0
+            for tr in re.finditer(r"<tr[^>]*aria-rowindex[^>]*>(.*?)</tr>", html_, re.S):
+                n += 1
+                m = (re.search(r"id:\s*(\d+)", tr.group(0))
+                     or re.search(r"&quot;id&quot;:\s*(\d+)", tr.group(0)))
+                tds = [strip_tags(t) for t in re.findall(r"<td[^>]*>(.*?)</td>", tr.group(1), re.S)]
+                if m and len(tds) >= 4 and tds[0].isdigit():
+                    rows.append({"internal_id": m.group(1), "cfr_com_id": tds[0].zfill(7),
+                                 "committee_name": tds[2], "committee_status": tds[3]})
+            if n < 100 or page > 40:
+                return rows
+            page += 1
+
+    def detail(self, internal_id):
+        html_ = self.get(f"{MI_SEARCH}&action=showCommitteeDetails",
+                         parse.urlencode({"parameters": json.dumps({"id": int(internal_id)})}).encode(),
+                         {"hx-request": "true", "hx-target": "#committeeDetailsContent",
+                          "Content-Type": "application/x-www-form-urlencoded"})
+        d = {strip_tags(k): strip_tags(v)
+             for k, v in re.findall(r"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>", html_, re.S)}
+        blank = lambda v: "" if not v or re.fullmatch(r"[\s—\-]+", v) else v  # noqa: E731
+        return {k: blank(v) for k, v in d.items()}
+
+
+def mi_district_number(raw):
+    """'11th District' -> '11'; '' -> None."""
+    m = re.search(r"\d+", raw or "")
+    return str(int(m.group(0))) if m else None
+
+
+def nice_name(s):
+    """MiTN stores some candidate names in ALL CAPS ('DOUGLAS WOZNIAK');
+    title-case those and leave mixed-case names (McDonald, DeVos) alone."""
+    s = re.sub(r"\s+", " ", s or "").strip()
+    if s and s == s.upper():
+        s = " ".join(w[0] + w[1:].lower() if len(w) > 1 else w for w in s.split(" "))
+        s = re.sub(r"(['-])([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)  # O'Neil, Smith-Jones
+        s = re.sub(r"\bMc([a-z])", lambda m: "Mc" + m.group(1).upper(), s)
+    return s
+
+
+def sync_michigan_legislature():
+    if os.environ.get("MI_ROSTER", "1") == "0":
+        print("   MI roster: skipped (MI_ROSTER=0)")
+        return
+    existing = sb_get("cf_candidates?state=eq.mi&select=id,slug,office,district,filer_refs")
+    by_slug = {c["slug"]: c for c in existing}
+    known_refs = {ref for c in existing for ref in (c.get("filer_refs") or [])}
+    client = MiTN()
+    inserted = patched = skipped = 0
+    for office, (office_value, suffix) in MI_CHAMBERS.items():
+        committees = client.search(office_value)
+        new = [c for c in committees if f"mi:{c['cfr_com_id']}" not in known_refs]
+        print(f"   MI {office}: {len(committees)} active committees, {len(new)} new", flush=True)
+        rows = {}  # slug -> row (a candidate can hold several committees)
+        for c in new:
+            d = client.detail(c["internal_id"])
+            district = mi_district_number(d.get("Office Sought District"))
+            first, last = d.get("Candidate First Name", ""), d.get("Candidate Last Name", "")
+            if not district or not last:
+                skipped += 1
+                continue
+            name = nice_name(f"{first} {last}")
+            slug = f"{slugify(name)}-{suffix}{district}"
+            ref = f"mi:{c['cfr_com_id']}"
+            row = rows.setdefault(slug, {
+                "state": "mi", "office": office, "district": district, "slug": slug,
+                "name": name, "party": MI_PARTY.get(d.get("Party", ""), d.get("Party") or None),
+                "committee_name": c["committee_name"], "filer_refs": [],
+                "status": "active", "election_year": 2026, "featured": False,
+            })
+            if ref not in row["filer_refs"]:
+                row["filer_refs"].append(ref)
+        for slug, row in rows.items():
+            if slug in by_slug:
+                # Editorial row exists (or a second committee for the same
+                # candidate): only add the missing filer ref.
+                merged = list(dict.fromkeys((by_slug[slug].get("filer_refs") or []) + row["filer_refs"]))
+                http(f"{SUPABASE_URL}/rest/v1/cf_candidates?slug=eq.{parse.quote(slug)}",
+                     data=json.dumps({"filer_refs": merged}).encode(),
+                     headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+                              "Content-Type": "application/json", "Prefer": "return=minimal"},
+                     method="PATCH")
+                patched += 1
+            else:
+                sb_upsert("cf_candidates", [row], conflict="slug")
+                inserted += 1
+    print(f"   MI roster: {inserted} inserted, {patched} refs added, {skipped} skipped (no district/name)",
+          flush=True)
+
+
+def mi_committee_map():
+    """cfr_com_id -> slug: the hand-curated statewide map plus every
+    filer ref stored on cf_candidates (legislature rows come from there)."""
     com_to_slug = {v: k for k, v in COMMITTEES["mi"].items()}
+    for c in sb_get("cf_candidates?state=eq.mi&select=slug,filer_refs"):
+        for ref in c.get("filer_refs") or []:
+            if isinstance(ref, str) and ref.startswith("mi:"):
+                com_to_slug.setdefault(ref[3:], c["slug"])
+    return com_to_slug
+
+
+def import_michigan(sink, cand_ids):
+    com_to_slug = mi_committee_map()
     files = [f for f in mi_file_list()
              if str(f.get("year")) in {str(y) for y in YEARS}
              and f.get("transactiontype") in ("Contribution", "Expenditure")]
@@ -2340,6 +2524,13 @@ def main():
 
     if not SUPABASE_URL or not SERVICE_KEY:
         sys.exit("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
+
+    # Rosters that are derived from a state registry rather than curated by
+    # hand run before the candidate map is loaded, so their new rows get
+    # finance the same night.
+    if "mi" in args.states:
+        print("== syncing mi legislature roster ==", flush=True)
+        sync_michigan_legislature()
 
     cand_ids = {c["slug"]: c["id"] for c in sb_get("cf_candidates?select=id,slug")}
     sink = Sink()

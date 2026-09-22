@@ -77,8 +77,11 @@ export default function About() {
           <h2 className="font-display text-xl font-semibold">What's tracked here</h2>
           <p className="text-sm text-muted-foreground">
             For {stateCfg.name} we currently track:{" "}
-            {races.map((r) => r.title).join(", ") || "no races yet"}. More statewide races
-            are added as their candidate lists are curated. Campaign-finance rules —
+            {races.map((r) => r.title).join(", ") || "no races yet"}
+            {stateCfg.chambers?.length
+              ? `, plus every ${stateCfg.chambers.map((c) => `${c.title} (${c.districts} districts)`).join(" and ")} seat — finance only, with the candidate list drawn from active candidate committees on file rather than curated by hand`
+              : ""}
+            . More statewide races are added as their candidate lists are curated. Campaign-finance rules —
             contribution limits, who may give, and how outside spending is disclosed —
             differ meaningfully by state; consult{" "}
             {stateCfg.agency ? (

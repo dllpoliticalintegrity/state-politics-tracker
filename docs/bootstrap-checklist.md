@@ -159,6 +159,16 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       (`npx wrangler deploy --env michigan`); needs the zone on the
       Cloudflare account and a second Workers project. Hub tiles link out
       to a state's own site when one exists.
+- [x] Michigan legislature (Sep 2026): State Senate (38) + State House
+      (110) as district races, finance only — `chambers` in the registry,
+      `cf_candidates.district`, chamber overview at `/state-senate`,
+      district dashboards at `/state-senate/:n`, roster derived nightly
+      from MiTN's active candidate committees by the finance importer.
+      See docs/plan.md, "Legislative races" (incl. the over-inclusion
+      caveat: active committees ≠ the 2026 ballot).
+- [ ] Legislature follow-ups: mark primary losers / non-candidates
+      (`lost_primary` / `withdrawn`) — editorial or a results import;
+      revisit MiTN's campaigns search for a true 2026-ballot roster.
 - [ ] Michigan launch follow-ups: add the zone + Workers project in the
       dashboard; PostHog project for the MI site; set `HUB_URL` in
       `shared/site.ts` once the hub has a domain so the MI site's "All

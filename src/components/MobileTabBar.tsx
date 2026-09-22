@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Home, Users, TrendingUp, DollarSign, Info } from "lucide-react";
-import { useActiveRace, useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveRace, useActiveRaceBase, useActiveState, useStateBase } from "@/states/StateContext";
 
 const items = [
   { to: "", label: "Home", icon: Home, race: true },
@@ -15,10 +15,11 @@ export function MobileTabBar() {
   const activeState = useActiveState();
   const activeRace = useActiveRace();
   const stateBase = useStateBase();
+  const base = useActiveRaceBase();
 
-  // Only rendered inside a live state's routes (App gates on this too).
-  if (!activeState || !activeRace) return null;
-  const base = `${stateBase}/${activeRace.office}`;
+  // Only rendered inside a live state's race routes (App gates on the state;
+  // a chamber overview has no active race and gets no tab bar).
+  if (!activeState || !activeRace || !base) return null;
 
   const linkFor = (item: { to: string; race: boolean }) =>
     item.race ? `${base}${item.to}` : `${stateBase}${item.to}`;
