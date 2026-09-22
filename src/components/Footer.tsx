@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { useActiveRace, useActiveState } from "@/states/StateContext";
+import { useActiveRace, useActiveState, useStateBase } from "@/states/StateContext";
+import { ALL_STATES_URL, SITE_NAME, SITE_STATE, isSingleStateSite } from "@/states/site";
 
 const footerLinks = [
   { to: "candidates", label: "Candidates", race: true },
@@ -11,16 +12,18 @@ const footerLinks = [
 export function Footer() {
   const activeState = useActiveState();
   const activeRace = useActiveRace();
+  const stateBase = useStateBase();
 
   return (
     <footer className="border-t mt-16">
       <div className="container py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
           <div className="max-w-sm space-y-2">
-            <div className="font-display text-lg font-bold">State Politics Tracker</div>
+            <div className="font-display text-lg font-bold">{SITE_NAME}</div>
             <p className="text-sm text-muted-foreground">
-              A public-interest dashboard following the money and polling in 2026
-              statewide races across the country, from the Political Integrity Project.
+              {SITE_STATE
+                ? `A public-interest dashboard following the money and polling in ${SITE_STATE.name}'s 2026 statewide races, from the Political Integrity Project.`
+                : "A public-interest dashboard following the money and polling in 2026 statewide races across the country, from the Political Integrity Project."}
             </p>
             <p className="text-sm text-muted-foreground">
               <a
@@ -40,17 +43,24 @@ export function Footer() {
                   key={to}
                   to={
                     race && activeRace
-                      ? `/${activeState.code}/${activeRace.office}/${to}`
-                      : `/${activeState.code}/${to}`
+                      ? `${stateBase}/${activeRace.office}/${to}`
+                      : `${stateBase}/${to}`
                   }
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {label}
                 </Link>
               ))}
-            <Link to="/" className="text-muted-foreground hover:text-foreground">
-              All states
-            </Link>
+            {ALL_STATES_URL &&
+              (isSingleStateSite ? (
+                <a href={ALL_STATES_URL} className="text-muted-foreground hover:text-foreground">
+                  All states
+                </a>
+              ) : (
+                <Link to={ALL_STATES_URL} className="text-muted-foreground hover:text-foreground">
+                  All states
+                </Link>
+              ))}
             <a
               href="mailto:team@politicalintegrity.us"
               className="text-muted-foreground hover:text-foreground"

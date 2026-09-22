@@ -150,7 +150,21 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
 
 ## Phase 3 — launch
 
-- [ ] Choose the domain; set robots.txt `Sitemap:` line.
+- [x] Michigan dedicated site (Sep 2026): the hub build also runs as
+      **michiganpoliticstracker.com** via single-state mode — `SITE_STATE`
+      Worker var / hostname pin (`shared/site.ts`), root-level race routes
+      (`/governor`), Michigan chrome, registry-driven SEO for every page +
+      full sitemap, generated robots.txt/llms.txt, `/mi/*` → `/*`
+      redirects. Deployed as the `michigan` env in `wrangler.jsonc`
+      (`npx wrangler deploy --env michigan`); needs the zone on the
+      Cloudflare account and a second Workers project. Hub tiles link out
+      to a state's own site when one exists.
+- [ ] Michigan launch follow-ups: add the zone + Workers project in the
+      dashboard; PostHog project for the MI site; set `HUB_URL` in
+      `shared/site.ts` once the hub has a domain so the MI site's "All
+      states" links appear; cross-link from texaspoliticstracker.com.
+- [ ] Choose the hub domain (robots.txt `Sitemap:` is now generated from
+      the request origin on both deploy targets).
 - [ ] Per-state SEO: registry-driven `STATIC_ROUTES` in
       `functions/_middleware.ts` and per-state sitemap entries.
 - [ ] New PostHog project; re-add the snippet in `index.html`.

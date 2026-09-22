@@ -47,6 +47,35 @@ Two Cloudflare targets are supported; both share `shared/seo.ts`:
 Node is pinned to 22 via `.node-version`. No environment variables are
 needed until a state is live.
 
+### Dedicated single-state sites
+
+The same build also ships as per-state sites — currently
+**michiganpoliticstracker.com** (Michigan only: no landing grid or state
+switcher, race pages at the root such as `/governor` and
+`/attorney-general`, Michigan-branded chrome, per-page SEO titles and a
+full sitemap). Nothing is forked: the state is pinned per request by the
+`SITE_STATE` Worker var or by the hostname (`SINGLE_STATE_HOSTS` in
+`shared/site.ts`), the Worker injects a `<meta name="site-state">` tag
+so the SPA agrees, and hub-style links such as `/mi/governor` redirect
+to the prefix-less path. Data, importers and design are shared with the
+hub — see `docs/plan.md`, "Dedicated single-state sites".
+
+Each dedicated site is a `wrangler.jsonc` environment, deployed from the
+same `dist/`:
+
+```sh
+npm run build
+npx wrangler deploy --env michigan   # michigan-politics-tracker Worker
+npx wrangler deploy --env ""         # the multi-state hub (top-level config)
+```
+
+In the Cloudflare dashboard that is a second Workers project on this
+repo with deploy command `npx wrangler deploy --env michigan`. The
+`michiganpoliticstracker.com` zone must be on the account before the
+first deploy so the custom-domain routes attach; the Worker 301s `www.`
+to the apex. To add another state's site, add its hostname to
+`SINGLE_STATE_HOSTS` and a matching `env` block.
+
 ## Local development
 
 ```sh
@@ -55,4 +84,6 @@ npm run dev
 ```
 
 No env vars are needed until a state is live; copy `.env.example` to
-`.env` once the Supabase project exists.
+`.env` once the Supabase project exists. To develop the Michigan site
+rather than the hub, set `VITE_SITE_STATE=mi` (in `.env` or inline:
+`VITE_SITE_STATE=mi npm run dev`).

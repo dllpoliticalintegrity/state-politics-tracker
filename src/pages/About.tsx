@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { useStateConfig } from "@/states/StateContext";
+import { SITE_NAME, isSingleStateSite } from "@/states/site";
 
 export default function About() {
   const stateCfg = useStateConfig();
@@ -15,8 +16,9 @@ export default function About() {
           About & methodology
         </h1>
         <p className="text-base text-muted-foreground">
-          State Politics Tracker is a public-interest project of the Political Integrity
-          Project. We follow the money and the polls in 2026 statewide races — who's
+          {SITE_NAME} is a public-interest project of the Political Integrity Project.
+          We follow the money and the polls in{" "}
+          {isSingleStateSite ? `${stateCfg.name}'s` : ""} 2026 statewide races — who's
           giving, who's spending, and where each race stands.
         </p>
       </section>

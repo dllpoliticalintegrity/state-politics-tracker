@@ -185,6 +185,30 @@ the registry, looping over live states. States without a tracked
 governor's race hide the polling sections (the components already
 handle empty data).
 
+## Dedicated single-state sites
+
+**Decision (Sep 2026): a state that wants its own domain gets it from
+this codebase, not a fork.** michiganpoliticstracker.com is the first.
+The TX and CA sites forked because they predate the hub; forking again
+would reintroduce exactly the drift this section warns about, and a
+Michigan fork would also have to duplicate the MiTN importer, the polling
+sync and the `cf_*` schema.
+
+Instead the one build has a *single-state mode* (`shared/site.ts`,
+`src/states/site.ts`): the Worker (or Pages function) pins a state per
+request — the `SITE_STATE` var set on that site's wrangler environment,
+or the hostname via `SINGLE_STATE_HOSTS` — and tells the SPA through an
+injected `<meta name="site-state">` tag. Pinned, the site has no landing
+grid or switcher, mounts the state's race routes at the root
+(`/governor`, `/attorney-general/candidates/…`), redirects hub-style
+`/mi/…` links to the prefix-less path, brands the chrome after the state
+("Michigan Politics Tracker"), and serves registry-driven SEO metadata
+for every page plus a full sitemap and generated robots.txt/llms.txt.
+The hub's `/mi` pages keep working; its Michigan tile links out to the
+dedicated site. Data, importers and design tokens are shared by
+construction. Adding another state's site is one hostname entry and one
+`env` block in `wrangler.jsonc`.
+
 ## Keeping two repos honest
 
 The cost of the separate-repo decision is drift: this repo and the new

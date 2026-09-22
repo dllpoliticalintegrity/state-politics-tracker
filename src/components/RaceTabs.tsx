@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { statePath } from "@/states/site";
 
 /** Pill tabs switching between a state's tracked races. Hidden when a state
  * has only one race. Rendered on every race page (see RaceArea in App). */
@@ -17,7 +18,7 @@ export default function RaceTabs() {
           return (
             <Link
               key={r.office}
-              to={`/${state.code}/${r.office}`}
+              to={`${statePath(state.code)}/${r.office}`}
               aria-current={active ? "page" : undefined}
               className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition-colors ${
                 active
