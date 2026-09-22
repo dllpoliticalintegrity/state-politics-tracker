@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 import { STATES, type StateConfig } from "@/states/registry";
+import { SINGLE_STATE_SITES } from "../../shared/site";
 
 const STATUS_LABEL: Record<StateConfig["status"], string> = {
   live: "Dashboard live",
@@ -71,16 +72,32 @@ function StateTile({ state }: { state: StateConfig }) {
   );
 
   const base = "block rounded-md border bg-card p-3 text-left";
+  const ownSite = SINGLE_STATE_SITES[state.code];
 
   switch (state.status) {
     case "live":
       return (
-        <Link
-          to={`/${state.code}`}
-          className={`${base} border-primary shadow-[0_1px_0_hsl(var(--primary))] hover:bg-accent`}
-        >
-          {inner}
-        </Link>
+        <div className="relative">
+          <Link
+            to={`/${state.code}`}
+            className={`${base} border-primary shadow-[0_1px_0_hsl(var(--primary))] hover:bg-accent`}
+          >
+            {inner}
+          </Link>
+          {ownSite && (
+            // States with a dedicated site (michiganpoliticstracker.com) get a
+            // small outbound link; the hub's own /:state pages keep working.
+            <a
+              href={ownSite}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute top-2 right-2 inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+              title={`${state.name} also has its own site`}
+            >
+              Own site <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+          )}
+        </div>
       );
     case "external":
       return (

@@ -20,8 +20,9 @@ import {
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import DonationPanel from "@/components/donate/DonationPanel";
-import { useActiveRace, useActiveState } from "@/states/StateContext";
+import { useActiveRace, useActiveState, useStateBase } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
+import { ALL_STATES_URL, SITE_NAME, isSingleStateSite } from "@/states/site";
 import star from "@/assets/star.svg";
 
 // `race: true` items live under /:state/:office; the rest under /:state.
@@ -97,7 +98,7 @@ export function Header() {
   const [donateOpen, setDonateOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
-  const stateBase = activeState ? `/${activeState.code}` : "";
+  const stateBase = useStateBase();
   const linkFor = (item: { to: string; race: boolean }) =>
     item.race && activeRace
       ? `${stateBase}/${activeRace.office}/${item.to}`
@@ -126,10 +127,10 @@ export function Header() {
               }}
             />
             <span className="font-display text-lg font-bold tracking-tight truncate">
-              State Politics Tracker
+              {SITE_NAME}
             </span>
           </Link>
-          <StateSwitcher />
+          {!isSingleStateSite && <StateSwitcher />}
         </div>
 
         {activeState && (
@@ -190,11 +191,20 @@ export function Header() {
                     </Button>
                   </Link>
                 ))}
-              <Link to="/" onClick={() => setOpen(false)}>
-                <Button variant="ghost" className="w-full justify-start text-sm">
-                  All states
-                </Button>
-              </Link>
+              {ALL_STATES_URL &&
+                (isSingleStateSite ? (
+                  <a href={ALL_STATES_URL} onClick={() => setOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start gap-2 text-sm">
+                      All states <ExternalLink className="h-3 w-3" />
+                    </Button>
+                  </a>
+                ) : (
+                  <Link to={ALL_STATES_URL} onClick={() => setOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      All states
+                    </Button>
+                  </Link>
+                ))}
               <Button
                 variant="ghost"
                 className="w-full justify-start gap-2 text-sm"

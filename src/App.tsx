@@ -10,6 +10,8 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { ThemeProvider } from "next-themes";
 import { StateProvider, RaceProvider, useActiveState } from "@/states/StateContext";
 import { getState, type StateConfig } from "@/states/registry";
+import { SITE_NAME, SITE_STATE } from "@/states/site";
+import { routeMeta } from "../shared/seo";
 import RaceTabs from "@/components/RaceTabs";
 import StatePicker from "./pages/StatePicker";
 import ComingSoon from "./pages/ComingSoon";
@@ -24,12 +26,13 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// Everything under /:state. Validates the code against the registry and
-// renders the live state's race routes, a coming-soon page, an external
-// redirect, or a 404.
-function StateArea() {
+// Everything under /:state (or under / on a single-state site, where `cfg`
+// is the pinned state). Validates the code against the registry and renders
+// the live state's race routes, a coming-soon page, an external redirect, or
+// a 404.
+function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
   const { state } = useParams();
-  const cfg = getState(state);
+  const cfg = pinned ?? getState(state);
 
   if (!cfg) return <NotFound />;
   if (cfg.status === "external") return <ExternalRedirect url={cfg.externalUrl!} name={cfg.name} />;
@@ -69,6 +72,14 @@ function RaceArea({ cfg }: { cfg: StateConfig }) {
   );
 }
 
+// On a single-state site, hub-style links (/mi/governor) still resolve —
+// they drop the state prefix so a URL shared from the hub keeps working.
+function StripStatePrefix({ code }: { code: string }) {
+  const { pathname, search, hash } = useLocation();
+  const rest = pathname.replace(new RegExp(`^/${code}(?=/|$)`, "i"), "") || "/";
+  return <Navigate to={{ pathname: rest, search, hash }} replace />;
+}
+
 function ExternalRedirect({ url, name }: { url: string; name: string }) {
   useEffect(() => {
     window.location.replace(url);
@@ -94,12 +105,31 @@ function AppShell() {
     }
   }, [location.pathname, location.search]);
 
+  // Keep the tab title in step with client-side navigation, using the same
+  // per-route metadata the Worker serves to crawlers (shared/seo.ts).
+  useEffect(() => {
+    const meta = routeMeta(location.pathname, SITE_STATE?.code ?? null);
+    if (meta) document.title = meta.title;
+    // A dedicated site's 404s and redirects still carry its own name, not the
+    // hub's baked-in index.html title.
+    else if (SITE_STATE) document.title = SITE_NAME;
+  }, [location.pathname]);
+
   return (
     <>
       <Header />
       <Routes>
-        <Route path="/" element={<StatePicker />} />
-        <Route path="/:state/*" element={<StateArea />} />
+        {SITE_STATE ? (
+          <>
+            <Route path={`/${SITE_STATE.code}/*`} element={<StripStatePrefix code={SITE_STATE.code} />} />
+            <Route path="/*" element={<StateArea cfg={SITE_STATE} />} />
+          </>
+        ) : (
+          <>
+            <Route path="/" element={<StatePicker />} />
+            <Route path="/:state/*" element={<StateArea />} />
+          </>
+        )}
       </Routes>
       <Footer />
       {activeState && (
