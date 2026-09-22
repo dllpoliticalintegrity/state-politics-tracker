@@ -27,10 +27,18 @@ jobs:
       #
       # No curl -f here: on a 500 it would exit before the body is echoed,
       # hiding the per-race error list that says which state broke.
+      #
+      # --retry with --retry-all-errors covers transport failures (the 06:24 UTC
+      # run on 2026-09-21 died on "Recv failure: Connection reset by peer"
+      # before any response); plain --retry only counts timeouts and 429/5xx
+      # as transient, and without -f an HTTP error is not a curl error, so the
+      # body still gets echoed and judged below. The edge function refreshes
+      # the same rows each time, so a repeated POST is harmless.
       - name: Trigger 270toWin import (all live races)
         run: |
           ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvaHhkZnJ4bnh1eGpkdnZ5ZmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ5NzQsImV4cCI6MjA5ODU5MDk3NH0.vAaUdkMmbFPEO-1usZaTj9J4EcyJjnYzjAiDkSeaVYo"
-          CODE=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
+          CODE=$(curl -sS --retry 3 --retry-delay 15 --retry-all-errors \
+            -o resp.json -w '%{http_code}' -X POST \
             "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-towin-polling-multi" \
             -H "Authorization: Bearer $ANON" \
             -H "apikey: $ANON" \
