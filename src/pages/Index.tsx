@@ -9,6 +9,7 @@ import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
+import RaceTabs from "@/components/RaceTabs";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { isCandidateActiveForRace } from "@/lib/candidateStatus";
@@ -133,6 +134,9 @@ export default function Index() {
             : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
       </section>
+
+      {/* Other races in this state — under the hero, so the ticker owns the top. */}
+      <RaceTabs inline />
 
       {/* Summary strip */}
       <section className="container pb-10">
