@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
-import RaceTabs from "@/components/RaceTabs";
 import DistrictMap from "@/components/DistrictMap";
 import { useCandidateTotals, useChamberCandidates, type TxCandidate } from "@/hooks/useCandidates";
 import { formatCurrency, partyColor } from "@/lib/finance";
@@ -48,8 +47,6 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
           {`Campaign finance for all ${chamber.districts} ${chamber.title} districts, synced nightly from the ${stateCfg.agency?.name ?? "state disclosure agency"}. Pick a district to see its candidates, donors and spending.`}
         </p>
       </section>
-
-      <RaceTabs inline />
 
       <section className="container pb-10">
         <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">

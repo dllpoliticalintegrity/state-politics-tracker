@@ -6,9 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "
 import { useEffect } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
-import { MobileTabBar } from "@/components/MobileTabBar";
 import { ThemeProvider } from "next-themes";
-import { StateProvider, RaceProvider, useActiveState } from "@/states/StateContext";
+import { StateProvider, RaceProvider, useRaceBase } from "@/states/StateContext";
 import {
   districtRace,
   getChamber,
@@ -20,7 +19,7 @@ import {
 } from "@/states/registry";
 import { SITE_NAME, SITE_STATE } from "@/states/site";
 import { routeMeta } from "../shared/seo";
-import RaceTabs from "@/components/RaceTabs";
+import RaceSubnav from "@/components/RaceSubnav";
 import StatePicker from "./pages/StatePicker";
 import Chamber from "./pages/Chamber";
 import ComingSoon from "./pages/ComingSoon";
@@ -72,8 +71,8 @@ function RaceArea({ cfg }: { cfg: StateConfig }) {
         <Route
           index
           element={
-            // A chamber-level pseudo race so RaceTabs (and anything else
-            // race-contextual on the overview) has a RaceProvider.
+            // A chamber-level pseudo race so race-contextual hooks on the
+            // overview (useCandidateTotals) have a RaceProvider.
             <RaceProvider race={{ office: chamber.office, title: chamber.title, generalDate: chamber.generalDate, raceSlug: "" }}>
               <Chamber chamber={chamber} />
             </RaceProvider>
@@ -94,11 +93,20 @@ function DistrictArea({ cfg, chamber }: { cfg: StateConfig; chamber: ChamberConf
   return <RaceRoutes race={districtRace(cfg, chamber, district!)} />;
 }
 
+// The race's own tabs on every race sub-page. The race home renders them
+// itself, under the live contributions ticker, so the ticker keeps the top.
+function SubnavExceptHome() {
+  const { pathname } = useLocation();
+  const base = useRaceBase();
+  if (pathname.replace(/\/+$/, "") === base) return null;
+  return <RaceSubnav />;
+}
+
 // The race-scoped dashboard pages, shared by statewide and district races.
 function RaceRoutes({ race }: { race: RaceConfig }) {
   return (
     <RaceProvider race={race}>
-      <RaceTabs />
+      <SubnavExceptHome />
       <Routes>
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />
@@ -139,7 +147,6 @@ function ExternalRedirect({ url, name }: { url: string; name: string }) {
 
 function AppShell() {
   const location = useLocation();
-  const activeState = useActiveState();
 
   useEffect(() => {
     if (typeof window !== "undefined" && (window as any).posthog?.capture) {
@@ -174,12 +181,6 @@ function AppShell() {
         )}
       </Routes>
       <Footer />
-      {activeState && (
-        <>
-          <MobileTabBar />
-          <div className="md:hidden h-14" aria-hidden />
-        </>
-      )}
     </>
   );
 }

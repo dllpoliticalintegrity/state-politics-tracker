@@ -20,18 +20,10 @@ import {
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import DonationPanel from "@/components/donate/DonationPanel";
-import { useActiveRace, useActiveRaceBase, useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveState, useStateBase } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
 import { ALL_STATES_URL, SITE_NAME, isSingleStateSite } from "@/states/site";
 import star from "@/assets/star.svg";
-
-// `race: true` items live under /:state/:office; the rest under /:state.
-const navItems = [
-  { to: "candidates", label: "Candidates", race: true },
-  { to: "polling", label: "Polling", race: true },
-  { to: "money", label: "Money", race: true },
-  { to: "about", label: "About", race: false },
-];
 
 function StateSwitcher() {
   const activeState = useActiveState();
@@ -90,25 +82,32 @@ function StateSwitcher() {
   );
 }
 
-export function Header() {
+/**
+ * The site menu is fixed for a state: one entry per tracked race (statewide
+ * offices, then legislative chambers) plus About. Navigation *within* a
+ * race — Overview / Candidates / Polling / Money — lives in RaceSubnav on
+ * the race pages, so this bar never changes shape as you move around.
+ */
+function useSiteMenu() {
   const activeState = useActiveState();
-  const activeRace = useActiveRace();
-  const location = useLocation();
+  const stateBase = useStateBase();
+  const { pathname } = useLocation();
+  if (!activeState) return [];
+  const officeIdx = stateBase ? 2 : 1;
+  const currentOffice = pathname.split("/")[officeIdx];
+  const items = [
+    ...(activeState.races ?? []).map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
+    ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
+    { to: `${stateBase}/about`, label: "About", key: "about" },
+  ];
+  return items.map((i) => ({ ...i, active: currentOffice === i.key }));
+}
+
+export function Header() {
   const [open, setOpen] = useState(false);
   const [donateOpen, setDonateOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-
-  const stateBase = useStateBase();
-  const raceBase = useActiveRaceBase();
-  // Race-scoped items need an active race (on a chamber overview there is
-  // none, so only About remains); polling needs a polling source.
-  const visibleItems = navItems.filter(
-    (item) => !item.race || (raceBase && (item.to !== "polling" || activeRace?.pollingSourceUrl)),
-  );
-  const linkFor = (item: { to: string; race: boolean }) =>
-    item.race && raceBase ? `${raceBase}/${item.to}` : `${stateBase}/${item.to}`;
-  const isActive = (item: { to: string; race: boolean }) =>
-    activeState ? location.pathname.startsWith(linkFor(item)) : false;
+  const menu = useSiteMenu();
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -137,15 +136,15 @@ export function Header() {
           {!isSingleStateSite && <StateSwitcher />}
         </div>
 
-        {activeState && (
-          <nav className="hidden md:flex items-center gap-1">
-            {visibleItems.map((item) => (
-              <Link key={item.to} to={linkFor(item)}>
+        {menu.length > 0 && (
+          <nav className="hidden md:flex items-center gap-0.5" aria-label="Races">
+            {menu.map((item) => (
+              <Link key={item.key} to={item.to}>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`h-8 px-3 text-sm ${
-                    isActive(item)
+                  className={`h-8 px-2.5 text-[13px] ${
+                    item.active
                       ? "text-foreground bg-accent font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
@@ -182,15 +181,17 @@ export function Header() {
           </SheetTrigger>
           <SheetContent side="right" className="w-64 bg-card">
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
-            <nav className="flex flex-col gap-1 mt-6">
-              {activeState &&
-                visibleItems.map((item) => (
-                  <Link key={item.to} to={linkFor(item)} onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start text-sm">
-                      {item.label}
-                    </Button>
-                  </Link>
-                ))}
+            <nav className="flex flex-col gap-1 mt-6" aria-label="Races">
+              {menu.map((item) => (
+                <Link key={item.key} to={item.to} onClick={() => setOpen(false)}>
+                  <Button
+                    variant="ghost"
+                    className={`w-full justify-start text-sm ${item.active ? "bg-accent font-semibold" : ""}`}
+                  >
+                    {item.label}
+                  </Button>
+                </Link>
+              ))}
               {ALL_STATES_URL &&
                 (isSingleStateSite ? (
                   <a href={ALL_STATES_URL} onClick={() => setOpen(false)}>
