@@ -3,6 +3,7 @@ import Sparkline from "@/components/Sparkline";
 import type { TxCandidate } from "@/hooks/useCandidates";
 import { formatCurrency, partyColor, partyLabel } from "@/lib/finance";
 import { useRaceBase, useRaceConfig } from "@/states/StateContext";
+import { INACTIVE_STATUSES, ballotLabel, inactiveLabel as inactiveLabelFor } from "@/lib/candidateStatus";
 
 export type CandidateCardStats = {
   pollPct: number | null;
@@ -35,13 +36,9 @@ export default function CandidateCard({ candidate: c, stats, rank }: Props) {
   const dSym = delta > 0 ? "▲" : delta < 0 ? "▼" : "·";
   const dColor =
     delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : "text-muted-foreground";
-  const isWithdrawn =
-    c.status === "withdrawn" ||
-    c.status === "dropped_out" ||
-    c.status === "eliminated" ||
-    c.status === "lost_primary";
-  const inactiveLabel =
-    c.status === "eliminated" || c.status === "lost_primary" ? "Lost primary" : "Withdrawn";
+  const isWithdrawn = (INACTIVE_STATUSES as readonly string[]).includes(c.status ?? "");
+  const inactiveLabel = inactiveLabelFor(c.status) ?? "Withdrawn";
+  const ballot = ballotLabel(c.status);
 
   return (
     <Link to={`${base}/candidates/${c.slug}`} className="block">
@@ -53,6 +50,11 @@ export default function CandidateCard({ candidate: c, stats, rank }: Props) {
         {isWithdrawn && (
           <div className="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground border z-10">
             {inactiveLabel}
+          </div>
+        )}
+        {ballot && (
+          <div className="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/30 z-10 font-semibold">
+            {ballot}
           </div>
         )}
         {/* party-colored left stripe */}
