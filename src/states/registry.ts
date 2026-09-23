@@ -47,6 +47,13 @@ export interface ChamberConfig {
   districts: number;
   /** ISO date of the general election. */
   generalDate: string;
+  /**
+   * Static GeoJSON of the district boundaries (FeatureCollection whose
+   * features carry `properties.district`), served from public/maps —
+   * Census TIGERweb 2024 legislative districts, simplified. Optional: the
+   * chamber overview renders a map when set.
+   */
+  map?: string;
 }
 
 export interface StateConfig {
@@ -168,8 +175,8 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
     // Legislature", refreshed nightly by import_pilot_finance.py; all 38
     // Senate and 110 House seats are on the 2026 ballot.
     chambers: [
-      { office: "state-senate", title: "State Senate", districts: 38, generalDate: "2026-11-03" },
-      { office: "state-house", title: "State House", districts: 110, generalDate: "2026-11-03" },
+      { office: "state-senate", title: "State Senate", districts: 38, generalDate: "2026-11-03", map: "/maps/mi-state-senate.json" },
+      { office: "state-house", title: "State House", districts: 110, generalDate: "2026-11-03", map: "/maps/mi-state-house.json" },
     ],
   },
   ga: {

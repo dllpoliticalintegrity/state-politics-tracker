@@ -71,6 +71,10 @@ iframe[id*="givebutter-launcher"] {
     --dem: 213 60% 40%;
     --rep: 4 66% 45%;
     --ind: 32 80% 36%;
+    /* District maps: "other party leads" — a third hue that stays apart from
+       --dem/--rep under colour-vision deficiency (validated: #1f8f66). --ind
+       is too close to --rep for deutan readers, so it is not reused there. */
+    --map-other: 157 64% 34%;
 
     --sidebar-background: 42 38% 96%;
     --sidebar-foreground: 40 10% 30%;
@@ -123,6 +127,7 @@ iframe[id*="givebutter-launcher"] {
     --dem: 213 70% 62%;
     --rep: 2 75% 62%;
     --ind: 35 85% 55%;
+    --map-other: 158 50% 43%; /* #37a57c — validated against the dark surface */
 
     --sidebar-background: 40 8% 12%;
     --sidebar-foreground: 42 15% 75%;

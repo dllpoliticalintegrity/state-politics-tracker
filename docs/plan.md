@@ -239,6 +239,14 @@ the 2026 ballot).
   editorial edits survive. The Michigan finance import then reads its
   committee map from the database (`mi_committee_map()`), so the new
   committees get contributions/expenditures the same night.
+- **Map.** The chamber overview renders a choropleth of the districts
+  (`ChamberConfig.map` → a simplified GeoJSON in `public/maps/`, from the
+  Census TIGERweb 2024 state-legislative-district layers via mapshaper at
+  6%; 31 KB Senate / 54 KB House) coloured by the party of each
+  district's top fundraiser, with hover totals and click-through. The
+  projection/path code is dependency-free (`src/lib/geo.ts`); the palette
+  (`--dem`, `--rep`, a validated `--map-other`, neutral for no money) was
+  checked with the dataviz palette validator in both themes.
 - **Known limits.** "Active committee" over-includes: incumbents not on
   the 2026 ballot and primary losers (Michigan's primary was Aug 4,
   2026) still have active committees. District pages rank by money so
