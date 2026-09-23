@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import RaceTabs from "@/components/RaceTabs";
+import DistrictMap from "@/components/DistrictMap";
 import { useCandidateTotals, useChamberCandidates, type TxCandidate } from "@/hooks/useCandidates";
 import { formatCurrency, partyColor } from "@/lib/finance";
 import { chamberDistricts, type ChamberConfig } from "@/states/registry";
@@ -57,6 +58,28 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
           <Stat label="Raised this cycle" value={formatCurrency(totalRaised)} sub="Across all committees" />
         </div>
       </section>
+
+      {chamber.map && (
+        <section className="container pb-10">
+          <Card className="p-4 md:p-6">
+            <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+              <h2 className="font-display text-xl md:text-2xl font-semibold">Money by district</h2>
+              <span className="text-xs text-muted-foreground">
+                Coloured by the party of each district&apos;s top fundraiser · click a district to open it
+              </span>
+            </div>
+            <div className="mx-auto max-w-2xl">
+              <DistrictMap
+                geoUrl={chamber.map}
+                title={`${stateCfg.name} ${chamber.title}`}
+                rows={rows}
+                raised={raised}
+                base={base}
+              />
+            </div>
+          </Card>
+        </section>
+      )}
 
       <section className="container pb-16">
         {isLoading && (
