@@ -875,13 +875,15 @@ export function useExpenditureTotals(candidateId: string | undefined) {
     queryKey: ["cf_expenditures_totals", candidateId],
     enabled: !!candidateId,
     queryFn: async (): Promise<{ totalSpent: number }> => {
+      // From the matview: selecting every expenditure row for a candidate was
+      // capped at 1,000 rows, under-reporting anyone who spends a lot.
       const { data, error } = await (supabase as any)
-        .from("cf_expenditures")
-        .select("amount")
+        .from("cf_expenditures_summary")
+        .select("total_spent")
         .eq("candidate_id", candidateId);
       if (error) throw error;
       const totalSpent = (data ?? []).reduce(
-        (s: number, r: { amount: number }) => s + Number(r.amount ?? 0),
+        (s: number, r: { total_spent: number }) => s + Number(r.total_spent ?? 0),
         0,
       );
       return { totalSpent };
