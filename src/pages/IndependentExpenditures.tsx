@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import MoneyTabs from "@/components/MoneyTabs";
 import { useCandidates, useIEByCandidate, useTopIECommittees } from "@/hooks/useCandidates";
 import { formatCurrency, formatCurrencyFull, partyColor } from "@/lib/finance";
+import { isOffBallot } from "@/lib/candidateStatus";
 
 const CYCLE_OPTIONS = [
   { value: "all", label: "All cycles" },
@@ -32,12 +33,13 @@ export default function IndependentExpenditures() {
         name: cand?.name ?? r.name,
         party: cand?.party ?? null,
         slug: cand?.slug ?? r.slug,
+        offBallot: isOffBallot(cand?.status),
         net: Number(r.total_supporting ?? 0) - Number(r.total_opposing ?? 0),
         total: Number(r.total_supporting ?? 0) + Number(r.total_opposing ?? 0),
       };
     })
     .filter((r) => r.total > 0)
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => Number(a.offBallot) - Number(b.offBallot) || b.total - a.total);
 
   const grandTotalSupporting = perCandidate.reduce(
     (s, r) => s + Number(r.total_supporting ?? 0),
@@ -129,7 +131,9 @@ export default function IndependentExpenditures() {
         <div className="space-y-2">
           {perCandidate.map((r) => (
             <Link key={r.candidate_id} to={`${raceBase}/candidates/${r.slug}`}>
-              <Card className="p-4 hover:border-primary/40 transition-colors group">
+              <Card
+                className={`p-4 hover:border-primary/40 transition-colors group ${r.offBallot ? "opacity-50 grayscale" : ""}`}
+              >
                 <div className="flex items-center gap-4">
                   <span
                     className="text-[11px] font-semibold px-1.5 py-0.5 rounded-sm shrink-0"

@@ -6,6 +6,7 @@ import { formatCurrency, partyColor } from "@/lib/finance";
 import { chamberDistricts, type ChamberConfig } from "@/states/registry";
 import { useStateConfig } from "@/states/StateContext";
 import { statePath } from "@/states/site";
+import { onBallot } from "@/lib/candidateStatus";
 
 /**
  * A legislative chamber's overview: one row per district, listing the
@@ -15,14 +16,17 @@ import { statePath } from "@/states/site";
  */
 export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
   const stateCfg = useStateConfig();
-  const { data: candidates, isLoading, error } = useChamberCandidates(chamber.office);
+  const { data: allCandidates, isLoading, error } = useChamberCandidates(chamber.office);
+  // Shared overview: only candidates still on the ballot. Those who lost a
+  // primary or withdrew remain reachable from their district's race page.
+  const candidates = onBallot(allCandidates);
   const { data: totalsMap } = useCandidateTotals();
   const base = `${statePath(stateCfg.code)}/${chamber.office}`;
   const year = chamber.generalDate.slice(0, 4);
 
   const raised = (c: TxCandidate) => totalsMap?.get(c.id)?.raised ?? 0;
   const byDistrict = new Map<string, TxCandidate[]>();
-  for (const c of candidates ?? []) {
+  for (const c of candidates) {
     if (!c.district) continue;
     byDistrict.set(c.district, [...(byDistrict.get(c.district) ?? []), c]);
   }
@@ -30,7 +34,7 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
     const cands = (byDistrict.get(d) ?? []).sort((a, b) => raised(b) - raised(a));
     return { district: d, cands, total: cands.reduce((s, c) => s + raised(c), 0) };
   });
-  const candidateCount = candidates?.length ?? 0;
+  const candidateCount = candidates.length;
   const totalRaised = rows.reduce((s, r) => s + r.total, 0);
   const contested = rows.filter((r) => r.cands.length > 0).length;
 

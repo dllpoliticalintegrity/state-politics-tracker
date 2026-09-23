@@ -12,6 +12,7 @@ import { useMemo } from "react";
 import { useCandidates } from "@/hooks/useCandidates";
 import { isGeneralMatchup, parsePollDate, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
+import { isOffBallot } from "@/lib/candidateStatus";
 
 // Trailing-window width for the rolling average (days).
 const WINDOW_DAYS = 30;
@@ -112,7 +113,7 @@ export default function PollingChart() {
         party: cand.party,
         color: partyColor(cand.party),
         photoUrl: cand.photo_url_thumb ?? cand.photo_url ?? null,
-        withdrawn: cand.status === "withdrawn" || cand.status === "dropped_out",
+        withdrawn: isOffBallot(cand.status),
       })),
       data: rolling,
     };

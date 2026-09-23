@@ -2,6 +2,7 @@ import { useCandidates, useCandidateTotals } from "@/hooks/useCandidates";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { isGeneralMatchup, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
+import { offBallotLast } from "@/lib/candidateStatus";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,13 +62,15 @@ export default function Candidates() {
 
   // Polled races list the candidates in the polling average, ranked by it;
   // races without public polling (row offices, legislative districts) list
-  // everyone, ranked by money raised.
+  // everyone, ranked by money raised. Candidates who are off the ballot
+  // (lost primary, withdrawn, …) rank last and render greyed out.
   const hasPollingSource = !!race.pollingSourceUrl;
   const ranked = (candidates ?? [])
     .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
     .filter((x) => !hasPollingSource || (x.stats?.pollPct !== null && x.stats?.pollPct !== undefined))
     .sort(
       (a, b) =>
+        offBallotLast(a.c, b.c) ||
         (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
         (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0),
     );

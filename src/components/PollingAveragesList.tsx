@@ -1,6 +1,7 @@
 import { useCandidates } from "@/hooks/useCandidates";
 import { useRacePolling } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
+import { isOffBallot } from "@/lib/candidateStatus";
 
 export default function PollingAveragesList() {
   const { data: polling, isLoading } = useRacePolling();
@@ -33,7 +34,7 @@ export default function PollingAveragesList() {
         pct,
         color: partyColor(c.party),
         photo: c.photo_url_thumb ?? c.photo_url ?? null,
-        withdrawn: c.status === "withdrawn" || c.status === "dropped_out",
+        withdrawn: isOffBallot(c.status),
       };
     })
     .filter((r) => r.pct > 0)
