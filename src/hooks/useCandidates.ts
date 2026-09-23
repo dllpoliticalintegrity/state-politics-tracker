@@ -181,10 +181,13 @@ export function useCandidate(slug: string | undefined) {
     queryKey: ["cf_candidate", slug],
     enabled: !!slug,
     queryFn: async (): Promise<TxCandidate | null> => {
+      // cf_candidates, not tx_candidates: a leftover from the TX port meant
+      // this 400'd (tx_candidates has no `state`) and every candidate profile
+      // bounced back to the candidates list.
       const { data, error } = await (supabase as any)
-        .from("tx_candidates")
+        .from("cf_candidates")
         .select(
-          "id,slug,name,party,title,bio,photo_url,photo_url_medium,photo_url_large,photo_url_thumb,website,state,committee_name,filer_refs,office,status,featured",
+          "id,slug,name,party,title,bio,photo_url,photo_url_medium,photo_url_large,photo_url_thumb,website,state,committee_name,filer_refs,office,district,status,featured",
         )
         .eq("slug", slug)
         .maybeSingle();
@@ -314,10 +317,11 @@ export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
       if (candErr) throw candErr;
       const ids = ((cands ?? []) as { id: string }[]).map((c) => c.id);
       if (!ids.length) return [];
-      // Pull the top per-candidate rows from the existing tx_top_donors view
-      // and re-aggregate client-side across candidates so the same donor
-      // giving to multiple campaigns collapses into one row with a per-
-      // candidate breakdown.
+      // Pull the top per-candidate rows from the cf_top_donors matview and
+      // re-aggregate client-side across candidates so the same donor giving
+      // to multiple campaigns collapses into one row with a per-candidate
+      // breakdown. 4,000 per-candidate rows is far more than the top-50
+      // cross-candidate list needs and keeps the payload ~130 KB.
       let q = (supabase as any)
         .from("cf_top_donors")
         .select(
@@ -325,7 +329,7 @@ export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
         )
         .in("candidate_id", ids)
         .order("total_amount", { ascending: false })
-        .limit(10000);
+        .limit(4000);
       if (kind === "individual") q = q.eq("contributor_type", "INDIVIDUAL");
       else if (kind === "pac") q = q.in("contributor_type", PAC_TYPES);
       const { data, error } = await q;
