@@ -839,6 +839,175 @@ def sync_michigan_legislature():
           flush=True)
 
 
+# --- Ballot status from the official candidate listings ---------------------
+# The Bureau of Elections publishes the certified candidate listing for each
+# election on the MiTN host (the michigan.gov results pages link to it):
+#   page.miboePublicReport&electionType=PRI&electionYear=2026  (Aug 4 primary)
+#   page.miboePublicReport&electionType=GEN&electionYear=2026  (Nov 3 general)
+# Together they settle every candidate's status without scraping results:
+#   on GEN and on PRI            -> won_primary
+#   on GEN only (convention-nominated AG/SoS, independents, minor parties)
+#                                -> nominee
+#   on PRI, not on GEN           -> lost_primary
+#   WITHD / DISQ flag on either  -> withdrawn / disqualified
+#   on neither                   -> not_on_ballot (an active committee that
+#                                   never filed for 2026; the roster step
+#                                   over-includes these on purpose)
+# A hand-set `withdrawn` survives a computed not_on_ballot. Set MI_BALLOT=0
+# to skip.
+
+MI_LISTING = (f"{MI_BASE}?page=page.miboePublicReport&electionType={{}}&electionYear={{}}")
+MI_LISTING_FLAGS = {"DISQ", "WITHD", "INCUMBENT"}
+MI_NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
+MI_OFFICE_LISTING = {  # cf_candidates.office -> listing office header prefix (statewide)
+    "governor": "Governor / Lt. Governor",
+    "attorney-general": "Attorney General",
+    "secretary-of-state": "Secretary of State",
+}
+MI_CHAMBER_LISTING = {  # chamber office -> listing office phrase (after "<n>th District ")
+    "state-senate": "State Senator",
+    "state-house": "Representative in State Legislature",
+}
+
+
+def mi_ordinal(n):
+    n = int(n)
+    if 10 <= n % 100 <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf}"
+
+
+def mi_listing_office(office, district):
+    """The listing header prefix for a cf_candidates (office, district)."""
+    if office in MI_CHAMBER_LISTING and district:
+        return f"{mi_ordinal(district)} District {MI_CHAMBER_LISTING[office]}"
+    return MI_OFFICE_LISTING.get(office)
+
+
+def mi_parse_listing(html_):
+    """Rows of a candidate-listing report: office header + one row per
+    candidate (status flag, party, 'Last, First M.' name)."""
+    import html as _html
+    rows, office = [], None
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", html_, re.S):
+        m = re.search(r'<a id="[^"]*"></a>\s*<span[^>]*>(.*?)</span>', tr, re.S)
+        if m:
+            office = _html.unescape(re.sub(r"<.*?>", "", m.group(1))).strip()
+            continue
+        cells = [_html.unescape(re.sub(r"<.*?>", "", c)).replace("\xa0", " ").strip()
+                 for c in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+        cells = [c for c in cells if c]
+        if not office or len(cells) < 3 or not re.fullmatch(r"\d{2}/\d{2}/\d{4}", cells[-2]):
+            continue
+        name, rest = cells[-3], cells[:-3]
+        flags = {c for c in rest if c in MI_LISTING_FLAGS}
+        party = next((c for c in rest if c not in MI_LISTING_FLAGS), "")
+        # Governor rows read "Benson, Jocelyn / Brinks, Winnie" on the general listing.
+        rows.append({"office": office, "flags": flags, "party": party,
+                     "name": name.split(" / ")[0].strip()})
+    return rows
+
+
+def mi_name_key(name, listing=False):
+    """('last', 'first') with suffixes/punctuation stripped. Listing names are
+    'Last, First Middle'; cf_candidates names are 'First Last'."""
+    s = re.sub(r"[.,]", " ", name.lower())
+    if listing and "," in name:
+        last, first = name.lower().split(",", 1)
+    else:
+        parts = s.split()
+        last, first = parts[-1] if parts else "", parts[0] if parts else ""
+        # "John Conyers III" -> last is the token before the suffix
+        if len(parts) >= 2 and parts[-1] in MI_NAME_SUFFIXES:
+            last = parts[-2]
+    lt = [t for t in re.sub(r"[^a-z' -]", " ", last).split() if t not in MI_NAME_SUFFIXES]
+    ft = re.sub(r"[^a-z' -]", " ", first).split()
+    return (lt[-1] if lt else "", ft[0] if ft else "")
+
+
+def mi_names_match(cand_name, listing_name):
+    cl, cf = mi_name_key(cand_name)
+    ll, lf = mi_name_key(listing_name, listing=True)
+    if not cl or cl != ll:
+        return False
+    return (not cf or not lf or cf == lf or cf[0] == lf[0]
+            or cf.startswith(lf) or lf.startswith(cf))
+
+
+def mi_compute_ballot_status(cands, pri_rows, gen_rows):
+    """{slug: (new_status, reason)} for every MI candidate whose status the
+    listings settle. `cands` are cf_candidates rows (slug, name, office,
+    district, party, status)."""
+    def index(rows):
+        out = {}
+        for r in rows:
+            out.setdefault(r["office"], []).append(r)
+        return out
+    pri, gen = index(pri_rows), index(gen_rows)
+
+    def find(idx, prefix, name):
+        for office, rows in idx.items():
+            if office.startswith(prefix + " "):
+                for r in rows:
+                    if mi_names_match(name, r["name"]):
+                        return r
+        return None
+
+    result = {}
+    for c in cands:
+        prefix = mi_listing_office(c["office"], c.get("district"))
+        if not prefix:
+            continue
+        p, g = find(pri, prefix, c["name"]), find(gen, prefix, c["name"])
+        flags = (p["flags"] if p else set()) | (g["flags"] if g else set())
+        current = c.get("status") or "active"
+        if "DISQ" in flags:
+            new, why = "disqualified", "DISQ on listing"
+        elif "WITHD" in flags:
+            new, why = "withdrawn", "WITHD on listing"
+        elif g and p:
+            new, why = "won_primary", "on primary and general listings"
+        elif g:
+            new, why = "nominee", "on general listing only"
+        elif p:
+            new, why = "lost_primary", "on primary listing, not on general"
+        else:
+            new, why = "not_on_ballot", "on neither listing"
+            if current in ("withdrawn", "lost_primary"):
+                # A hand-set withdrawal, or a convention loss recorded as
+                # lost_primary (AG/SoS have no primary), is the better story.
+                continue
+        if new != current:
+            result[c["slug"]] = (new, why)
+    return result
+
+
+def sync_michigan_ballot_status():
+    if os.environ.get("MI_BALLOT", "1") == "0":
+        print("   MI ballot status: skipped (MI_BALLOT=0)")
+        return
+    pri = mi_parse_listing(http(MI_LISTING.format("PRI", 2026), headers={"User-Agent": BROWSER_UA}).decode("utf-8", "replace"))
+    gen = mi_parse_listing(http(MI_LISTING.format("GEN", 2026), headers={"User-Agent": BROWSER_UA}).decode("utf-8", "replace"))
+    if len(pri) < 100 or len(gen) < 100:
+        print(f"   MI ballot status: listings look truncated (pri={len(pri)}, gen={len(gen)}) — skipping")
+        return
+    cands = sb_get_all("cf_candidates?state=eq.mi&select=slug,name,office,district,party,status&order=id")
+    changes = mi_compute_ballot_status(cands, pri, gen)
+    for slug, (new, why) in changes.items():
+        http(f"{SUPABASE_URL}/rest/v1/cf_candidates?slug=eq.{parse.quote(slug)}",
+             data=json.dumps({"status": new}).encode(),
+             headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+                      "Content-Type": "application/json", "Prefer": "return=minimal"},
+             method="PATCH")
+    tally = {}
+    for new, _ in changes.values():
+        tally[new] = tally.get(new, 0) + 1
+    print(f"   MI ballot status: {len(changes)} updated {tally} (listings: {len(pri)} primary rows, {len(gen)} general rows)",
+          flush=True)
+
+
 def mi_committee_map():
     """cfr_com_id -> slug: the hand-curated statewide map plus every
     filer ref stored on cf_candidates (legislature rows come from there)."""
@@ -2548,6 +2717,8 @@ def main():
     if "mi" in args.states:
         print("== syncing mi legislature roster ==", flush=True)
         sync_michigan_legislature()
+        print("== syncing mi ballot status ==", flush=True)
+        sync_michigan_ballot_status()
 
     cand_ids = {c["slug"]: c["id"] for c in sb_get_all("cf_candidates?select=id,slug&order=id")}
     sink = Sink()
