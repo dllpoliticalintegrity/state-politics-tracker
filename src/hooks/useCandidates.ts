@@ -804,31 +804,59 @@ export type CandidateTotals = { raised: number; spent: number; cash: number };
  * One-shot: raised + spent + cash-estimate per candidate, keyed by candidate_id.
  * Pulls tx_contributions_summary and tx_expenditures (candidate_id,amount only).
  */
+/**
+ * Every row of a PostgREST query, paging past Supabase's 1,000-row cap
+ * (`limit` alone is capped; Range paging is not).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAll<T>(build: () => any, page = 1000): Promise<T[]> {
+  const rows: T[] = [];
+  for (let start = 0; ; start += page) {
+    const { data, error } = await build().range(start, start + page - 1);
+    if (error) throw error;
+    const chunk = (data ?? []) as T[];
+    rows.push(...chunk);
+    if (chunk.length < page) return rows;
+  }
+}
+
+/**
+ * Raised / spent / cash per candidate for the current race's office —
+ * from the cf_contributions_summary and cf_expenditures_summary matviews,
+ * scoped to (state, office) so a chamber with 900 candidates and a
+ * statewide race both stay small. Used inside a RaceProvider (a chamber
+ * overview provides a chamber-level pseudo race).
+ */
 export function useCandidateTotals() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
   return useQuery({
-    queryKey: ["cf_candidate_totals"],
+    queryKey: ["cf_candidate_totals", stateCfg.code, race.office],
     queryFn: async (): Promise<Map<string, CandidateTotals>> => {
+      const scope = (table: string, cols: string) =>
+        (supabase as any)
+          .from(table)
+          .select(cols)
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office)
+          .order("candidate_id");
       const [summaries, expn] = await Promise.all([
-        (supabase as any).from("cf_contributions_summary").select("candidate_id,total_raised"),
-        (supabase as any).from("cf_expenditures").select("candidate_id,amount"),
+        fetchAll<{ candidate_id: string; total_raised: number | null }>(() =>
+          scope("cf_contributions_summary", "candidate_id,total_raised"),
+        ),
+        fetchAll<{ candidate_id: string; total_spent: number | null }>(() =>
+          scope("cf_expenditures_summary", "candidate_id,total_spent"),
+        ),
       ]);
-      if (summaries.error) throw summaries.error;
-      if (expn.error) throw expn.error;
       const raised = new Map<string, number>();
-      for (const r of (summaries.data ?? []) as any[]) {
+      for (const r of summaries) {
         if (!r.candidate_id) continue;
-        raised.set(
-          r.candidate_id,
-          (raised.get(r.candidate_id) ?? 0) + Number(r.total_raised ?? 0),
-        );
+        raised.set(r.candidate_id, (raised.get(r.candidate_id) ?? 0) + Number(r.total_raised ?? 0));
       }
       const spent = new Map<string, number>();
-      for (const r of (expn.data ?? []) as any[]) {
+      for (const r of expn) {
         if (!r.candidate_id) continue;
-        spent.set(
-          r.candidate_id,
-          (spent.get(r.candidate_id) ?? 0) + Number(r.amount ?? 0),
-        );
+        spent.set(r.candidate_id, (spent.get(r.candidate_id) ?? 0) + Number(r.total_spent ?? 0));
       }
       const out = new Map<string, CandidateTotals>();
       const keys = new Set<string>([...raised.keys(), ...spent.keys()]);

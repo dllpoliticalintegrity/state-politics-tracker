@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { scopeToRace } from "./useCandidates";
 
 /**
  * Latest individual + PAC contributions across the cycle, joined to the
@@ -24,21 +25,46 @@ export type LatestContribution = {
 
 const PAC_TYPES = ["ENTITY"];
 
-export function useLatestContributions(limit = 20, minAmount = 30_000) {
+/**
+ * Statewide races tick over $30k gifts; a legislative district's biggest
+ * gifts are an order of magnitude smaller, so its ticker starts at $1k.
+ */
+export function tickerMinAmount(district: string | undefined): number {
+  return district ? 1_000 : 30_000;
+}
+
+export function useLatestContributions(limit = 20, minAmount?: number) {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
+  const floor = minAmount ?? tickerMinAmount(race.district);
   return useQuery({
-    queryKey: ["cf_latest_contributions", stateCfg.code, race.office, limit, minAmount],
+    queryKey: ["cf_latest_contributions", stateCfg.code, race.office, race.district ?? null, limit, floor],
     queryFn: async (): Promise<LatestContribution[]> => {
+      // Two steps on purpose. The obvious single query — cf_contributions
+      // with an embedded cf_candidates!inner filter, ordered by date — makes
+      // Postgres walk the date index across all ~1.5M rows looking for the
+      // few that belong to this race and clear the floor, and hits the
+      // statement timeout for legislative races. Resolving the race's
+      // candidate ids first lets the (candidate_id, amount) index do the work.
+      const { data: cands, error: candErr } = await scopeToRace(
+        (supabase as any).from("cf_candidates").select("id,name,party"),
+        stateCfg,
+        race,
+      );
+      if (candErr) throw candErr;
+      const byId = new Map<string, { name: string; party: string | null }>(
+        ((cands ?? []) as { id: string; name: string; party: string | null }[]).map((c) => [c.id, c]),
+      );
+      if (byId.size === 0) return [];
+
       const { data, error } = await (supabase as any)
         .from("cf_contributions")
         .select(
-          "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id,cf_candidates!inner(name,party,office,state)",
+          "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id",
         )
-        .eq("cf_candidates.state", stateCfg.code)
-        .eq("cf_candidates.office", race.office)
+        .in("candidate_id", [...byId.keys()])
         .not("contribution_date", "is", null)
-        .gte("amount", minAmount)
+        .gte("amount", floor)
         .order("contribution_date", { ascending: false })
         .limit(limit);
       if (error) throw error;
@@ -53,8 +79,8 @@ export function useLatestContributions(limit = 20, minAmount = 30_000) {
         city: r.city,
         state: r.state,
         candidate_id: r.candidate_id,
-        candidate_name: r.cf_candidates?.name ?? null,
-        candidate_party: normalizeParty(r.cf_candidates?.party),
+        candidate_name: byId.get(r.candidate_id)?.name ?? null,
+        candidate_party: normalizeParty(byId.get(r.candidate_id)?.party),
       }));
     },
     staleTime: 60_000,
