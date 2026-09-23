@@ -47,14 +47,18 @@ export default function CandidateCard({ candidate: c, stats, rank }: Props) {
           isWithdrawn ? "opacity-50 grayscale" : ""
         }`}
       >
-        {isWithdrawn && (
-          <div className="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground border z-10">
-            {inactiveLabel}
-          </div>
-        )}
-        {ballot && (
-          <div className="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/30 z-10 font-semibold">
-            {ballot}
+        {/* ballot status chip — in the flow, so it never sits over the avatar */}
+        {(isWithdrawn || ballot) && (
+          <div className="mb-3 -mt-1 pr-8">
+            <span
+              className={`inline-block text-[10px] px-1.5 py-0.5 rounded-sm border leading-tight ${
+                ballot
+                  ? "bg-primary/10 text-primary border-primary/30 font-semibold"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {ballot ?? inactiveLabel}
+            </span>
           </div>
         )}
         {/* party-colored left stripe */}
