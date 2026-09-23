@@ -3,7 +3,7 @@ import Sparkline from "@/components/Sparkline";
 import type { TxCandidate } from "@/hooks/useCandidates";
 import { formatCurrency, partyColor, partyLabel } from "@/lib/finance";
 import { useRaceBase, useRaceConfig } from "@/states/StateContext";
-import { INACTIVE_STATUSES, ballotLabel, inactiveLabel as inactiveLabelFor } from "@/lib/candidateStatus";
+import { ballotLabel, inactiveLabel as inactiveLabelFor, isOffBallot } from "@/lib/candidateStatus";
 
 export type CandidateCardStats = {
   pollPct: number | null;
@@ -36,7 +36,7 @@ export default function CandidateCard({ candidate: c, stats, rank }: Props) {
   const dSym = delta > 0 ? "▲" : delta < 0 ? "▼" : "·";
   const dColor =
     delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : "text-muted-foreground";
-  const isWithdrawn = (INACTIVE_STATUSES as readonly string[]).includes(c.status ?? "");
+  const isWithdrawn = isOffBallot(c.status);
   const inactiveLabel = inactiveLabelFor(c.status) ?? "Withdrawn";
   const ballot = ballotLabel(c.status);
 

@@ -1,4 +1,5 @@
 import { useParams, Link, Navigate } from "react-router-dom";
+import { ballotLabel, inactiveLabel } from "@/lib/candidateStatus";
 import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
@@ -166,10 +167,14 @@ export default function CandidateDetail() {
                 <span className="text-xs text-muted-foreground">
                   {partyLabel(candidate.party)}
                 </span>
-                {(candidate.status === "withdrawn" ||
-                  candidate.status === "dropped_out") && (
+                {inactiveLabel(candidate.status) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-muted text-muted-foreground border">
-                    Withdrawn
+                    {inactiveLabel(candidate.status)}
+                  </span>
+                )}
+                {ballotLabel(candidate.status) && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/30 font-semibold">
+                    {ballotLabel(candidate.status)}
                   </span>
                 )}
               </div>

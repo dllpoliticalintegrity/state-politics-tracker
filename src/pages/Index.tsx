@@ -12,7 +12,7 @@ import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
-import { isCandidateActiveForRace } from "@/lib/candidateStatus";
+import { offBallotLast } from "@/lib/candidateStatus";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -89,19 +89,21 @@ export default function Index() {
 
   // Rank candidates. Polled races: by poll % desc (candidates without an
   // average are hidden — the grid is labelled "ranked by polling"). Unpolled
-  // races: active candidates ranked by total raised.
+  // races: everyone, ranked by total raised. Candidates who are off the
+  // ballot (lost primary, withdrawn, …) stay on this race page but drop to
+  // the end, greyed out by CandidateCard.
   const ranked = (candidates ?? [])
     .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
     .filter((x) =>
-      hasPollingSource
-        ? x.stats?.pollPct !== null && x.stats?.pollPct !== undefined
-        : isCandidateActiveForRace(x.c.status) || x.c.status === "active",
+      hasPollingSource ? x.stats?.pollPct !== null && x.stats?.pollPct !== undefined : true,
     )
-    .sort((a, b) =>
-      hasPollingSource
-        ? (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
-          (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)
-        : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0),
+    .sort(
+      (a, b) =>
+        offBallotLast(a.c, b.c) ||
+        (hasPollingSource
+          ? (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
+            (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)
+          : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)),
     );
 
   // ---------- Summary strip ----------

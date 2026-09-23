@@ -40,6 +40,26 @@ export function ballotLabel(status: string | null): string | null {
   return null;
 }
 
+/**
+ * Off the ballot for November (lost a primary, withdrawn, disqualified, never
+ * filed). Race pages keep these candidates but grey them out and rank them
+ * last; pages shared across candidates — the chamber overview and its map,
+ * the contributions ticker, the outside-spending leaderboard — hide them.
+ */
+export function isOffBallot(status: string | null | undefined): boolean {
+  return (INACTIVE_STATUSES as readonly string[]).includes(status ?? "");
+}
+
+/** Keep only candidates still in the race. */
+export function onBallot<T extends { status: string | null }>(list: T[] | undefined | null): T[] {
+  return (list ?? []).filter((c) => !isOffBallot(c.status));
+}
+
+/** Sort comparator fragment: candidates still in the race before those who are out. */
+export function offBallotLast(a: { status: string | null }, b: { status: string | null }): number {
+  return Number(isOffBallot(a.status)) - Number(isOffBallot(b.status));
+}
+
 export function isCandidateActiveForRace(status: string | null): boolean {
   if (!status) return false;
   return (RACE_ACTIVE_STATUSES as readonly string[]).includes(status);

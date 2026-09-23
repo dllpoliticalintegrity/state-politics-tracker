@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { scopeToRace } from "./useCandidates";
+import { onBallot } from "@/lib/candidateStatus";
 
 /**
  * Latest individual + PAC contributions across the cycle, joined to the
@@ -47,13 +48,17 @@ export function useLatestContributions(limit = 20, minAmount?: number) {
       // statement timeout for legislative races. Resolving the race's
       // candidate ids first lets the (candidate_id, amount) index do the work.
       const { data: cands, error: candErr } = await scopeToRace(
-        (supabase as any).from("cf_candidates").select("id,name,party"),
+        (supabase as any).from("cf_candidates").select("id,name,party,status"),
         stateCfg,
         race,
       );
       if (candErr) throw candErr;
+      // Ticker is shared across the site: skip gifts to candidates who are
+      // off the ballot (lost primary, withdrawn, …).
       const byId = new Map<string, { name: string; party: string | null }>(
-        ((cands ?? []) as { id: string; name: string; party: string | null }[]).map((c) => [c.id, c]),
+        onBallot(cands as { id: string; name: string; party: string | null; status: string | null }[]).map(
+          (c) => [c.id, c],
+        ),
       );
       if (byId.size === 0) return [];
 
