@@ -59,9 +59,13 @@ export default function Candidates() {
     });
   }
 
+  // Polled races list the candidates in the polling average, ranked by it;
+  // races without public polling (row offices, legislative districts) list
+  // everyone, ranked by money raised.
+  const hasPollingSource = !!race.pollingSourceUrl;
   const ranked = (candidates ?? [])
     .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
-    .filter((x) => x.stats?.pollPct !== null && x.stats?.pollPct !== undefined)
+    .filter((x) => !hasPollingSource || (x.stats?.pollPct !== null && x.stats?.pollPct !== undefined))
     .sort(
       (a, b) =>
         (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
@@ -78,7 +82,7 @@ export default function Candidates() {
           The candidates
         </h1>
         <p className="text-base text-muted-foreground">
-          Ranked by polling average, then by total raised.
+          {hasPollingSource ? "Ranked by polling average, then by total raised." : "Ranked by total raised."}
         </p>
       </section>
 

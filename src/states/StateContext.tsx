@@ -54,7 +54,7 @@ export function racePath(state: StateConfig, race: RaceConfig): string {
 
 /**
  * The live state implied by the current URL, if any — safe to use in chrome
- * (Header, Footer, MobileTabBar) that renders on every page including the
+ * (Header, Footer) that renders on every page including the
  * landing grid, where no state is active. On a dedicated single-state site
  * the pinned state is always active.
  */

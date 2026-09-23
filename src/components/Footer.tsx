@@ -1,19 +1,19 @@
 import { Link } from "react-router-dom";
-import { useActiveRace, useActiveRaceBase, useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveState, useStateBase } from "@/states/StateContext";
 import { ALL_STATES_URL, SITE_NAME, SITE_STATE, isSingleStateSite } from "@/states/site";
-
-const footerLinks = [
-  { to: "candidates", label: "Candidates", race: true },
-  { to: "polling", label: "Polling", race: true },
-  { to: "money", label: "Money", race: true },
-  { to: "about", label: "About & methodology", race: false },
-];
 
 export function Footer() {
   const activeState = useActiveState();
-  const activeRace = useActiveRace();
   const stateBase = useStateBase();
-  const raceBase = useActiveRaceBase();
+
+  // Same fixed site menu as the header: the state's races, then About.
+  const links = activeState
+    ? [
+        ...(activeState.races ?? []).map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title })),
+        ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title })),
+        { to: `${stateBase}/about`, label: "About & methodology" },
+      ]
+    : [];
 
   return (
     <footer className="border-t mt-16">
@@ -38,20 +38,11 @@ export function Footer() {
             </p>
           </div>
           <nav aria-label="Footer" className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
-            {activeState &&
-              footerLinks
-                // Race-scoped links need an active race (none on a chamber
-                // overview); polling needs a polling source.
-                .filter(({ to, race }) => !race || (raceBase && (to !== "polling" || activeRace?.pollingSourceUrl)))
-                .map(({ to, label, race }) => (
-                  <Link
-                    key={to}
-                    to={race && raceBase ? `${raceBase}/${to}` : `${stateBase}/${to}`}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {label}
-                  </Link>
-                ))}
+            {links.map(({ to, label }) => (
+              <Link key={to} to={to} className="text-muted-foreground hover:text-foreground">
+                {label}
+              </Link>
+            ))}
             {ALL_STATES_URL &&
               (isSingleStateSite ? (
                 <a href={ALL_STATES_URL} className="text-muted-foreground hover:text-foreground">
