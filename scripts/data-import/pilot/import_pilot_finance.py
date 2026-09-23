@@ -355,6 +355,23 @@ def sb_get(path):
     ))
 
 
+def sb_get_all(path, page=1000):
+    """sb_get across PostgREST's max-rows cap (1000 on Supabase): pages with
+    Range headers until a short page. cf_candidates crossed 1,000 rows with
+    the Michigan legislature, which silently truncated the candidate map."""
+    rows, start = [], 0
+    while True:
+        chunk = json.loads(http(
+            f"{SUPABASE_URL}/rest/v1/{path}",
+            headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+                     "Range-Unit": "items", "Range": f"{start}-{start + page - 1}"},
+        ))
+        rows.extend(chunk)
+        if len(chunk) < page:
+            return rows
+        start += page
+
+
 def sb_upsert(table, rows, conflict="source,source_txn_id"):
     """Idempotent batch upsert via PostgREST."""
     if not rows:
@@ -776,7 +793,7 @@ def sync_michigan_legislature():
     if os.environ.get("MI_ROSTER", "1") == "0":
         print("   MI roster: skipped (MI_ROSTER=0)")
         return
-    existing = sb_get("cf_candidates?state=eq.mi&select=id,slug,office,district,filer_refs")
+    existing = sb_get_all("cf_candidates?state=eq.mi&select=id,slug,office,district,filer_refs&order=id")
     by_slug = {c["slug"]: c for c in existing}
     known_refs = {ref for c in existing for ref in (c.get("filer_refs") or [])}
     client = MiTN()
@@ -826,7 +843,7 @@ def mi_committee_map():
     """cfr_com_id -> slug: the hand-curated statewide map plus every
     filer ref stored on cf_candidates (legislature rows come from there)."""
     com_to_slug = {v: k for k, v in COMMITTEES["mi"].items()}
-    for c in sb_get("cf_candidates?state=eq.mi&select=slug,filer_refs"):
+    for c in sb_get_all("cf_candidates?state=eq.mi&select=slug,filer_refs&order=id"):
         for ref in c.get("filer_refs") or []:
             if isinstance(ref, str) and ref.startswith("mi:"):
                 com_to_slug.setdefault(ref[3:], c["slug"])
@@ -2532,7 +2549,7 @@ def main():
         print("== syncing mi legislature roster ==", flush=True)
         sync_michigan_legislature()
 
-    cand_ids = {c["slug"]: c["id"] for c in sb_get("cf_candidates?select=id,slug")}
+    cand_ids = {c["slug"]: c["id"] for c in sb_get_all("cf_candidates?select=id,slug&order=id")}
     sink = Sink()
     importers = {"fl": import_florida, "ga": import_georgia, "mi": import_michigan,
                  "az": import_arizona, "ky": import_kentucky,
