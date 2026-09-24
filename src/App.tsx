@@ -30,6 +30,7 @@ import IndependentExpenditures from "./pages/IndependentExpenditures";
 import TopDonors from "./pages/TopDonors";
 import Polling from "./pages/Polling";
 import About from "./pages/About";
+import Committees from "./pages/Committees";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,7 @@ function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
       <Routes>
         <Route index element={<Navigate to={cfg.races[0].office} replace />} />
         <Route path="about" element={<About />} />
+        <Route path="committees" element={<Committees />} />
         <Route path=":office/*" element={<RaceArea cfg={cfg} />} />
       </Routes>
     </StateProvider>

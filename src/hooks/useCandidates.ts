@@ -1005,3 +1005,88 @@ export function useTopIECommittees(limit = 15) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Committees & organizations (state-level /committees page)
+// ---------------------------------------------------------------------------
+
+export type CommitteeSplit = {
+  candidate_id: string;
+  contribution_count: number;
+  total_amount: number;
+  last_contribution_date: string | null;
+};
+
+/** One row of the cf_committee_donors matview: an organizational donor, state-wide. */
+export type CommitteeDonor = {
+  rn: number;
+  state: string;
+  norm_key: string;
+  name: string;
+  city: string | null;
+  contributor_state: string | null;
+  contribution_count: number;
+  total_amount: number;
+  candidate_count: number;
+  first_contribution_date: string | null;
+  last_contribution_date: string | null;
+  splits: CommitteeSplit[];
+};
+
+/**
+ * Every committee / PAC / organization that has given to any tracked
+ * candidate in the state, with its per-candidate breakdown, biggest first.
+ * From the cf_committee_donors matview (refreshed nightly with the other
+ * finance views); a state has a few thousand rows at most, so the page
+ * fetches them all and searches client-side.
+ */
+export function useCommitteeDonors() {
+  const stateCfg = useStateConfig();
+  return useQuery({
+    queryKey: ["cf_committee_donors", stateCfg.code],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<CommitteeDonor[]> => {
+      const rows = await fetchAll<CommitteeDonor>(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any)
+          .from("cf_committee_donors")
+          .select(
+            "rn,state,norm_key,name,city,contributor_state,contribution_count,total_amount,candidate_count,first_contribution_date,last_contribution_date,splits",
+          )
+          .eq("state", stateCfg.code)
+          .order("total_amount", { ascending: false })
+          .order("rn"),
+      );
+      return rows.map((r) => ({
+        ...r,
+        total_amount: Number(r.total_amount ?? 0),
+        splits: ((r.splits ?? []) as CommitteeSplit[]).map((s) => ({
+          ...s,
+          total_amount: Number(s.total_amount ?? 0),
+        })),
+      }));
+    },
+  });
+}
+
+/**
+ * The state's whole roster (every office and district), for pages that
+ * resolve candidate ids outside any one race — e.g. a committee's
+ * per-candidate breakdown. Light columns only.
+ */
+export function useStateCandidates() {
+  const stateCfg = useStateConfig();
+  return useQuery({
+    queryKey: ["cf_state_candidates", stateCfg.code],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<TxCandidate[]> =>
+      fetchAll<TxCandidate>(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any)
+          .from("cf_candidates")
+          .select("id,slug,name,party,photo_url_thumb,state,office,district,status,featured")
+          .eq("state", stateCfg.code)
+          .order("name"),
+      ),
+  });
+}
