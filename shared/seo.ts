@@ -209,6 +209,13 @@ export function singleStateRoutes(code: string): Record<string, RouteMeta> | nul
   for (const race of state.races ?? []) Object.assign(routes, raceRoutes(state, race, `/${race.office}`));
   for (const chamber of state.chambers ?? []) routes[`/${chamber.office}`] = chamberMeta(state, chamber, `/${chamber.office}`);
 
+  routes["/committees"] = {
+    title: `Committees & PACs Giving in ${state.name} | ${site}`,
+    description: `Every political committee, PAC, union, party and business that has given to a ${state.name} candidate in 2026, searchable by name, with each one's contributions broken down by campaign — from ${agency} filings.`,
+    h1: `Committees & PACs giving in ${state.name}`,
+    body: `<p>Organizational donors to tracked ${escapeHtml(state.name)} candidates — political action committees, party committees, unions and businesses — ranked by total given, with a per-candidate breakdown for each. Search by committee name or city.</p>`,
+  };
+
   routes["/about"] = {
     title: `About & Methodology | ${site}`,
     description: `How ${site} sources ${state.name} campaign-finance filings from the ${agency}, aggregates polling, and computes the numbers on each race page.`,
@@ -390,6 +397,7 @@ export function sitemapEntries(siteState: string | null): SitemapEntry[] {
     const depth = path.split("/").filter(Boolean).length;
     if (path === "/") return { path, priority: "1.0", changefreq: "daily" };
     if (path === "/about") return { path, priority: "0.4", changefreq: "monthly" };
+    if (path === "/committees") return { path, priority: "0.8", changefreq: "daily" };
     return { path, priority: depth === 1 ? "0.9" : "0.7", changefreq: "daily" };
   });
   for (const chamber of state.chambers ?? []) {
@@ -475,6 +483,7 @@ export function llmsResponse(siteState: string | null): Response | null {
   for (const c of state.chambers ?? []) {
     lines.push(`- [${state.name} ${c.title} ${c.generalDate.slice(0, 4)}](/${c.office}): campaign finance for all ${c.districts} districts; each district's race dashboard is at /${c.office}/{district} (candidates, top donors, outside spending — no polling).`);
   }
+  lines.push(`- [${state.name} committees & PACs](/committees): every organizational donor to a tracked candidate, searchable by name, with a per-candidate breakdown.`);
   lines.push("- [About & methodology](/about): sources, sync cadence, and how the numbers are computed.", "");
   return new Response(lines.join("\n"), {
     status: 200,

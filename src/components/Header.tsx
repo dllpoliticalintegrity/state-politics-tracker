@@ -98,6 +98,7 @@ function useSiteMenu() {
   const items = [
     ...(activeState.races ?? []).map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
     ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
+    { to: `${stateBase}/committees`, label: "Committees", key: "committees" },
     { to: `${stateBase}/about`, label: "About", key: "about" },
   ];
   return items.map((i) => ({ ...i, active: currentOffice === i.key }));
