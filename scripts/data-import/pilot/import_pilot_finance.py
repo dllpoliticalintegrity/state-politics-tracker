@@ -97,7 +97,7 @@ import time
 import zipfile
 from datetime import date, timedelta
 from pathlib import Path
-from urllib import request, parse
+from urllib import error, parse, request
 
 UA = ("Mozilla/5.0 (compatible; statepoliticstracker-importer/1.0; "
       "+https://github.com/dllpoliticalintegrity/state-politics-tracker)")
@@ -326,8 +326,15 @@ ENTITY_PAT = re.compile(
 
 def http(url, data=None, headers=None, timeout=300, context=None, method=None):
     req = request.Request(url, data=data, headers=headers or {}, method=method)
-    with request.urlopen(req, timeout=timeout, context=context) as r:
-        return r.read()
+    try:
+        with request.urlopen(req, timeout=timeout, context=context) as r:
+            return r.read()
+    except error.HTTPError as ex:
+        # urllib's message is just "HTTP Error 400: Bad Request"; the body is
+        # where PostgREST (and most state APIs) say what was actually wrong.
+        body = ex.read()[:2000].decode("utf-8", "replace") if ex.fp else ""
+        print(f"   HTTP {ex.code} {url.split('?')[0]}: {body}", file=sys.stderr, flush=True)
+        raise
 
 
 def http_retry(url, tries=3, **kw):
@@ -376,6 +383,14 @@ def sb_upsert(table, rows, conflict="source,source_txn_id"):
     """Idempotent batch upsert via PostgREST."""
     if not rows:
         return
+    # PostgREST rejects a bulk insert whose objects don't all have the same
+    # keys (400, PGRST102 "All object keys must match"). Importers that emit a
+    # slimmer row for some records (GA's unitemized lump sums, CT's public
+    # grants) would otherwise poison every batch they land in — this is what
+    # failed the nightly sync at Georgia from 2026-09-24 on. Pad every row to
+    # the batch's full key set; the padded columns are nullable text.
+    keys = sorted({k for r in rows for k in r})
+    rows = [{k: r.get(k) for k in keys} for r in rows]
     body = json.dumps(rows).encode()
     http(
         f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={parse.quote(conflict)}",
