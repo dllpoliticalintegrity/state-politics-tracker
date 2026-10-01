@@ -2106,14 +2106,40 @@ def ak_export_once(page, name, year="2026", tries=8):
     e = openr(url, parse.urlencode(
         form(s, f"{p}$csfFilter$btnExport", "Export")).encode()
         ).decode("utf-8", "replace")
-    target = None
+    target = page_link = None
     for link in set(re.findall(r'href="([^"]*isExport[^"]*)"', e)):
-        if "exportAll=True" in link and "CSV" in link:
+        if "CSV" not in link:
+            continue
+        if "exportAll=True" in link:
             target = "https://aws.state.ak.us" + link.replace("&amp;", "&")
-    if not target:
+        elif "exportAll=False" in link:
+            page_link = "https://aws.state.ak.us" + link.replace("&amp;", "&")
+    if target:
+        time.sleep(2)
+        return openr(target).decode("utf-8", "replace")
+    if not page_link:
         raise RuntimeError(f"apoc {page}/{name}: no export link found")
-    time.sleep(2)
-    return openr(target).decode("utf-8", "replace")
+    # Since late 2026-09 the dialog says "Data exports are currently limited
+    # to a single page at a time due to urgent maintenance" and offers only
+    # the visible-page CSV. That link honours pageSize/pageIndex (tested with
+    # 2,000 rows a page), so page through it until a short page; each page
+    # repeats the header and restarts the "Result" counter, which the
+    # importer ignores. The exportAll branch above takes over again once APOC
+    # restores it.
+    print(f"   ak: {page}/{name}: APOC export-all unavailable, paging the "
+          f"visible-page export", flush=True)
+    size, out = 2000, []
+    for index in range(0, 200):
+        u = re.sub(r"pageSize=\d+", f"pageSize={size}",
+                   re.sub(r"pageIndex=\d+", f"pageIndex={index}", page_link))
+        time.sleep(2)
+        lines = openr(u).decode("utf-8", "replace").splitlines()
+        if not lines:
+            break
+        out.extend(lines if index == 0 else lines[1:])
+        if len(lines) - 1 < size:
+            break
+    return "\n".join(out) + "\n"
 
 
 def ak_export(page, name, year="2026"):
@@ -2757,6 +2783,15 @@ def import_kansas(sink, cand_ids):
 # Main
 # --------------------------------------------------------------------------
 
+# States whose failure is reported as a GitHub Actions warning instead of
+# failing the run: their source is blocked in a way code cannot fix. Keep the
+# reason current; remove the entry the day the source works again.
+SOFT_FAIL_STATES = {
+    "ks": "kssos.org cfr_viewer sits behind a CAPTCHA (403 'Human Verification' "
+          "for every client) since at least 2026-10-01; no automated path",
+}
+
+
 def main():
     ap = argparse.ArgumentParser()
     all_states = ["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi",
@@ -2787,7 +2822,7 @@ def main():
                  "ak": import_alaska, "ar": import_arkansas,
                  "ct": import_connecticut, "id": import_idaho,
                  "il": import_illinois, "ks": import_kansas}
-    failed = []
+    failed, soft_failed = [], []
     for st in args.states:
         print(f"== importing {st} ==", flush=True)
         try:
@@ -2800,17 +2835,40 @@ def main():
             # run upserts it), carry on, and fail the run at the end so the
             # Actions badge still shows it.
             traceback.print_exc()
-            print(f"   {st}: FAILED — {ex}", flush=True)
             for buf in sink.buffers.values():
                 buf.clear()
-            failed.append(st)
+            if st in SOFT_FAIL_STATES:
+                # ::warning:: shows as an annotation on the run without
+                # turning it red.
+                print(f"::warning::{st} skipped — {SOFT_FAIL_STATES[st]} ({ex})",
+                      flush=True)
+                soft_failed.append(st)
+            else:
+                print(f"   {st}: FAILED — {ex}", flush=True)
+                failed.append(st)
         print(f"   running totals: {sink.counts}", flush=True)
 
     # Rebuild the matviews so summaries/top-donor views pick up the new rows.
-    http(f"{SUPABASE_URL}/rest/v1/rpc/refresh_cf_finance_views", data=b"{}",
-         headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
-                  "Content-Type": "application/json"})
+    # The refresh takes ~3 min on ~2M rows and the Supabase API gateway drops
+    # the request at ~2 min with a 504, but the statement runs to completion
+    # server-side (verified in postgres logs, 2026-10-01). Treat a gateway
+    # timeout as "still running"; the pg_cron job cf-finance-refresh-nightly
+    # (09:15 UTC, migration 20261001143000) refreshes again regardless.
+    try:
+        http(f"{SUPABASE_URL}/rest/v1/rpc/refresh_cf_finance_views", data=b"{}",
+             headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+                      "Content-Type": "application/json"})
+    except error.HTTPError as ex:
+        if ex.code not in (502, 504):
+            raise
+        print(f"   matview refresh: gateway {ex.code} after the request timed "
+              f"out; the refresh continues server-side", flush=True)
+    except (TimeoutError, error.URLError) as ex:
+        print(f"   matview refresh: request timed out ({ex}); the refresh "
+              f"continues server-side", flush=True)
     print("done:", sink.counts)
+    if soft_failed:
+        print(f"skipped (known-blocked sources): {' '.join(soft_failed)}")
     if failed:
         sys.exit(f"finance sync: {len(failed)} state(s) failed: {' '.join(failed)}")
 
