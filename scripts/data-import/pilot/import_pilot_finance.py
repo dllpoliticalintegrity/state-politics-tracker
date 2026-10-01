@@ -94,6 +94,7 @@ import os
 import re
 import sys
 import time
+import traceback
 import zipfile
 from datetime import date, timedelta
 from pathlib import Path
@@ -1885,18 +1886,58 @@ def import_maryland(sink, cand_ids):
 # --------------------------------------------------------------------------
 
 AL_BASE = "https://fcpa.alabamavotes.gov/page.request.do"
-AL_INTERMEDIATE = "http://secure.globalsign.com/cacert/gsatlasr3ovtlsca2025q3.crt"
+# Fallback only — see al_ssl_context(). Current as of 2026-10-01.
+AL_INTERMEDIATE = "http://secure.globalsign.com/cacert/gsatlasr46ovtlsca2026q3.crt"
+
+# DER byte pattern of an AIA AccessDescription for id-ad-caIssuers
+# (OID 1.3.6.1.5.5.7.48.2) whose location is a URI ([6] IMPLICIT IA5String):
+# OID tag+len+bytes, then the URI tag and a one-byte (< 128) length.
+_AIA_CA_ISSUERS = re.compile(rb"\x06\x08\x2b\x06\x01\x05\x05\x07\x30\x02\x86([\x01-\x7f])")
+
+
+def _leaf_cert_der(host, port=443, timeout=60):
+    """The DER certificate a TLS server presents, fetched without verifying
+    it (we only want to read its AIA pointer; nothing else is sent)."""
+    import socket
+    import ssl
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        with ctx.wrap_socket(sock, server_hostname=host) as tls:
+            return tls.getpeercert(binary_form=True)
+
+
+def _ca_issuers_url(der):
+    """The 'CA Issuers' URL from a certificate's Authority Information Access
+    extension — where its issuer says the intermediate can be downloaded."""
+    m = _AIA_CA_ISSUERS.search(der or b"")
+    if not m:
+        return None
+    n = m.group(1)[0]
+    return der[m.end():m.end() + n].decode("ascii", "replace")
 
 
 def al_ssl_context():
     """fcpa.alabamavotes.gov serves its leaf certificate without the issuing
-    intermediate, which fails default verification — trust the GlobalSign
-    intermediate explicitly (fetched as DER from GlobalSign's cert store)."""
+    intermediate, which fails default verification. GlobalSign Atlas rotates
+    that intermediate every quarter (the leaf reissued 2026-09-24 moved from
+    "Atlas R3 OV TLS CA 2025 Q3" to "Atlas R46 OV TLS CA 2026 Q3" and broke the
+    pinned URL), so instead of pinning one, read the leaf's AIA "CA Issuers"
+    URL — the issuer's own pointer to the right intermediate — and trust what
+    it serves. AL_INTERMEDIATE is only the fallback if that probe fails; the
+    system store is the fallback after that."""
     import ssl
     ctx = ssl.create_default_context()
+    url = AL_INTERMEDIATE
     try:
-        der = http(AL_INTERMEDIATE, timeout=60)
+        url = _ca_issuers_url(_leaf_cert_der(parse.urlsplit(AL_BASE).hostname)) or url
+    except Exception as ex:  # noqa: BLE001 — network/TLS probe failure
+        print(f"   al: leaf certificate probe failed ({ex}); using pinned intermediate")
+    try:
+        der = http(url, timeout=60)
         ctx.load_verify_locations(cadata=ssl.DER_cert_to_PEM_cert(der))
+        print(f"   al: trusting intermediate from {url}", flush=True)
     except Exception as ex:  # noqa: BLE001 — fall back to the system store
         print(f"   al: intermediate CA fetch failed ({ex}); using system store only")
     return ctx
@@ -2746,10 +2787,23 @@ def main():
                  "ak": import_alaska, "ar": import_arkansas,
                  "ct": import_connecticut, "id": import_idaho,
                  "il": import_illinois, "ks": import_kansas}
+    failed = []
     for st in args.states:
         print(f"== importing {st} ==", flush=True)
-        importers[st](sink, cand_ids)
-        sink.flush()
+        try:
+            importers[st](sink, cand_ids)
+            sink.flush()
+        except Exception as ex:  # noqa: BLE001 — one state must not sink the rest
+            # A state site being down, or changing its TLS chain (Alabama,
+            # 2026-10-01) used to abort every state after it and skip the
+            # matview refresh. Drop the state's partial batch (the next good
+            # run upserts it), carry on, and fail the run at the end so the
+            # Actions badge still shows it.
+            traceback.print_exc()
+            print(f"   {st}: FAILED — {ex}", flush=True)
+            for buf in sink.buffers.values():
+                buf.clear()
+            failed.append(st)
         print(f"   running totals: {sink.counts}", flush=True)
 
     # Rebuild the matviews so summaries/top-donor views pick up the new rows.
@@ -2757,6 +2811,8 @@ def main():
          headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
                   "Content-Type": "application/json"})
     print("done:", sink.counts)
+    if failed:
+        sys.exit(f"finance sync: {len(failed)} state(s) failed: {' '.join(failed)}")
 
 
 if __name__ == "__main__":
