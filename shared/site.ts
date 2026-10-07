@@ -17,9 +17,9 @@
 /** Production hostnames of the dedicated per-state sites → state code. */
 export const SINGLE_STATE_HOSTS: Record<string, string> = {
   "michiganpoliticstracker.com": "mi",
-  // Served by this codebase once the domain's DNS moves to the `texas`
-  // Worker env (wrangler.jsonc); until then it still points at the legacy
-  // tx-politics-tracker site, which shows the same Texas data.
+  // Like michiganpoliticstracker.com, attached as a custom domain to the main
+  // state-politics-tracker Worker, which pins the state from the hostname —
+  // so every deploy of main updates both dedicated sites with the hub.
   "texaspoliticstracker.com": "tx",
 };
 

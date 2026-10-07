@@ -266,9 +266,9 @@ the Money River, candidate social links and FiftyPlusOne polling; the hub had
 per-race tabs, ballot-status chips, the Committees page and district maps —
 with nothing keeping them in step (the risk the section below predicted).
 
-- **Data.** Texas stays on its own TEC importer (tx-politics-tracker,
-  `import_tx_finance.py`), which keeps writing `tx_*`: those tables carry
-  Texas-only semantics (COH + SPAC filer pairs, special pre-election reports
+- **Data.** Texas stays on its own TEC importer
+  (`scripts/data-import/tec/import_tx_finance.py`), which keeps writing
+  `tx_*`: those tables carry Texas-only semantics (COH + SPAC filer pairs, special pre-election reports
   that are re-reported later, superseded reports) that have no place in the
   generic schema. `publish_texas_to_cf()`
   (`20261007150000_texas_into_cf.sql`) copies the settled rows
@@ -280,7 +280,7 @@ with nothing keeping them in step (the risk the section below predicted).
   admin console edits it through `tx-tracker-admin`); the publish overwrites
   Texas's `cf_candidates` rows from it.
 - **Polling.** Texas's governor race is polled by FiftyPlusOne
-  (`import-fiftyplusone-polling`, still deployed from tx-politics-tracker), not
+  (`supabase/functions/import-fiftyplusone-polling`), not
   270toWin. `RaceConfig.pollingSource` names the importer whose
   `race_polling` / `race_polls` rows a race reads; both write the same shapes.
   Texas is deliberately not in `import-towin-polling-multi`'s race list.
@@ -298,21 +298,35 @@ with nothing keeping them in step (the risk the section below predicted).
   `/candidates/:slug` (no race) resolves through the state-level candidate
   route, which looks up the candidate's race.
 
+- **Pipelines live here now.** The TEC importer
+  (`scripts/data-import/tec/import_tx_finance.py`, run by
+  `tx-finance-sync.yml` at 12:00 UTC) and `import-fiftyplusone-polling` (a
+  step in `polling-sync.yml`) moved from tx-politics-tracker, whose workflows
+  were removed; that repo is retired. The admin console dispatches
+  `tx-finance-sync.yml` from Texas's Sync tab.
+- **Hosting.** texaspoliticstracker.com is a custom domain on the main
+  `state-politics-tracker` Worker — the same arrangement that already serves
+  michiganpoliticstracker.com (the `michigan` env in `wrangler.jsonc` is not
+  what serves it: no such Worker exists). The Worker pins the state from the
+  hostname (`SINGLE_STATE_HOSTS`), so every deploy of `main` updates the hub
+  and both dedicated sites together.
+- **Still Texas-specific, on purpose:** `tx_candidates` is the editable roster
+  (the TEC importer reads its filer accounts and every `tx_*` row keys off
+  it); the admin console edits it through `tx-tracker-admin` and the publish
+  mirrors it into `cf_candidates`.
+
 **Cut-over checklist** (in order):
 
 1. Apply `20261007150000_texas_into_cf.sql` to the shared project and run
    `select public.publish_texas_to_cf(); select public.refresh_cf_finance_views();`
    once; check Texas totals in `cf_contributions_summary` against
    `tx_contributions_summary`.
-2. Merge this repo's Texas branch (it reads the new view and columns).
-3. Deploy `npx wrangler deploy --env texas` and review the `*.workers.dev`
-   preview against the live Texas site.
-4. Move texaspoliticstracker.com: detach it from the legacy Pages project,
-   add the custom-domain routes to the `texas` env in `wrangler.jsonc`, deploy.
-5. Afterwards: move the TEC importer, its workflow and
-   `import-fiftyplusone-polling` into this repo; switch the admin console's
-   Texas editor to `cf_candidates` (and flip the publish so it no longer
-   overwrites them); archive tx-politics-tracker's frontend.
+2. Merge this repo's Texas branch (it reads the new view and columns), then
+   tx-politics-tracker's (which removes its now-duplicate workflows).
+3. Cloudflare dashboard: remove texaspoliticstracker.com (and www) from the
+   legacy tx-politics-tracker Pages project, then add both as custom domains
+   on the `state-politics-tracker` Worker (Settings → Domains & Routes).
+4. Archive the tx-politics-tracker repository and its Pages project.
 
 ## Keeping two repos honest
 

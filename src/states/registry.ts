@@ -16,7 +16,7 @@ export type StateStatus =
  * Where a race's polling comes from — the `source` key its importer writes
  * on race_polling / race_polls rows. 270toWin (import-towin-polling-multi)
  * covers every state but Texas; Texas's governor race is fed by FiftyPlusOne
- * (import-fiftyplusone-polling, from the tx-politics-tracker repo). Both
+ * (supabase/functions/import-fiftyplusone-polling). Both
  * importers write the same row shapes, so only the key and the label differ.
  */
 export type PollingSourceKey = "270towin" | "fiftyplusone";
@@ -582,8 +582,9 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
   },
 };
 // Texas (Oct 2026): moved in from its own site. Finance is the TEC bulk
-// import (tx-politics-tracker repo) published into cf_* nightly; polling is
-// FiftyPlusOne, not 270toWin. Primaries were Mar 3 with May 26 runoffs.
+// import (scripts/data-import/tec, tx-finance-sync.yml) staged in tx_* and
+// published into cf_* nightly; polling is FiftyPlusOne, not 270toWin.
+// Primaries were Mar 3 with May 26 runoffs.
 const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
   tx: {
     agency: {

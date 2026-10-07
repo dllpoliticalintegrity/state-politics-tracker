@@ -10,12 +10,11 @@ nightly sync workflows.
 California is tracked on its own separate site
 ([ca-gov-polling](https://github.com/dllpoliticalintegrity/ca-gov-polling));
 its tile on the landing page links out. Texas joined the hub in October
-2026: its data is still imported by
-[tx-politics-tracker](https://github.com/dllpoliticalintegrity/tx-politics-tracker)'s
-TEC importer into `tx_*` and published into `cf_*` nightly, and
-texaspoliticstracker.com is moving onto this codebase in single-state mode
-(the `texas` env in `wrangler.jsonc`) — see `docs/plan.md`, "Texas joins
-the hub", for the cut-over checklist.
+2026: its TEC importer (`scripts/data-import/tec/`, `tx-finance-sync.yml`)
+stages Texas in `tx_*` and a nightly publish copies it into `cf_*`, and
+texaspoliticstracker.com — like michiganpoliticstracker.com — is a custom
+domain on this repo's Worker, pinned to its state by hostname. See
+`docs/plan.md`, "Texas joins the hub".
 
 ## Status
 
