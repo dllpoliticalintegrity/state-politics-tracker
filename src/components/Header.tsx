@@ -3,12 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Sun, Moon, Menu, Heart, ExternalLink } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
   Select,
   SelectContent,
   SelectGroup,
@@ -19,11 +13,13 @@ import {
 } from "@/components/ui/select";
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import DonationPanel from "@/components/donate/DonationPanel";
 import { useActiveState, useStateBase } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
 import { ALL_STATES_URL, SITE_NAME, isSingleStateSite } from "@/states/site";
 import star from "@/assets/star.svg";
+
+/** The org's hosted donation page; the Donate button links straight to it. */
+const DONATE_URL = "https://donate.politicalintegrity.us";
 
 function StateSwitcher() {
   const activeState = useActiveState();
@@ -106,7 +102,6 @@ function useSiteMenu() {
 
 export function Header() {
   const [open, setOpen] = useState(false);
-  const [donateOpen, setDonateOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const menu = useSiteMenu();
 
@@ -168,9 +163,11 @@ export function Header() {
             <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
-          <Button size="sm" onClick={() => setDonateOpen(true)} className="h-8 px-3 text-sm gap-1.5">
-            <Heart className="h-3.5 w-3.5" />
-            Donate
+          <Button asChild size="sm" className="h-8 px-3 text-sm gap-1.5">
+            <a href={DONATE_URL} target="_blank" rel="noopener noreferrer">
+              <Heart className="h-3.5 w-3.5" />
+              Donate
+            </a>
           </Button>
         </div>
 
@@ -215,36 +212,16 @@ export function Header() {
                 {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 {theme === "dark" ? "Light mode" : "Dark mode"}
               </Button>
-              <Button
-                onClick={() => {
-                  setOpen(false);
-                  setDonateOpen(true);
-                }}
-                className="w-full justify-start gap-2 text-sm mt-2"
-              >
-                <Heart className="h-4 w-4" />
-                Donate
+              <Button asChild className="w-full justify-start gap-2 text-sm mt-2">
+                <a href={DONATE_URL} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+                  <Heart className="h-4 w-4" />
+                  Donate
+                </a>
               </Button>
             </nav>
           </SheetContent>
         </Sheet>
 
-        <Dialog open={donateOpen} onOpenChange={setDonateOpen}>
-          <DialogContent
-            onOpenAutoFocus={(e) => e.preventDefault()}
-            className="w-[95vw] max-w-md h-[90vh] p-0 overflow-hidden bg-white"
-          >
-            <DialogTitle className="sr-only">Donate</DialogTitle>
-            <DialogDescription className="sr-only">
-              Donate to the Political Integrity Project
-            </DialogDescription>
-            {donateOpen && (
-              <div className="h-full w-full overflow-y-auto scrollbar-hide bg-white">
-                <DonationPanel />
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
       </div>
     </header>
   );

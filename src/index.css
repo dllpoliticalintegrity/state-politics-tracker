@@ -14,16 +14,6 @@
   }
 }
 
-/* Hide the Givebutter-injected native floating donate button — we use our own
-   donate dialog in the header. */
-#givebutter-launcher,
-[id^="givebutter-launcher"],
-[class*="givebutter-launcher"],
-iframe[src*="givebutter.com/launcher"],
-iframe[id*="givebutter-launcher"] {
-  display: none !important;
-}
-
 @layer base {
   :root {
     /* Paper-and-ink editorial palette: warm off-white ground, near-black
