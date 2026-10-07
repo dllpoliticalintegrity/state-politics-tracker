@@ -7,11 +7,15 @@ with a per-state switcher, powered by
 its states' data — the SLCF importer, curated candidate records, and
 nightly sync workflows.
 
-Texas and California are tracked on their own separate sites
-([texaspoliticstracker.com](https://texaspoliticstracker.com) /
-[tx-politics-tracker](https://github.com/dllpoliticalintegrity/tx-politics-tracker),
-and [ca-gov-polling](https://github.com/dllpoliticalintegrity/ca-gov-polling));
-their tiles on the landing page link out.
+California is tracked on its own separate site
+([ca-gov-polling](https://github.com/dllpoliticalintegrity/ca-gov-polling));
+its tile on the landing page links out. Texas joined the hub in October
+2026: its data is still imported by
+[tx-politics-tracker](https://github.com/dllpoliticalintegrity/tx-politics-tracker)'s
+TEC importer into `tx_*` and published into `cf_*` nightly, and
+texaspoliticstracker.com is moving onto this codebase in single-state mode
+(the `texas` env in `wrangler.jsonc`) — see `docs/plan.md`, "Texas joins
+the hub", for the cut-over checklist.
 
 ## Status
 

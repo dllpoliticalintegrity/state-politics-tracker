@@ -4,7 +4,7 @@ import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContex
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import {
   useCandidate,
   useContributionsSummary,
@@ -17,6 +17,8 @@ import {
 } from "@/hooks/useCandidates";
 import { useRacePolling, readCandidatePct } from "@/hooks/usePolling";
 import CandidatePollingChart from "@/components/CandidatePollingChart";
+import { candidateSocialLinks } from "@/lib/socialLinks";
+import { pollingSourceLabel } from "@/states/registry";
 import {
   formatCurrency,
   formatCurrencyFull,
@@ -51,6 +53,8 @@ export default function CandidateDetail() {
     );
   }
   if (candError || !candidate) return <Navigate to=".." replace />;
+
+  const socialLinks = candidateSocialLinks(candidate);
 
   // Aggregate across cycles
   const totals = (summaries ?? []).reduce(
@@ -192,6 +196,24 @@ export default function CandidateDetail() {
               {candidate.bio && (
                 <p className="text-sm text-muted-foreground max-w-2xl pt-2">{candidate.bio}</p>
               )}
+              {socialLinks.length > 0 && (
+                <ul className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-xs">
+                  {socialLinks.map((l) => (
+                    <li key={l.key}>
+                      <a
+                        href={l.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+                      >
+                        <span className="font-semibold">{l.label}</span>
+                        <span className="font-mono">{l.handle}</span>
+                        <ExternalLink className="h-3 w-3" aria-hidden />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="flex gap-4 md:gap-6">
               {(() => {
@@ -208,13 +230,14 @@ export default function CandidateDetail() {
           )}
         </Card>
 
-        {/* Per-candidate polling trajectory (governor race only — the polls
-            feed tracks the top-of-ticket matchup) */}
-        {candidate.office === "GOVERNOR" && (
+        {/* Per-candidate polling trajectory (polled races only). This used to
+            test candidate.office === "GOVERNOR" — a Texas-site leftover that
+            never matches the hub's lowercase offices, so it never rendered. */}
+        {!!race.pollingSourceUrl && (
         <Card className="p-6">
           <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
             <h2 className="font-display text-xl font-semibold">Polling history</h2>
-            <span className="text-xs text-muted-foreground">Source: 270toWin aggregate</span>
+            <span className="text-xs text-muted-foreground">Source: {pollingSourceLabel(race)} average</span>
           </div>
           <CandidatePollingChart
             candidate={{ slug: candidate.slug, name: candidate.name, party: candidate.party }}

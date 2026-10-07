@@ -10,6 +10,7 @@
 import {
   applySeoRewrite,
   isAssetPath,
+  legacyRedirectResponse,
   llmsResponse,
   robotsResponse,
   sitemapResponse,
@@ -41,6 +42,8 @@ export default {
       const generated = llmsResponse(siteState);
       if (generated) return generated;
     }
+    const legacy = legacyRedirectResponse(url, siteState);
+    if (legacy) return legacy;
 
     const response = await env.ASSETS.fetch(request);
 

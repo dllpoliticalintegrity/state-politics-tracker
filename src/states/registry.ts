@@ -12,6 +12,20 @@ export type StateStatus =
   // Tracked on a separate Political Integrity Project site; tiles link out.
   | "external";
 
+/**
+ * Where a race's polling comes from — the `source` key its importer writes
+ * on race_polling / race_polls rows. 270toWin (import-towin-polling-multi)
+ * covers every state but Texas; Texas's governor race is fed by FiftyPlusOne
+ * (import-fiftyplusone-polling, from the tx-politics-tracker repo). Both
+ * importers write the same row shapes, so only the key and the label differ.
+ */
+export type PollingSourceKey = "270towin" | "fiftyplusone";
+
+export const POLLING_SOURCES: Record<PollingSourceKey, { label: string }> = {
+  "270towin": { label: "270toWin" },
+  fiftyplusone: { label: "FiftyPlusOne" },
+};
+
 export interface RaceConfig {
   /** URL segment: "governor", "attorney-general", "secretary-of-state"… */
   office: string;
@@ -21,8 +35,14 @@ export interface RaceConfig {
   generalDate: string;
   /** Slug in the shared `races` polling table, e.g. "michigan-governor-2026". */
   raceSlug: string;
-  /** 270toWin page, where public polling exists (mostly governor races). */
+  /**
+   * Public page of the race's polling source, where public polling exists
+   * (mostly governor races). Its presence is what turns the polling sections
+   * on.
+   */
   pollingSourceUrl?: string;
+  /** Which importer's rows to read; defaults to 270toWin. */
+  pollingSource?: PollingSourceKey;
   /**
    * Set on the per-district races synthesized from a ChamberConfig (see
    * districtRace): the district number as it appears in the URL and in
@@ -72,6 +92,14 @@ export interface StateConfig {
   agency?: { name: string; url: string };
   /** Required when status is "external". */
   externalUrl?: string;
+  /**
+   * Paths of the state's dedicated site that predate the hub layout, mapped
+   * to their hub-layout path (both prefix-less, as on the dedicated site).
+   * The Worker 301s them and the SPA redirects them, so old links and search
+   * results keep landing. Old candidate profiles (/candidates/:slug) resolve
+   * through the state-level candidate route instead, which knows the race.
+   */
+  legacyPaths?: Record<string, string>;
 }
 
 // States with a complete pipeline in hderyke/state-level-campaign-finance.
@@ -82,8 +110,11 @@ const SLCF_READY = new Set([
   "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "pa",
 ]);
 
+// Texas was external too until Oct 2026 (texaspoliticstracker.com was a fork
+// of this codebase's ancestor); it is now a live state whose data the TEC
+// importer stages in tx_* and publish_texas_to_cf() copies into cf_* — see
+// docs/plan.md, "Texas joins the hub".
 const EXTERNAL: Record<string, string> = {
-  tx: "https://texaspoliticstracker.com",
   // TODO: swap for the CA site's production domain once confirmed.
   ca: "https://github.com/dllpoliticalintegrity/ca-gov-polling",
 };
@@ -550,7 +581,54 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
     ],
   },
 };
-Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4);
+// Texas (Oct 2026): moved in from its own site. Finance is the TEC bulk
+// import (tx-politics-tracker repo) published into cf_* nightly; polling is
+// FiftyPlusOne, not 270toWin. Primaries were Mar 3 with May 26 runoffs.
+const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
+  tx: {
+    agency: {
+      name: "Texas Ethics Commission",
+      url: "https://www.ethics.state.tx.us/search/cf/",
+    },
+    // texaspoliticstracker.com's URLs before it moved onto this codebase:
+    // governor pages lived at the root, the down-ballot races on /statewide.
+    legacyPaths: {
+      "/candidates": "/governor/candidates",
+      "/polling": "/governor/polling",
+      "/money": "/governor/money/donors",
+      "/money/donors": "/governor/money/donors",
+      "/money/outside-spending": "/governor/money/outside-spending",
+      "/money/river": "/governor/money/river",
+      "/statewide": "/lt-governor",
+      "/top-donors": "/governor/money/donors",
+      "/independent-expenditures": "/governor/money/outside-spending",
+      "/faq": "/about",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "texas-governor-2026",
+        pollingSource: "fiftyplusone",
+        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/texas",
+      },
+      {
+        office: "lt-governor",
+        title: "Lt. Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "texas-lt-governor-2026",
+      },
+      {
+        office: "attorney-general",
+        title: "Attorney General",
+        generalDate: "2026-11-03",
+        raceSlug: "texas-attorney-general-2026",
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX);
 
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,
@@ -573,6 +651,37 @@ export function getState(code: string | undefined): StateConfig | undefined {
 }
 
 export const liveStates = () => STATES.filter((s) => s.status === "live");
+
+/**
+ * Where an old dedicated-site path now lives, or null. `pathname` is the
+ * prefix-less path on that state's own site; a trailing slash is ignored.
+ */
+export function legacyRedirect(state: Pick<StateConfig, "legacyPaths"> | null | undefined, pathname: string): string | null {
+  if (!state?.legacyPaths) return null;
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return state.legacyPaths[path] ?? null;
+}
+
+/** The importer key a race's polling rows carry. */
+export function pollingSourceKey(race: Pick<RaceConfig, "pollingSource">): PollingSourceKey {
+  return race.pollingSource ?? "270towin";
+}
+
+/** "270toWin", "FiftyPlusOne" — for source credits next to polling. */
+export function pollingSourceLabel(race: Pick<RaceConfig, "pollingSource">): string {
+  return POLLING_SOURCES[pollingSourceKey(race)].label;
+}
+
+/**
+ * The polling sources a state's polled races use, joined for prose ("270toWin",
+ * "FiftyPlusOne"). Null when none of its races is polled.
+ */
+export function statePollingLabel(state: Pick<StateConfig, "races">): string | null {
+  const labels = [
+    ...new Set((state.races ?? []).filter((r) => r.pollingSourceUrl).map(pollingSourceLabel)),
+  ];
+  return labels.length ? labels.join(" and ") : null;
+}
 
 /** The chamber a state tracks under this office segment, if any. */
 export function getChamber(state: StateConfig, office: string | undefined): ChamberConfig | undefined {

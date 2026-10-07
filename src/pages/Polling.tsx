@@ -10,6 +10,7 @@ import {
   type RacePollRow,
 } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
+import { pollingSourceLabel } from "@/states/registry";
 
 // One row per poll: race_polls stores one row per candidate per poll, so
 // group by (pollster, field_end, matchup) and pivot pcts by surname.
@@ -108,7 +109,7 @@ export default function Polling() {
         </p>
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">Polling</h1>
         <p className="text-base text-muted-foreground">
-          The 270toWin aggregate and every individual poll, updated nightly.
+          The {pollingSourceLabel(race)} average and every individual poll, updated nightly.
         </p>
       </section>
 
@@ -165,7 +166,7 @@ export default function Polling() {
               rel="noreferrer noopener"
               className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1"
             >
-              View on 270toWin <ExternalLink className="h-3 w-3" />
+              View on {pollingSourceLabel(race)} <ExternalLink className="h-3 w-3" />
             </a>
           </div>
           {(isLoading || pollsLoading) && (

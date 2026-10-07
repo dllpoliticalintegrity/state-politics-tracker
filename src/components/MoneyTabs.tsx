@@ -4,6 +4,7 @@ import { useRaceBase } from "@/states/StateContext";
 const tabs = [
   { to: "money/donors", label: "Top donors" },
   { to: "money/outside-spending", label: "Outside spending" },
+  { to: "money/river", label: "River" },
 ];
 
 /** Tab navigation shared by the pages under the Money section. */

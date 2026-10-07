@@ -30,7 +30,7 @@ export default function StatePicker() {
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           Polling averages, campaign finance, and outside spending for statewide races
           across the country — governor on down — synced from each state's disclosure
-          agency and 270toWin. Pick your state to start.
+          agency, 270toWin and FiftyPlusOne. Pick your state to start.
         </p>
       </section>
 

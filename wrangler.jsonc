@@ -37,6 +37,26 @@
         "not_found_handling": "single-page-application",
         "run_worker_first": true
       }
+    },
+    // texaspoliticstracker.com — Texas-only site, replacing the legacy
+    // tx-politics-tracker deployment. Until the cut-over this env has no
+    // routes, so `npx wrangler deploy --env texas` publishes only a
+    // *.workers.dev preview. To cut over (docs/plan.md, "Texas joins the
+    // hub"): detach the domain from the legacy Pages project, then add
+    //   "routes": [
+    //     { "pattern": "texaspoliticstracker.com", "custom_domain": true },
+    //     { "pattern": "www.texaspoliticstracker.com", "custom_domain": true }
+    //   ]
+    // and deploy.
+    "texas": {
+      "name": "texas-politics-tracker",
+      "vars": { "SITE_STATE": "tx" },
+      "assets": {
+        "directory": "./dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      }
     }
   }
 }

@@ -17,6 +17,10 @@
 /** Production hostnames of the dedicated per-state sites → state code. */
 export const SINGLE_STATE_HOSTS: Record<string, string> = {
   "michiganpoliticstracker.com": "mi",
+  // Served by this codebase once the domain's DNS moves to the `texas`
+  // Worker env (wrangler.jsonc); until then it still points at the legacy
+  // tx-politics-tracker site, which shows the same Texas data.
+  "texaspoliticstracker.com": "tx",
 };
 
 /** Public URL of each dedicated site, for cross-links from the hub. */

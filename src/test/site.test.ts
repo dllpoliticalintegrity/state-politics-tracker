@@ -30,6 +30,12 @@ describe("single-state site resolution", () => {
     expect(normalizeHost("www.Example.com:443")).toBe("example.com");
   });
 
+  it("recognises texaspoliticstracker.com", () => {
+    expect(siteStateForHost("texaspoliticstracker.com")).toBe("tx");
+    expect(siteStateForHost("www.texaspoliticstracker.com")).toBe("tx");
+    expect(SINGLE_STATE_SITES.tx).toBe("https://texaspoliticstracker.com");
+  });
+
   it("treats every other host as the hub", () => {
     expect(siteStateForHost("localhost")).toBeNull();
     expect(siteStateForHost("state-politics-tracker.pages.dev")).toBeNull();

@@ -4,6 +4,7 @@ import {
   applySeoRewrite,
   humanizeSlug,
   injectSiteState,
+  legacyRedirectResponse,
   llmsResponse,
   rewriteHtml,
   routeMeta,
@@ -47,11 +48,11 @@ describe("single-state metadata", () => {
         expect(routes[`/${r.office}/candidates`]).toBeTruthy();
         expect(routes[`/${r.office}/money/donors`]).toBeTruthy();
         expect(routes[`/${r.office}/money/outside-spending`]).toBeTruthy();
-        // Polling pages exist only where the race has a 270toWin source.
+        // Polling pages exist only where the race has a polling source.
         expect(!!routes[`/${r.office}/polling`]).toBe(!!r.pollingSourceUrl);
       }
     }
-    expect(singleStateRoutes("tx")).toBeNull();
+    expect(singleStateRoutes("ca")).toBeNull();
     expect(singleStateRoutes("zz")).toBeNull();
   });
 
@@ -148,5 +149,26 @@ describe("HTML rewriting", () => {
 
     const asset = new Response("{}", { headers: { "content-type": "application/json" } });
     expect(await applySeoRewrite(new Request("https://michiganpoliticstracker.com/x.json"), asset, "mi")).toBe(asset);
+  });
+});
+
+describe("Texas on the hub", () => {
+  it("credits each race's own polling source", () => {
+    expect(routeMeta("/governor", "tx")!.description).toContain("Texas Ethics Commission and FiftyPlusOne");
+    expect(routeMeta("/governor/polling", "tx")!.body).toContain("aggregated from FiftyPlusOne");
+    expect(routeMeta("/lt-governor/polling", "tx")).toBeNull();
+    expect(routeMeta("/about", "tx")!.body).toContain("polling comes from FiftyPlusOne");
+    expect(routeMeta("/governor", "mi")!.description).toContain("and 270toWin");
+    // A state with no polled race makes no polling claim.
+    expect(routeMeta("/about", "hi")!.body).not.toContain("polling comes from");
+  });
+
+  it("301s texaspoliticstracker.com's old URLs, and only on the Texas site", () => {
+    const res = legacyRedirectResponse(new URL("https://texaspoliticstracker.com/money/river?kind=loan"), "tx")!;
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://texaspoliticstracker.com/governor/money/river?kind=loan");
+    expect(legacyRedirectResponse(new URL("https://texaspoliticstracker.com/governor"), "tx")).toBeNull();
+    expect(legacyRedirectResponse(new URL("https://hub.example/polling"), null)).toBeNull();
+    expect(legacyRedirectResponse(new URL("https://michiganpoliticstracker.com/polling"), "mi")).toBeNull();
   });
 });

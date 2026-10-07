@@ -2,7 +2,7 @@
 
 > Public-interest dashboard tracking money and polling in 2026 statewide races across the country — governor's races and down-ballot row offices alike. Campaign-finance filings sourced from each state's disclosure agency via the state-level-campaign-finance pipeline, plus aggregated public polling.
 
-Texas and California are tracked on separate Political Integrity Project sites; the Texas Governor's race lives at https://texaspoliticstracker.com.
+Texas and Michigan also have dedicated sites built from the same data (https://texaspoliticstracker.com, https://michiganpoliticstracker.com). California is tracked on a separate Political Integrity Project site.
 
 ## Pages
 

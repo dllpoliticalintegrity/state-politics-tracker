@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { STATES, getState, liveStates } from "@/states/registry";
+import {
+  STATES,
+  getState,
+  legacyRedirect,
+  liveStates,
+  pollingSourceKey,
+  pollingSourceLabel,
+  statePollingLabel,
+} from "@/states/registry";
 
 describe("state registry", () => {
   it("contains all 50 states with unique codes", () => {
@@ -9,11 +17,51 @@ describe("state registry", () => {
     for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
   });
 
-  it("marks Texas and California external with URLs", () => {
-    for (const code of ["tx", "ca"]) {
-      const s = getState(code);
-      expect(s?.status).toBe("external");
-      expect(s?.externalUrl).toMatch(/^https:\/\//);
+  it("marks California external with a URL", () => {
+    const s = getState("ca");
+    expect(s?.status).toBe("external");
+    expect(s?.externalUrl).toMatch(/^https:\/\//);
+  });
+
+  it("tracks Texas as a live state with its three statewide races", () => {
+    const tx = getState("tx")!;
+    expect(tx.status).toBe("live");
+    expect(tx.externalUrl).toBeUndefined();
+    expect(tx.agency?.name).toBe("Texas Ethics Commission");
+    expect(tx.races!.map((r) => r.office)).toEqual(["governor", "lt-governor", "attorney-general"]);
+    // Only the governor's race is polled, and by FiftyPlusOne rather than 270toWin.
+    const [gov, ltgov] = tx.races!;
+    expect(pollingSourceKey(gov)).toBe("fiftyplusone");
+    expect(pollingSourceLabel(gov)).toBe("FiftyPlusOne");
+    expect(gov.pollingSourceUrl).toMatch(/^https:\/\/fiftyplusone\.news\//);
+    expect(ltgov.pollingSourceUrl).toBeUndefined();
+    expect(statePollingLabel(tx)).toBe("FiftyPlusOne");
+  });
+
+  it("defaults every other race's polling to 270toWin", () => {
+    const mi = getState("mi")!;
+    expect(pollingSourceKey(mi.races![0])).toBe("270towin");
+    expect(statePollingLabel(mi)).toBe("270toWin");
+    // A state with no polled race has no polling credit at all.
+    expect(statePollingLabel(getState("hi")!)).toBeNull();
+  });
+
+  it("maps the Texas site's pre-hub URLs onto its race pages", () => {
+    const tx = getState("tx")!;
+    expect(legacyRedirect(tx, "/polling")).toBe("/governor/polling");
+    expect(legacyRedirect(tx, "/money/river/")).toBe("/governor/money/river");
+    expect(legacyRedirect(tx, "/statewide")).toBe("/lt-governor");
+    expect(legacyRedirect(tx, "/faq")).toBe("/about");
+    // Current paths and other states are left alone.
+    expect(legacyRedirect(tx, "/governor/polling")).toBeNull();
+    expect(legacyRedirect(tx, "/")).toBeNull();
+    expect(legacyRedirect(getState("mi"), "/polling")).toBeNull();
+    expect(legacyRedirect(null, "/polling")).toBeNull();
+    // Every target is a real page: a race (or its sub-page) or /about.
+    const offices = new Set(tx.races!.map((r) => r.office));
+    for (const to of Object.values(tx.legacyPaths!)) {
+      const first = to.split("/")[1];
+      expect(first === "about" || offices.has(first), to).toBe(true);
     }
   });
 
@@ -23,6 +71,7 @@ describe("state registry", () => {
       "pa", "ma", "mn", "co", "ia", "md", "hi",
       "oh", "wi", "nv",
       "al", "ak", "ar", "ct", "id", "il", "ks",
+      "tx",
     ];
     for (const code of live) {
       expect(getState(code)?.status).toBe("live");
