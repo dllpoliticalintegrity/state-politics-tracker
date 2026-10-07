@@ -62,18 +62,32 @@ export function useLatestContributions(limit = 20, minAmount?: number) {
       );
       if (byId.size === 0) return [];
 
-      const { data, error } = await (supabase as any)
-        .from("cf_contributions")
-        .select(
-          "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id",
-        )
-        .in("candidate_id", [...byId.keys()])
-        .not("contribution_date", "is", null)
-        .gte("amount", floor)
-        .order("contribution_date", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return ((data ?? []) as any[]).map((r) => ({
+      // One query per candidate, merged here. A single `candidate_id IN (…)
+      // ORDER BY contribution_date` still lets the planner walk the global
+      // date index and filter, which timed out on the Michigan governor's race
+      // (and gets slower as states are added); per candidate it is a short
+      // range read of the (candidate_id, amount) index plus a tiny sort.
+      const results = await Promise.all(
+        [...byId.keys()].map((id) =>
+          (supabase as any)
+            .from("cf_contributions")
+            .select(
+              "id,amount,contribution_date,contributor_type,contributor_first_name,contributor_last_name,employer,city,state,candidate_id",
+            )
+            .eq("candidate_id", id)
+            .not("contribution_date", "is", null)
+            .gte("amount", floor)
+            .order("contribution_date", { ascending: false })
+            .limit(limit),
+        ),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) throw failed.error;
+      const data = results
+        .flatMap((r) => (r.data ?? []) as any[])
+        .sort((a, b) => String(b.contribution_date).localeCompare(String(a.contribution_date)))
+        .slice(0, limit);
+      return data.map((r) => ({
         id: r.id,
         amount: Number(r.amount ?? 0),
         contribution_date: r.contribution_date,

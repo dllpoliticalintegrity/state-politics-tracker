@@ -12,6 +12,7 @@ import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { pollingSourceLabel } from "@/states/registry";
 import { offBallotLast } from "@/lib/candidateStatus";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -133,7 +134,7 @@ export default function Index() {
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           {hasPollingSource
-            ? `Polling averages, campaign finance, and outside spending, synced from 270toWin and the ${stateCfg.agency?.name}.`
+            ? `Polling averages, campaign finance, and outside spending, synced from ${pollingSourceLabel(race)} and the ${stateCfg.agency?.name}.`
             : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
       </section>
@@ -181,7 +182,7 @@ export default function Index() {
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                Source: 270toWin ↗
+                Source: {pollingSourceLabel(race)} ↗
               </a>
             </div>
           </div>

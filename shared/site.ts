@@ -17,6 +17,10 @@
 /** Production hostnames of the dedicated per-state sites → state code. */
 export const SINGLE_STATE_HOSTS: Record<string, string> = {
   "michiganpoliticstracker.com": "mi",
+  // Like michiganpoliticstracker.com, attached as a custom domain to the main
+  // state-politics-tracker Worker, which pins the state from the hostname —
+  // so every deploy of main updates both dedicated sites with the hub.
+  "texaspoliticstracker.com": "tx",
 };
 
 /** Public URL of each dedicated site, for cross-links from the hub. */

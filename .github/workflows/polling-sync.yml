@@ -64,3 +64,21 @@ jobs:
           print("ok" if ok else "FAILED")
           sys.exit(0 if ok else 1)
           PY
+
+      # Texas's governor race is polled by FiftyPlusOne, not 270toWin (moved
+      # here from tx-politics-tracker in Oct 2026). The edge function pulls
+      # FiftyPlusOne's CSV API and refreshes race_polls + race_polling for
+      # texas-governor-2026 with the project's own service role. Runs even if
+      # the 270toWin step failed — the two sources are independent.
+      - name: Trigger FiftyPlusOne import (Texas)
+        if: ${{ !cancelled() }}
+        run: |
+          ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvaHhkZnJ4bnh1eGpkdnZ5ZmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMTQ5NzQsImV4cCI6MjA5ODU5MDk3NH0.vAaUdkMmbFPEO-1usZaTj9J4EcyJjnYzjAiDkSeaVYo"
+          RESP=$(curl -fsS --retry 3 --retry-delay 15 --retry-all-errors -X POST \
+            "https://lohxdfrxnxuxjdvvyfjc.supabase.co/functions/v1/import-fiftyplusone-polling" \
+            -H "Authorization: Bearer $ANON" \
+            -H "apikey: $ANON" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)"

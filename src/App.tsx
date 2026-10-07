@@ -28,9 +28,11 @@ import Candidates from "./pages/Candidates";
 import CandidateDetail from "./pages/CandidateDetail";
 import IndependentExpenditures from "./pages/IndependentExpenditures";
 import TopDonors from "./pages/TopDonors";
+import MoneyRiver from "./pages/MoneyRiver";
 import Polling from "./pages/Polling";
 import About from "./pages/About";
 import Committees from "./pages/Committees";
+import CandidateRedirect from "./pages/CandidateRedirect";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,6 +55,8 @@ function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
         <Route index element={<Navigate to={cfg.races[0].office} replace />} />
         <Route path="about" element={<About />} />
         <Route path="committees" element={<Committees />} />
+        {/* Race-less profile links (the Texas site's old /candidates/:slug). */}
+        <Route path="candidates/:slug" element={<CandidateRedirect />} />
         <Route path=":office/*" element={<RaceArea cfg={cfg} />} />
       </Routes>
     </StateProvider>
@@ -117,6 +121,7 @@ function RaceRoutes({ race }: { race: RaceConfig }) {
         <Route path="money" element={<Navigate to="donors" replace />} />
         <Route path="money/donors" element={<TopDonors />} />
         <Route path="money/outside-spending" element={<IndependentExpenditures />} />
+        <Route path="money/river" element={<MoneyRiver />} />
         <Route path="polling" element={<Polling />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -173,6 +178,10 @@ function AppShell() {
         {SITE_STATE ? (
           <>
             <Route path={`/${SITE_STATE.code}/*`} element={<StripStatePrefix code={SITE_STATE.code} />} />
+            {/* The dedicated site's pre-hub URLs (the Worker 301s these too). */}
+            {Object.entries(SITE_STATE.legacyPaths ?? {}).map(([from, to]) => (
+              <Route key={from} path={from} element={<Navigate to={to} replace />} />
+            ))}
             <Route path="/*" element={<StateArea cfg={SITE_STATE} />} />
           </>
         ) : (

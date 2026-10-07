@@ -41,6 +41,11 @@ export type TxCandidate = {
   district?: string | null;
   status: string | null;
   featured: boolean;
+  /** Bare social handles (no "@"); only the profile query selects them. */
+  twitter_user?: string | null;
+  instagram_user?: string | null;
+  facebook_user?: string | null;
+  youtube_user?: string | null;
 };
 
 export type TxContributionSummary = {
@@ -184,11 +189,12 @@ export function useCandidate(slug: string | undefined) {
       // cf_candidates, not tx_candidates: a leftover from the TX port meant
       // this 400'd (tx_candidates has no `state`) and every candidate profile
       // bounced back to the candidates list.
+      // select("*") rather than a column list so the social-handle columns
+      // (20261007150000_texas_into_cf.sql) are picked up without breaking
+      // profiles on a database that does not have them yet.
       const { data, error } = await (supabase as any)
         .from("cf_candidates")
-        .select(
-          "id,slug,name,party,title,bio,photo_url,photo_url_medium,photo_url_large,photo_url_thumb,website,state,committee_name,filer_refs,office,district,status,featured",
-        )
+        .select("*")
         .eq("slug", slug)
         .maybeSingle();
       if (error) throw error;

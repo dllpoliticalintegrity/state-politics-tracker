@@ -3,7 +3,7 @@
 // A SITE_STATE environment variable (or a dedicated hostname — shared/site.ts)
 // pins the deployment to one state's site.
 
-import { applySeoRewrite, isAssetPath } from "../shared/seo";
+import { applySeoRewrite, isAssetPath, legacyRedirectResponse } from "../shared/seo";
 import { normalizeHost, resolveSiteState, siteStateForHost } from "../shared/site";
 
 type MiddlewareContext = {
@@ -23,10 +23,10 @@ export const onRequest = async (context: MiddlewareContext): Promise<Response> =
   }
   if (isAssetPath(url.pathname)) return next();
 
+  const siteState = resolveSiteState({ override: env?.SITE_STATE, hostname: url.hostname });
+  const legacy = legacyRedirectResponse(url, siteState);
+  if (legacy) return legacy;
+
   const response = await next();
-  return applySeoRewrite(
-    request,
-    response,
-    resolveSiteState({ override: env?.SITE_STATE, hostname: url.hostname }),
-  );
+  return applySeoRewrite(request, response, siteState);
 };

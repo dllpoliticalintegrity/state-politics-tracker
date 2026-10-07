@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useActiveState, useStateBase } from "@/states/StateContext";
 import { ALL_STATES_URL, SITE_NAME, SITE_STATE, isSingleStateSite } from "@/states/site";
+import { statePollingLabel } from "@/states/registry";
 
 export function Footer() {
   const activeState = useActiveState();
@@ -64,8 +65,10 @@ export function Footer() {
         <div className="pt-6 border-t text-xs text-muted-foreground space-y-1">
           <p>
             {activeState?.agency
-              ? `Updated nightly from the ${activeState.agency.name} and 270toWin. `
-              : "Updated nightly from each state's disclosure agency and 270toWin. "}
+              ? `Updated nightly from the ${activeState.agency.name}${
+                  statePollingLabel(activeState) ? ` and ${statePollingLabel(activeState)}` : ""
+                }. `
+              : "Updated nightly from each state's disclosure agency, 270toWin and FiftyPlusOne. "}
             Data is presented as filed; corrections and amendments appear after the next sync.
           </p>
           <p>© 2026 Political Integrity Project</p>

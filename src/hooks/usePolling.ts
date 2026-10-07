@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig } from "@/states/StateContext";
+import { pollingSourceKey, pollingSourceLabel, type RaceConfig } from "@/states/registry";
 
 export type PollRow = {
   Poll: string;
@@ -19,21 +20,22 @@ export type PollingBundle = {
   polls: PollRow[]; // everything except the average, sorted by Date desc
 };
 
-async function fetchRacePolling(slug: string): Promise<PollingBundle | null> {
+async function fetchRacePolling(raceCfg: RaceConfig): Promise<PollingBundle | null> {
   const { data: race, error: raceErr } = await (supabase as any)
     .from("races")
     .select("race_id")
-    .eq("slug", slug)
+    .eq("slug", raceCfg.raceSlug)
     .maybeSingle();
   if (raceErr) throw raceErr;
   if (!race) return null;
 
-  // Only use 270toWin data; RCP has been deprecated.
+  // Only the race's own polling source (270toWin, or FiftyPlusOne for Texas);
+  // RCP has been deprecated.
   const { data: rows, error } = await (supabase as any)
     .from("race_polling")
     .select("source,rcp_url,source_url,last_updated,spread,raw_data")
     .eq("race_id", race.race_id)
-    .eq("source", "270towin");
+    .eq("source", pollingSourceKey(raceCfg));
   if (error) throw error;
   if (!rows || rows.length === 0) return null;
 
@@ -54,8 +56,9 @@ async function fetchRacePolling(slug: string): Promise<PollingBundle | null> {
       );
   } else if (raw && Array.isArray(raw.all_candidates)) {
     // Synthesize a single "average" row keyed by surname → pct so the
-    // existing readCandidatePct helper continues to work.
-    const avgRow: PollRow = { Poll: "270toWin Average", Date: "", Sample: "", MoE: "" };
+    // existing readCandidatePct helper continues to work. 270toWin and
+    // FiftyPlusOne both store { all_candidates: [{ name, avg_pct }] }.
+    const avgRow: PollRow = { Poll: `${pollingSourceLabel(raceCfg)} Average`, Date: "", Sample: "", MoE: "" };
     for (const c of raw.all_candidates as Array<{ name: string; avg_pct: number }>) {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
       avgRow[surname] = String(c.avg_pct);
@@ -95,14 +98,14 @@ export function parsePollDate(d: string | undefined | null): string {
 export function useRacePolling() {
   const race = useRaceConfig();
   return useQuery({
-    queryKey: ["race_polling", race.raceSlug],
-    queryFn: () => fetchRacePolling(race.raceSlug),
+    queryKey: ["race_polling", race.raceSlug, pollingSourceKey(race)],
+    queryFn: () => fetchRacePolling(race),
   });
 }
 
 /**
- * Per-poll rows from the 270toWin importer (one row per candidate per poll).
- * Used by the trend chart so we don't depend on RCP's "raw_data" array.
+ * Per-poll rows from the race's polling importer (one row per candidate per
+ * poll). Used by the trend chart so we don't depend on RCP's "raw_data" array.
  */
 export type RacePollRow = {
   candidate_name: string;
@@ -126,7 +129,7 @@ export function isGeneralMatchup(m: string | null | undefined): boolean {
 export function useRacePolls() {
   const raceCfg = useRaceConfig();
   return useQuery({
-    queryKey: ["race_polls", raceCfg.raceSlug],
+    queryKey: ["race_polls", raceCfg.raceSlug, pollingSourceKey(raceCfg)],
     queryFn: async (): Promise<RacePollRow[]> => {
       const { data: race } = await (supabase as any)
         .from("races")
@@ -140,7 +143,7 @@ export function useRacePolls() {
           "candidate_name,candidate_party,pct,pollster,field_end,sample_size,sample_kind,source_url,matchup",
         )
         .eq("race_id", race.race_id)
-        .eq("source", "270towin")
+        .eq("source", pollingSourceKey(raceCfg))
         .order("field_end", { ascending: false });
       if (error) throw error;
       return (data ?? []) as RacePollRow[];

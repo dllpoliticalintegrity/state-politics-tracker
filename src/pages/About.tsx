@@ -1,10 +1,19 @@
 import { Card } from "@/components/ui/card";
 import { useStateConfig } from "@/states/StateContext";
 import { SITE_NAME, isSingleStateSite } from "@/states/site";
+import { pollingSourceLabel } from "@/states/registry";
+import { SINGLE_STATE_SITES } from "../../shared/site";
+import { stateGuide } from "@/states/guides";
+import StateRulesGuide from "@/components/StateRulesGuide";
 
 export default function About() {
   const stateCfg = useStateConfig();
   const races = stateCfg.races ?? [];
+  const polled = races.find((r) => r.pollingSourceUrl);
+  const pollingLabel = pollingSourceLabel(polled ?? {});
+  // Every dedicated single-state site except the one being read.
+  const otherSites = Object.entries(SINGLE_STATE_SITES).filter(([code]) => code !== stateCfg.code);
+  const guide = stateGuide(stateCfg.code);
 
   return (
     <div className="min-h-[70vh]">
@@ -41,31 +50,45 @@ export default function About() {
             ) : (
               "state disclosure agency"
             )}
-            's public filings, normalized through the open-source{" "}
-            <a
-              href="https://github.com/hderyke/state-level-campaign-finance"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
-            >
-              state-level-campaign-finance
-            </a>{" "}
-            pipeline. Data is presented as filed; corrections and amendments appear after
-            the next sync.
+            {guide?.financeSource ? (
+              <>
+                's {guide.financeSource} Data is presented as filed; corrections and
+                amendments appear after the next sync.
+              </>
+            ) : (
+              <>
+                's public filings, normalized through the open-source{" "}
+                <a
+                  href="https://github.com/hderyke/state-level-campaign-finance"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  state-level-campaign-finance
+                </a>{" "}
+                pipeline. Data is presented as filed; corrections and amendments appear after
+                the next sync.
+              </>
+            )}
           </p>
+          {guide?.methodology?.map((para) => (
+            <p key={para} className="text-sm text-muted-foreground">
+              {para}
+            </p>
+          ))}
           <p className="text-sm text-muted-foreground">
             <strong className="text-foreground">Polling</strong> comes from{" "}
-            {races[0]?.pollingSourceUrl ? (
+            {polled ? (
               <a
-                href={races[0].pollingSourceUrl}
+                href={polled.pollingSourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                270toWin
+                {pollingLabel}
               </a>
             ) : (
-              "270toWin"
+              pollingLabel
             )}
             's {stateCfg.name} pages — both individual polls and the aggregate. Our
             averages cover general-election matchups from roughly the last 60 days;
@@ -100,17 +123,26 @@ export default function About() {
           </p>
         </Card>
 
+        {guide && <StateRulesGuide guide={guide} />}
+
         <Card className="p-5 space-y-3">
           <h2 className="font-display text-xl font-semibold">Related sites</h2>
           <p className="text-sm text-muted-foreground">
-            The 2026 Texas Governor's race is tracked in depth at{" "}
-            <a
-              href="https://texaspoliticstracker.com"
-              className="text-primary hover:underline"
-            >
-              texaspoliticstracker.com
-            </a>
-            . Questions, corrections, or a state you'd like covered next:{" "}
+            {otherSites.length > 0 && (
+              <>
+                States with their own dedicated site:{" "}
+                {otherSites.map(([code, url], i) => (
+                  <span key={code}>
+                    {i > 0 && ", "}
+                    <a href={url} className="text-primary hover:underline">
+                      {url.replace(/^https?:\/\//, "")}
+                    </a>
+                  </span>
+                ))}
+                .{" "}
+              </>
+            )}
+            Questions, corrections, or a state you'd like covered next:{" "}
             <a
               href="mailto:team@politicalintegrity.us"
               className="text-primary hover:underline"

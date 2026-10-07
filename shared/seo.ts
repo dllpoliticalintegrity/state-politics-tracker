@@ -17,6 +17,9 @@ import {
   getChamber,
   getState,
   isValidDistrict,
+  legacyRedirect,
+  pollingSourceLabel,
+  statePollingLabel,
   type ChamberConfig,
   type RaceConfig,
   type StateConfig,
@@ -38,7 +41,7 @@ export const STATIC_ROUTES: Record<string, RouteMeta> = {
     h1: "State Politics Tracker — Follow the Money in Your State",
     body: `
       <p>State Politics Tracker is a public-interest dashboard for 2026 statewide races. We pull primary-source campaign-finance filings from each state's disclosure agency, surface outside spending, and aggregate public polling for every statewide race on the ballot — governor, attorney general, and the rest of the row offices — so you can see how money and momentum are moving, state by state.</p>
-      <p>Texas and California are tracked on separate sites: <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a> covers the 2026 Texas Governor's race.</p>
+      <p>Texas and Michigan also have their own sites — <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a> and <a href="https://michiganpoliticstracker.com">michiganpoliticstracker.com</a>. California is tracked on a separate site.</p>
     `,
   },
 };
@@ -85,6 +88,17 @@ function liveState(code: string | null | undefined): StateConfig | null {
   return s && s.status === "live" && s.races?.length ? s : null;
 }
 
+/**
+ * A permanent redirect for a dedicated site's pre-hub URLs
+ * (StateConfig.legacyPaths, e.g. texaspoliticstracker.com/polling →
+ * /governor/polling), or null. Hub requests (no pinned state) never match.
+ */
+export function legacyRedirectResponse(url: URL, siteState: string | null): Response | null {
+  const target = legacyRedirect(liveState(siteState), url.pathname);
+  if (!target) return null;
+  return Response.redirect(new URL(`${target}${url.search}`, url.origin).toString(), 301);
+}
+
 /** Metadata for one race's pages (statewide or district), keyed by path under `base`. */
 function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<string, RouteMeta> {
   const site = siteNameFor(state.name);
@@ -97,7 +111,7 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
   routes[base] = {
     title: `${label} Race — ${polled ? "Polls & " : ""}Campaign Finance | ${site}`,
     description: polled
-      ? `Who's running for ${state.name} ${race.title} in ${year}, who leads the polling average, and who is funding each campaign — from the ${agency} and 270toWin.`
+      ? `Who's running for ${state.name} ${race.title} in ${year}, who leads the polling average, and who is funding each campaign — from the ${agency} and ${pollingSourceLabel(race)}.`
       : `Who's running for ${state.name} ${race.title} in ${year} and who is funding each campaign — itemized contributions and spending from the ${agency}.`,
     h1: `${label}: ${polled ? "Polls, Candidates & Money" : "Candidates & Money"}`,
     body: `
@@ -107,6 +121,7 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
         ${polled ? `<li><a href="${base}/polling">Polling</a></li>` : ""}
         <li><a href="${base}/money/donors">Top donors</a></li>
         <li><a href="${base}/money/outside-spending">Outside spending</a></li>
+        <li><a href="${base}/money/river">Money river</a></li>
       </ul>
     `,
   };
@@ -121,7 +136,7 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
       title: `${label} Polls & Polling Average | ${site}`,
       description: `Latest ${state.name} ${race.title} polls and a general-election polling average, with every poll listed by pollster and field dates.`,
       h1: `${label} Polls`,
-      body: `<p>Public polling for ${escapeHtml(label)}, aggregated from 270toWin: individual polls plus a trailing general-election average.</p>`,
+      body: `<p>Public polling for ${escapeHtml(label)}, aggregated from ${escapeHtml(pollingSourceLabel(race))}: individual polls plus a trailing general-election average.</p>`,
     };
   }
   routes[`${base}/money/donors`] = {
@@ -129,6 +144,12 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
     description: `Who is funding the ${state.name} ${race.title} candidates: top individual and organizational donors, industries and totals from ${agency} filings.`,
     h1: `${label}: Top Donors`,
     body: `<p>Itemized contributions to every ${escapeHtml(label)} campaign committee, grouped by donor, as filed with the ${escapeHtml(agency)}.</p>`,
+  };
+  routes[`${base}/money/river`] = {
+    title: `${label} Money River — Every Contribution & Expense | ${site}`,
+    description: `Every itemized contribution, expenditure, loan and outside expenditure in the ${state.name} ${race.title} race, newest first, from ${agency} filings.`,
+    h1: `${label}: Money River`,
+    body: `<p>A running feed of every itemized transaction for the ${escapeHtml(label)} candidates — contributions, campaign spending, loans and outside spending — as filed with the ${escapeHtml(agency)}.</p>`,
   };
   routes[`${base}/money/outside-spending`] = {
     title: `${label} Outside Spending & Independent Expenditures | ${site}`,
@@ -220,7 +241,7 @@ export function singleStateRoutes(code: string): Record<string, RouteMeta> | nul
     title: `About & Methodology | ${site}`,
     description: `How ${site} sources ${state.name} campaign-finance filings from the ${agency}, aggregates polling, and computes the numbers on each race page.`,
     h1: `About ${site}`,
-    body: `<p>${escapeHtml(site)} is a project of the Political Integrity Project. Campaign finance comes from the ${escapeHtml(agency)}'s public filings; polling comes from 270toWin. Data is presented as filed.</p>`,
+    body: `<p>${escapeHtml(site)} is a project of the Political Integrity Project. Campaign finance comes from the ${escapeHtml(agency)}'s public filings${statePollingLabel(state) ? `; polling comes from ${escapeHtml(statePollingLabel(state)!)}` : ""}. Data is presented as filed.</p>`,
   };
 
   singleStateCache.set(code, routes);
@@ -467,7 +488,7 @@ export function llmsResponse(siteState: string | null): Response | null {
   const lines = [
     `# ${site}`,
     "",
-    `> Public-interest dashboard tracking money and polling in ${state.name}'s 2026 statewide races — ${listOffices(state)}. Campaign-finance filings sourced from the ${agency}, plus aggregated public polling from 270toWin. A Political Integrity Project site.`,
+    `> Public-interest dashboard tracking money and polling in ${state.name}'s 2026 statewide races — ${listOffices(state)}. Campaign-finance filings sourced from the ${agency}${statePollingLabel(state) ? `, plus aggregated public polling from ${statePollingLabel(state)}` : ""}. A Political Integrity Project site.`,
     "",
     "## Pages",
     "",
@@ -479,6 +500,7 @@ export function llmsResponse(siteState: string | null): Response | null {
     if (r.pollingSourceUrl) lines.push(`- [${label} polls](/${r.office}/polling): every public poll and the general-election average.`);
     lines.push(`- [${label} top donors](/${r.office}/money/donors): itemized contributions grouped by donor.`);
     lines.push(`- [${label} outside spending](/${r.office}/money/outside-spending): independent expenditures for and against each candidate.`);
+    lines.push(`- [${label} money river](/${r.office}/money/river): every itemized contribution, expenditure, loan and outside expenditure, newest first.`);
   }
   for (const c of state.chambers ?? []) {
     lines.push(`- [${state.name} ${c.title} ${c.generalDate.slice(0, 4)}](/${c.office}): campaign finance for all ${c.districts} districts; each district's race dashboard is at /${c.office}/{district} (candidates, top donors, outside spending — no polling).`);

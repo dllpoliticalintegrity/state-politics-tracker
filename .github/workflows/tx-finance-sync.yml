@@ -1,0 +1,67 @@
+name: TX finance sync
+
+# Texas's campaign finance, moved here from tx-politics-tracker in Oct 2026.
+# The TEC importer stages Texas in tx_* (COH + SPAC filer pairs, special
+# pre-election reports, superseded reports — see the script's docstring);
+# refresh_tx_finance_views() settles which rows are re-reported; the
+# tx-publish-to-cf-nightly pg_cron job (14:30 UTC) then copies the settled rows
+# into cf_*, which the site reads. See docs/plan.md, "Texas joins the hub".
+
+on:
+  schedule:
+    # 12:00 UTC — TEC refreshes its bulk CSV daily around 10:35 UTC
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Single stage to run (filings|contributions|expenditures|loans|ie|ie-contributions). Blank = all."
+        required: false
+        default: ""
+
+concurrency:
+  group: tx-finance-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/data-import/tec/requirements.txt
+
+      - name: Install deps
+        run: pip install -r scripts/data-import/tec/requirements.txt
+
+      # Same SUPABASE_SERVICE_ROLE_KEY repository secret as finance-sync.yml.
+      - name: Run import
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TEC_WORK_DIR: ${{ runner.temp }}/tec
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping TX finance sync."
+            exit 0
+          fi
+          cd scripts/data-import/tec
+          python import_tx_finance.py ${ONLY:+--only "$ONLY"}
+
+      - name: Refresh Texas views
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then exit 0; fi
+          curl -fsS -X POST \
+            "${SUPABASE_URL}/rest/v1/rpc/refresh_tx_finance_views" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}'
