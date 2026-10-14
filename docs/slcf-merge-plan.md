@@ -5,6 +5,18 @@ Merge [hderyke/state-level-campaign-finance](https://github.com/hderyke/state-le
 state data pipeline. Each state's finance data comes from one code path, written
 once.
 
+**Scope (decided 2026-10-14): Texas and Michigan keep the infrastructure they
+have today. Every other state runs on SLCF.**
+- **Texas** stays on the TEC importer: `scripts/data-import/tec/`,
+  `tx-finance-sync.yml`, the `tx_*` staging tables and the nightly
+  `publish_texas_to_cf()` copy. None of it moves or changes.
+- **Michigan** stays on its importer in
+  `scripts/data-import/pilot/import_pilot_finance.py` (`import_michigan`), plus
+  the State Senate/House roster sync and the certified ballot-status sync that
+  run before it, all through `finance-sync.yml` as today.
+- **Every other state** moves to SLCF, one at a time: the pilot's other 19
+  states, Ohio, and every new state.
+
 Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec`.
 
 ---
@@ -14,16 +26,17 @@ Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec
 - **One repo** (`dllpoliticalintegrity/state-politics-tracker`) holds:
   - the site;
   - SLCF's scrapers and parsers, with their full git history;
-  - the Texas TEC importer;
+  - the Texas TEC importer and the Michigan importer, both unchanged;
   - the polling syncs;
-  - one loader that writes into `cf_*`.
+  - one loader that writes SLCF's output into `cf_*`.
 - **One pipeline per state.** `pipelines/states.json` says which pipeline feeds
   each state. The nightly workflow, the loader and the site's state registry all
   read that one file.
-- **The pilot importer is retired.** That is the 2,877-line
-  `scripts/data-import/pilot/import_pilot_finance.py`, which re-implements 20 of
-  SLCF's states. Its fixes and its Michigan roster sync move into SLCF or into
-  the new loader first.
+- **The pilot importer shrinks to Michigan.** The 2,877-line
+  `scripts/data-import/pilot/import_pilot_finance.py` re-implements 20 of
+  SLCF's states. Its other 19 states move to SLCF, taking their hard-won fixes
+  into SLCF's scrapers. What remains is Michigan's importer and its roster and
+  ballot syncs, exactly as they run today.
 - **Nothing the public sees changes during the move.** The site code, the
   `cf_*` schema, the polling syncs, the Texas publish job, and the admin
   console's Sync tab all keep working throughout. Each state switches over on
@@ -108,24 +121,25 @@ state-politics-tracker/
 │   │   ├── src/                main.py, orc.py, pipeline/{scrapers,parsers,…}, aliases/, registries/
 │   │   ├── tests/
 │   │   └── docs/               pipeline.md, contributing.md, states/*.md
-│   ├── load/                   NEW: SLCF cleaned CSVs → cf_*
-│   │   ├── load_cf.py
-│   │   ├── mapping.py          canonical columns → cf_* columns
-│   │   ├── supabase.py         sb_get_all / sb_upsert / Sink, lifted from the pilot
-│   │   └── tests/
-│   ├── rosters/
-│   │   └── michigan.py         MI legislature roster + ballot status, lifted from the pilot
-│   └── tec/                    moved from scripts/data-import/tec
+│   └── load/                   NEW: SLCF cleaned CSVs → cf_*
+│       ├── load_cf.py
+│       ├── mapping.py          canonical columns → cf_* columns
+│       ├── supabase.py         sb_get_all / sb_upsert / Sink, lifted from the pilot
+│       └── tests/
+├── scripts/data-import/
+│   ├── tec/                    Texas — unchanged
+│   └── pilot/                  Michigan's importer (+ roster and ballot syncs); the other
+│                               19 states' code is deleted as each moves to SLCF
 └── .github/workflows/
     ├── finance-sync.yml        rewritten as a per-state matrix; same name, same `states` input
-    ├── tx-finance-sync.yml     paths updated only
+    ├── tx-finance-sync.yml     unchanged
     ├── polling-sync.yml        unchanged
     ├── slcf-backfill.yml       NEW, manual: full-history or --force run for one state
     └── pipelines-ci.yml        NEW: offline tests on PRs that touch pipelines/**
 ```
 
-`scripts/data-import/pilot/` stays where it is until Phase 5 deletes it. There's
-no point moving a file that is about to be deleted.
+`scripts/data-import/` stays where it is: Texas and Michigan keep their
+infrastructure, so nothing there moves.
 
 ---
 
@@ -190,31 +204,27 @@ git subtree add --prefix=pipelines/slcf slcf main     # no --squash: keep author
 
 In the same PR:
 
-1. **Move TEC.** `git mv scripts/data-import/tec pipelines/tec`, then update the
-   three paths in `tx-finance-sync.yml`: `cache-dependency-path`, the
-   `pip install -r` line, and the `cd`.
-2. **One environment.** Create `pipelines/requirements.txt` from:
+1. **One environment for SLCF.** Create `pipelines/requirements.txt` from:
    - SLCF's pins;
    - `selenium` and `pdfplumber`, which SLCF imports but doesn't declare (used
-     by the IA, KS and WY parsers, and the KS-v2, SC and WY scrapers);
-   - `supabase` for TEC.
+     by the IA, KS and WY parsers, and the KS-v2, SC and WY scrapers).
 
-   Pick one Python version for everything. 3.12 is suggested, but first run
-   SLCF's tests, the TEC importer and the pilot on it. TEC runs on 3.11 today,
-   and SLCF's `config.py` already copes with 3.13's stricter TLS checks.
-3. **Ignores.** Nothing to add. SLCF's own `.gitignore` comes with it and
+   Texas keeps its own `scripts/data-import/tec/requirements.txt` and Python
+   3.11 in `tx-finance-sync.yml`. The pilot (Michigan) needs only the standard
+   library, so it runs in the SLCF environment unchanged.
+2. **Ignores.** Nothing to add. SLCF's own `.gitignore` comes with it and
    already ignores `data/`, `logs/`, `metadata/`, `.playwright-profiles/` and
    `.env` inside `pipelines/slcf/`.
-4. **Site build isolation.** SLCF contains no JS or TS files, so Vite, tsc,
+3. **Site build isolation.** SLCF contains no JS or TS files, so Vite, tsc,
    Vitest and `eslint .` never see it, and the build doesn't change. In
    Cloudflare Workers Builds, set **build watch paths** on both Worker projects
    (the hub and `--env michigan`) to skip `pipelines/**` and `docs/**`, so a
    scraper fix doesn't redeploy three sites.
-5. **`pipelines/README.md`.** How to run the following locally:
+4. **`pipelines/README.md`.** How to run the following locally:
    - an SLCF state:
      `cd pipelines/slcf && python3 src/main.py sync OH --start-year 2025 --no-aggregate`;
    - the loader;
-   - TEC.
+   - Michigan and Texas (pointers to their existing scripts).
 
    Update SLCF's README Quick Start the same way: new paths, and no
    `git clone hderyke/…`.
@@ -224,7 +234,7 @@ In the same PR:
 - `python3 pipelines/slcf/tests/run_all.py` passes with the deps installed. (In
   a bare environment it fails only on the missing `duckdb`.)
 - One SLCF state (e.g. DE) syncs from its new path.
-- A manual `tx-finance-sync.yml` run passes with the moved paths.
+- `tx-finance-sync.yml` and `scripts/data-import/` show no diff.
 
 **Exit:** merged. Production unchanged.
 
@@ -288,6 +298,7 @@ The single source of truth for which pipeline feeds each state:
 {
   "oh": { "pipeline": "slcf", "slcf_state": "Ohio", "cycle": "2026", "since": "2025-01-01",
           "nightly": true, "playwright": false },
+  "mi": { "pipeline": "pilot", "cycle": "2026", "note": "permanent: Michigan keeps its importer" },
   "ga": { "pipeline": "pilot", "cycle": "2026" },
   "ky": { "pipeline": "pilot", "cycle": "2027" },
   "ks": { "pipeline": "pilot", "cycle": "2026",
@@ -364,16 +375,17 @@ The single source of truth for which pipeline feeds each state:
 Branches on the manifest entry:
 
 - **`slcf`:**
-  1. Run `pipelines/rosters/michigan.py` first when the state is `mi`, so new
-     legislature rows get money the same night.
-  2. Run `python3 pipelines/slcf/src/main.py --daemon sync <ST> --start-year <since year> --no-aggregate --no-fec-ie`.
+  1. Run `python3 pipelines/slcf/src/main.py --daemon sync <ST> --start-year <since year> --no-aggregate --no-fec-ie`.
      SLCF's sync pulls FEC independent expenditures by default, using
      `DEMO_KEY` when no `FEC_API_KEY` is set. The loader has no use for them
      until Phase 6, so skip them until then.
-  3. Run `load_cf.py --state XX`.
+  2. Run `load_cf.py --state XX`.
 - **`pilot`:** run
   `python3 scripts/data-import/pilot/import_pilot_finance.py --states XX --no-refresh`.
   The `--no-refresh` flag is new; the pilot refreshes matviews itself today.
+  Michigan is permanently `pilot`, so its roster and ballot syncs keep running
+  first, inside the pilot, exactly as now. The other pilot states stay
+  `pilot` until their cutover.
 - **`tec` / `none`:** nothing. Texas has its own workflow.
 - **`soft_fail` set:** a failure prints `::warning::` and exits 0, as the pilot
   does today.
@@ -513,20 +525,19 @@ the other 20 states are still on the pilot, via `run_state.py`.
 
 *Rough size: 3–5 days.*
 
-## 8. Phase 4 — Move the 20 pilot states over, one at a time
+## 8. Phase 4 — Move the other 19 pilot states over, one at a time
 
 ### 8.1 Batches
 
 | Batch | States | Why grouped | Cutover |
 |---|---|---|---|
-| **1 — same ids** | GA, MI, WI, CO, MD, AL, AR, ID, IL | The pilot keys on the source's own transaction id, so the loader can emit the identical `source_txn_id` (confirm per state that SLCF's parser keeps those source fields, e.g. MI's `cont_detail_id`). | **No delete.** Upserts land on the existing rows; uuids are kept. |
+| **1 — same ids** | GA, WI, CO, MD, AL, AR, ID, IL | The pilot keys on the source's own transaction id, so the loader can emit the identical `source_txn_id` (confirm per state that SLCF's parser keeps those source fields). | **No delete.** Upserts land on the existing rows; uuids are kept. |
 | **2 — hashed ids, same source** | AZ, KY, PA, MN, CT | The pilot hashes its rows; SLCF's hash inputs will differ. | **Replace:** back up, delete the state's legacy rows, load (§8.3). |
 | **3 — different source or fetch** | FL, AK, IA, HI, MA | The two codebases pull from different places (§2 fact 6); HI's pilot id is a CKAN row number, not a transaction id. | Reconcile first. If the pilot's source is better, **port its fetch into the SLCF scraper**, so it becomes SLCF code. Then replace. |
 | **4 — blocked** | KS | Both are broken: the pilot by the CAPTCHA since 2026-10-01, SLCF's `kansas_v2` still in development. | Port the pilot's CFR-viewer scrape into `kansas_v2`; migrate when the CAPTCHA allows. It stays `pilot` + `soft_fail` until then. |
 
-Michigan (batch 1) brings `pipelines/rosters/michigan.py` with it. Move
-`sync_michigan_legislature`, `sync_michigan_ballot_status` and the `MiTN` and
-listing helpers out of the pilot unchanged. Run them before Michigan's load.
+Michigan is not in any batch. It keeps the pilot's importer, roster sync and
+ballot-status sync.
 
 Port the pilot's hard-won fixes into the matching SLCF scrapers as each state
 moves:
@@ -585,9 +596,16 @@ elapsed for all 20, run in batches.*
 
 Two weeks after the last cutover, with no rollbacks:
 
-1. Delete `scripts/data-import/pilot/` and the `pilot` branch of
-   `run_state.py`. Kansas is the exception: if it is still `pilot`, keep only
-   its importer, moved to `pipelines/kansas_cfr/` until `kansas_v2` replaces it.
+1. Cut `scripts/data-import/pilot/import_pilot_finance.py` down to Michigan:
+   - delete the other 19 `import_<state>` functions, their `COMMITTEES`
+     entries and their helpers;
+   - keep `import_michigan`, `sync_michigan_legislature`,
+     `sync_michigan_ballot_status`, the `MiTN` and listing helpers, and the
+     shared `http` / `sb_*` / `Sink` code they use.
+
+   Michigan's behaviour must not change: diff a dry run before and after.
+   Kansas is the exception: if it is still `pilot`, keep its importer too until
+   `kansas_v2` replaces it.
 2. Update:
    - this repo's `README.md` ("powered by SLCF" → "SLCF lives in
      `pipelines/slcf/`");
@@ -640,11 +658,12 @@ Two weeks after the last cutover, with no rollbacks:
 | State(s) | Today | Target | When |
 |---|---|---|---|
 | OH | live, no finance | SLCF | Phase 3 (first) |
-| GA, MI, WI, CO, MD, AL, AR, ID, IL | pilot | SLCF, same ids | Phase 4, batch 1 |
+| MI | pilot (+ roster and ballot syncs) | **unchanged** | — |
+| GA, WI, CO, MD, AL, AR, ID, IL | pilot | SLCF, same ids | Phase 4, batch 1 |
 | AZ, KY, PA, MN, CT | pilot | SLCF, replace rows | Phase 4, batch 2 |
 | FL, AK, IA, HI, MA | pilot | SLCF after source reconciliation | Phase 4, batch 3 |
 | KS | pilot (soft-fail, CAPTCHA) | SLCF `kansas_v2` | Phase 4, batch 4 |
-| TX | TEC | TEC (moved to `pipelines/tec/`) | Phase 1 |
+| TX | TEC | **unchanged** | — |
 | ME | live, polling only | none (WAF) | — |
 | NV | live, no finance | SLCF, new parser | Phase 6 |
 | DE IN LA MS NH NJ NM NY OR SC TN VT VA WA WV WY | not on site | SLCF + curation | Phase 6 |
@@ -657,6 +676,9 @@ Two weeks after the last cutover, with no rollbacks:
 - **Workflow names and inputs.** `finance-sync.yml` and its `states` input, and
   `tx-finance-sync.yml`. data-diamine starts them by filename through
   `github-actions-proxy`.
+- **Texas and Michigan, untouched.** `tx-finance-sync.yml`, the TEC importer,
+  Michigan's importer and its roster and ballot syncs run as they do today.
+  Every Michigan dispatch of `finance-sync.yml` still runs the pilot.
 - **Texas rows.** The Texas publish (`publish_texas_to_cf()`, pg_cron 14:30 UTC)
   and its `source = 'tec'` rows. Every delete in this plan filters on
   `source = 'slcf'`.
