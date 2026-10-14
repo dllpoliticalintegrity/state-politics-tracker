@@ -163,12 +163,16 @@ no point moving a file that is about to be deleted.
 5. **Freeze date.** SLCF is active (last commit 2026-10-10). Until a set date,
    `git subtree pull` brings his upstream commits in. After it, SLCF changes
    land only here.
-6. **Repo visibility and Actions minutes.** A public repo gets standard runners
-   free. A private one pays in minutes. Today's pipeline is one nightly job
-   capped at 120 minutes, at most about 3,600 minutes a month. A per-state
-   matrix adds roughly 1–2 minutes of setup per state per night: about 25
-   states × 30 nights ≈ 750–1,500 extra minutes a month, before counting any
-   new states.
+6. **Repo visibility: checked 2026-10-14, the repo is public.** Standard
+   Actions runners are free, so the per-state matrix costs nothing. It also
+   means SLCF's code is republished the moment Phase 1 merges, which makes the
+   licence in item 1 urgent.
+7. **Timing around the 2026-11-03 general election.** Phases 1–3 don't touch
+   any state that already has finance data (Ohio has none), so they can go
+   ahead now. **Hold the Phase 4 cutovers of live states until after the
+   election** and its post-general filings. Those weeks bring the most traffic
+   and the most filings, which is the worst time to swap a state's data
+   source.
 
 **Exit:** a written agreement, a licence, the transfer decision, and a freeze
 date.
@@ -308,10 +312,12 @@ The single source of truth for which pipeline feeds each state:
    (paged with `sb_get_all`; the table passed 1,000 rows with the Michigan
    legislature). This **retires the pilot's hard-coded `COMMITTEES` dict**,
    which today has to be kept by hand in step with `filer_refs`.
-   - One-off step first: write every `COMMITTEES` entry missing from
-     `filer_refs` into `filer_refs`, using a dated backup of `cf_candidates`.
-   - Then confirm with a query that every tracked candidate in a migrating
-     state has a ref.
+   - No backfill is needed. Checked 2026-10-14: all 144 `COMMITTEES` entries
+     are already in the matching candidate's `filer_refs`.
+   - The 41 non-legislative candidates with empty `filer_refs` aren't imported
+     by the pilot today either. They are mostly `lost_primary` / `withdrawn`,
+     plus all of NV and ME. Ohio has one, `don-kissick`; give him a committee
+     id before Ohio goes live if he has a committee.
 2. **Stream the cleaned CSVs.** Read
    `pipelines/slcf/data/<State>/cleaned/{contributions,expenditures,loans_debts}.csv`.
    Keep rows whose `state_filer_id` is in the map and whose date is at or after
@@ -360,7 +366,10 @@ Branches on the manifest entry:
 - **`slcf`:**
   1. Run `pipelines/rosters/michigan.py` first when the state is `mi`, so new
      legislature rows get money the same night.
-  2. Run `python3 pipelines/slcf/src/main.py --daemon sync <ST> --start-year <since year> --no-aggregate`.
+  2. Run `python3 pipelines/slcf/src/main.py --daemon sync <ST> --start-year <since year> --no-aggregate --no-fec-ie`.
+     SLCF's sync pulls FEC independent expenditures by default, using
+     `DEMO_KEY` when no `FEC_API_KEY` is set. The loader has no use for them
+     until Phase 6, so skip them until then.
   3. Run `load_cf.py --state XX`.
 - **`pilot`:** run
   `python3 scripts/data-import/pilot/import_pilot_finance.py --states XX --no-refresh`.
@@ -683,7 +692,7 @@ Two weeks after the last cutover, with no rollbacks:
 3. Should the loader let amendments update existing rows (`merge-duplicates`,
    recommended), or keep today's `ignore-duplicates`?
 4. Which single Python version should all the pipelines run on?
-5. Is `state-politics-tracker` public or private? This decides the Actions
-   cost and how urgent the licence question is.
+5. ~~Is `state-politics-tracker` public or private?~~ Public (checked
+   2026-10-14): Actions minutes are free, and the licence question is urgent.
 6. After Phase 5, should California's site read SLCF's California data from
    here?
