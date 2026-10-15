@@ -149,11 +149,15 @@ class ManifestTest(unittest.TestCase):
         for st, e in states.items():
             self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "none"), st)
 
-    def test_schedule_matches_the_pilot_states_today(self):
+    def test_schedule_covers_every_pilot_state_once(self):
+        # Every state the pilot imported before the merge is still scheduled,
+        # by exactly one pipeline; Texas never is; Michigan stays on the pilot.
         pilot, slcf = plan_matrix.plan([])
-        self.assertEqual(sorted(pilot), sorted(
-            "mi al ak ar az co ct fl ga hi ia id il ks ky ma md mn pa wi".split()))
-        self.assertEqual(slcf, [])
+        before = "mi al ak ar az co ct fl ga hi ia id il ks ky ma md mn pa wi".split()
+        self.assertEqual(sorted(pilot + slcf), sorted(set(pilot + slcf)))
+        self.assertTrue(set(before) <= set(pilot + slcf))
+        self.assertIn("mi", pilot)
+        self.assertNotIn("tx", pilot + slcf)
 
     def test_loader_columns_stay_out_of_slcf_master_db(self):
         for t in ("CONTRIBUTIONS", "EXPENDITURES", "LOANS_DEBTS"):
