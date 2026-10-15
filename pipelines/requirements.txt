@@ -1,0 +1,13 @@
+# One Python environment (3.12) for the pipelines in this folder: SLCF's
+# scrapers/parsers and the loader (which needs only the standard library).
+# Texas keeps its own scripts/data-import/tec/requirements.txt; Michigan's
+# importer (scripts/data-import/pilot/) is standard-library only.
+#
+# SLCF's pins stay authoritative in its own file.
+-r slcf/requirements.txt
+
+# Imported by SLCF but missing from its requirements.txt: selenium by the
+# kansas_v2 / south_carolina / wyoming scrapers, pdfplumber by the iowa /
+# kansas / wyoming parsers.
+selenium==4.51.0
+pdfplumber==0.11.10
