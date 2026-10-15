@@ -1,0 +1,38 @@
+name: Pipelines CI
+
+# Offline checks for the finance pipelines: SLCF's own tests, the loader /
+# planner / manifest tests, and a compile of every scraper and parser (SLCF
+# imports a few packages its requirements file didn't list; this catches the
+# next one). Never touches a state site or Supabase.
+
+on:
+  pull_request:
+    paths:
+      - "pipelines/**"
+      - "scripts/data-import/pilot/**"
+      - ".github/workflows/finance-sync.yml"
+      - ".github/workflows/pipelines-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pipelines/requirements.txt
+            pipelines/slcf/requirements.txt
+      - run: pip install -r pipelines/requirements.txt
+      - name: SLCF tests
+        working-directory: pipelines/slcf
+        run: python tests/run_all.py
+      - name: Loader, planner and manifest tests
+        run: python -m unittest discover -s pipelines/tests -v
+      - name: Compile every pipeline module
+        run: python -m compileall -q pipelines scripts/data-import/pilot
+      - name: Tonight's schedule plan
+        run: python pipelines/plan_matrix.py

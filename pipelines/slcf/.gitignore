@@ -1,0 +1,42 @@
+
+#setup stuff
+__pycache__/
+*.pyc
+*.db
+.DS_Store
+.tmp/
+.idea/
+.venv/
+venv/
+
+#local run data (recreated automatically by the pipeline — see repo_reorg notes)
+data/
+logs/
+metadata/
+
+#playwright browser profiles (recreated by scrapers that need a persistent context — MO etc.)
+.playwright-profiles/
+
+# personal AWS deployment + operational tooling — not part of the public
+# pipeline; requires your own AWS account/bucket/Lambda/ECS setup to use
+cloud/
+web/
+ops/
+
+# credentials — never commit
+.env
+github_key
+github_key.pub
+
+# personal AI-agent workflow notes — not needed to use the pipeline
+CLAUDE.md
+
+
+# the serving layer is its own repo (hderyke/state-cf-serving), checked out inside this folder
+serving/
+serving-colin/
+
+# local scratch: editing backups, agent outputs, heartbeat log
+*.pre-*-backup-*
+Claude outputs/
+_scratch_heartbeat.log

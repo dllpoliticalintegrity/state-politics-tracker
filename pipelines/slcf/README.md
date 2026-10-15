@@ -1,0 +1,262 @@
+# State-Level Campaign Finance Pipeline
+
+## Contents
+
+1. [Introduction](#introduction)
+2. [Quick Start](#quick-start)
+3. [Individual Components](#individual-components)
+4. [Contributing](#contributing)
+5. [Progress](#progress)
+
+---
+
+## Introduction
+
+This project aims to build a unified database of campaign finance disclosures across U.S. states. The pipeline extracts raw data from each state's specific disclosure website, standardizes it to a common schema, and loads it into both state-level databases and a combined master database- all queryable via SQL and R.
+
+### Goal
+Collect and normalize campaign finance data from all 50 states into a single, unified interface for analyzing state-level money in politics.
+
+### Output
+- **State-level databases**: Individual SQLite/DuckDB databases for each state with standardized tables
+- **State-level CSVs**: Canonical CSV exports of contributions, expenditures, candidates, and committees for each state
+- **Combined master database**: A unified SQLite/DuckDB database merging all states' normalized data
+
+---
+
+## Quick Start
+
+### Setup
+
+**Clone the repository:**
+```bash
+git clone https://github.com/hderyke/state-level-campaign-finance.git
+cd state-level-campaign-finance
+```
+
+**Install dependencies:**
+```bash
+pip install -r requirements.txt
+playwright install
+```
+
+**Configure your user agent:**
+
+`config.py` contains a `USER_AGENT` string used by all scrapers to avoid 403s from state disclosure sites. The default is a Mac Chrome string — if you're on Linux or Windows, replace it with your own. You can find your user agent at [whatismybrowser.com](https://www.whatismybrowser.com).
+
+### Running the Pipeline
+
+Run the full pipeline (scrape → parse → validate → tabulate → aggregate) for one or more states using two-letter abbreviations:
+
+```bash
+python3 src/main.py sync AL AK AZ
+```
+
+Or run all implemented states at once:
+
+```bash
+python3 src/main.py sync all
+```
+
+**Pipeline commands:**
+
+| Command | What it does |
+|---|---|
+| `sync <states>` | Full pipeline — scrape → parse → validate → tabulate → aggregate |
+| `reparse <states>` | Skip scrape; re-run parse → validate → tabulate → aggregate on existing raw data |
+
+**Scraper flags** — passed after the state list, forwarded to each scraper. Not all states support every flag; unsupported flags are silently ignored.
+
+Vertical scope — controls *which years* are downloaded (mutually exclusive):
+
+```
+(no flag)              incremental — fill manifest gaps, always refresh current year
+--force                re-download everything in scope, wipe manifest
+--start-year YYYY      re-download years ≥ YYYY
+--end-year YYYY        re-download years ≤ YYYY  (combine with --start-year for a range)
+```
+
+Horizontal scope — controls *which data types* are downloaded (additive, stack freely):
+
+```
+(no flag)              everything
+--transactions         contributions + expenditures
+--entities             committees + candidates
+--contributions        contributions only
+--expenditures         expenditures only
+--candidates           candidates only
+--committees           committees only
+```
+
+**Global flags:**
+- `--daemon` — silent mode for scheduled/cron runs
+- `--no-report` — skip HTML report generation after run
+
+**Examples:**
+
+```bash
+python3 src/main.py sync AK --start-year 2023             # re-download AK from 2023 onwards
+python3 src/main.py sync AK --force --transactions        # force-refresh AK transactions only
+python3 src/main.py sync AL AK --start-year 2022 --end-year 2024 --contributions
+python3 src/main.py reparse AL                            # re-parse AL without scraping
+python3 src/main.py --daemon sync all                     # full run, silent mode
+```
+
+### R2 Data Sync
+
+State data and the master database sync to and from Cloudflare R2 — not through `src/main.py` (which only runs the pipeline commands, `sync`/`reparse`), but via [`ops/daemon.py`](ops/daemon.py) as part of a scheduled run, or standalone via `cloud/r2/r2.py`'s own CLI (`python3 cloud/r2/r2.py AL`, `python3 cloud/r2/r2.py db`, etc.). A db push also regenerates the downloads manifest (`metadata/manifest.csv`, the list of available states the client-facing downloads page reads) from the master database and uploads it alongside — so the site's state list stays current on every db push without a separate deploy step. **This depends on `cloud/r2/r2.py`, a personal Cloudflare backend that is not included in this repo** — see that module's own `push_state`/`push_all`/`push_db`/`pull_state`/`pull_all`/`pull_db` functions for the expected interface if you're bringing your own (2026-09-19: this used to point at `cloud/dispatch.py`'s `PushPullBackend` protocol for that shape; `dispatch.py` has since been retired, each backend module documents its own shape directly now). The core pipeline (`sync`/`reparse`) works fully without any of this.
+
+### Output
+
+After a pipeline run, data is written to the following locations:
+
+- `data/{State}/raw/` — raw downloaded files
+- `data/{State}/cleaned/` — normalized CSVs (contributions, expenditures, candidates, committees, loans_debts)
+- `data/{State}/{state}.db` — state-level database
+- `data/state-level-cf.db` — master database combining all states
+
+Each run also generates a log and HTML report under `logs/prod/{run_id}/` (or `logs/daemon/{run_id}/` for runs made through the scheduling wrapper, so scheduled runs don't bury one-off manual ones):
+
+- `log.jsonl` — structured event log for the run
+- `report.html` — human-readable summary of the run, with a tab per state for multi-state runs
+- `{state}_validate.json` — validation report for each state processed
+
+---
+
+## Individual Components
+
+> **Note:** Running components directly operates in dev mode. Logs are written to `logs/dev/{timestamp}-{state}-{operation}.jsonl` (no HTML report generated). Console output is more verbose than a full pipeline run via `main.py`.
+
+### Scrapers
+
+Downloads raw campaign finance data from a state's disclosure website. Each state has a dedicated scraper that handles its unique source format. Downloaded files are written to `data/{State}/raw/` and tracked in `data/{State}/manifest.csv` to allow resumable downloads.
+
+```bash
+python3 src/pipeline/scrapers/alabama.py [flags]
+```
+
+Scrapers accept the same vertical and horizontal flags as the `sync` command. See [Running the Pipeline](#running-the-pipeline) for the full flag reference. Not every state supports every flag — check `docs/states/{state}.md` for state-specific details.
+
+### Parsers
+
+Reads a state's raw files from `data/{State}/raw/` and normalizes them into five canonical CSVs written to `data/{State}/cleaned/`: `contributions.csv`, `expenditures.csv`, `candidates.csv`, `committees.csv`, and (if availiable)`loans_debts.csv`. Each parser is written specifically for its state's raw data format.
+
+```bash
+python3 src/pipeline/parsers/alabama.py
+```
+
+
+### Validate
+
+Runs a tiered validation check on a state's cleaned CSVs, checking for hard failures (missing columns, bad types), warnings (implausible dates, missing IDs), and schema drift between runs. Writes a report to `metadata/{state}_latest.json`.
+
+```bash
+python3 src/pipeline/validate.py alabama
+```
+
+
+### Spot-Check Queries
+
+Runs queries against a state's database to evaluate data quality after tabulation.
+
+```bash
+python3 src/pipeline/queries.py alabama
+```
+
+
+### Aggregate
+
+Merges all tabulated state databases into the master `data/state-level-cf.db`. Operates on all states present in `data/`.
+
+```bash
+python3 src/pipeline/aggregate.py
+```
+
+
+For more detailed source code documentation, see [docs/pipeline.md](docs/pipeline.md).
+
+---
+
+## Contributing
+
+For full details on adding a new state, see [docs/contributing.md](docs/contributing.md).
+
+### Adding a New State
+
+1. **Create scraper**: `src/pipeline/scrapers/{state}.py`
+2. **Create parser**: `src/pipeline/parsers/{state}.py`
+3. **Test & validate**: `python3 src/pipeline/validate.py {state}`
+4. **Register**: Add state to the main orchestrator
+5. **Document & commit**: Add `docs/states/{state}.md` and alias mappings, then commit to the repo
+
+---
+
+## Progress
+
+| State | Scraper | Parser | Notes |
+|-------|---------|--------|-------|
+| Alabama (AL) | ✅ | ✅ | |
+| Alaska (AK) | ✅ | ✅ | Playwright required (WAF blocks datacenter IPs) |
+| Arizona (AZ) | ✅ | ✅ | Normal sync refreshes current calendar year only |
+| Arkansas (AR) | ✅ | ✅ | |
+| California (CA) | ✅ | ✅ | HTTP Range ZIP extraction; large files (~34M rows) |
+| Colorado (CO) | ✅ | ✅ | Candidate/committee entity sweep via SeqID probe |
+| Connecticut (CT) | ✅ | ✅ | |
+| Delaware (DE) | ✅ | ✅ | |
+| Florida (FL) | ✅ | ✅ | Playwright required; large files take time on first run |
+| Georgia (GA) | ✅ | ✅ | Three sources: Peachfile (2025+), legacy API (2006–2024), CSC bulk |
+| Hawaii (HI) | ✅ | ✅ | Socrata SODA API; 14 datasets |
+| Idaho (ID) | ✅ | ✅ | Three source eras (2020+ portal, ES bulk, legacy PDFs) |
+| Illinois (IL) | ✅ | ✅ | Full-history flat files updated nightly; large |
+| Indiana (IN) | ✅ | ✅ | Bulk ZIP by year; entity sweep via CommitteeDetail pages |
+| Iowa (IA) | ✅ | ✅ | Individual PDFs via IECDB API |
+| Kansas (KS) | 🚧 | 🚧 | In development — a `kansas_v2` rewrite is underway (see `kansas_v2.py`). The original `kansas.py` works (individual PDFs from KPDC static index pages, name_hash ID, no party data in source) but is being superseded; treat output as provisional |
+| Kentucky (KY) | ✅ | ✅ | KREF flat CSV exports; per-party candidate exports for party data; per-year contributions + expenditures; name_hash ID |
+| Louisiana (LA) | ✅ | ✅ | Bulk CSVs in 4-year ranges; no committee_type in source; person_id from stable FilerNumber |
+| Maine (ME) | ⚠️ | ⚠️ | In progress; occupation/employer enrichment requires a per-transaction detail-page scrape via Playwright (~400K pages) |
+| Maryland (MD) | ✅ | ✅ | POST JSON bulk export API (MDCRIS); committee person_id = min Filing Entity Id per (candidate_name, office, district) |
+| Massachusetts (MA) | ✅ | ✅ | Direct download from Azure Blob Storage (OCPF); committee person_id = min CPF ID per (candidate_name, office, district) |
+| Michigan (MI) | ✅ | ✅ | REST/JSON API for transactions + HTMX session search for entities (MiTN); committee person_id = min cfr_com_id per (candidate_name, office, district) |
+| Minnesota (MN) | ✅ | ✅ | Bulk CSVs + viewer API for entities (WAF blocks datacenter IPs for entity POSTs); contributor_state inferred from ZIP prefix |
+| Mississippi (MS) | ✅ | ✅ | Done, but **no 2024–2026 data** — MS doesn't mandate e-filing until 2027, so recent paper filings aren't yet digitized (see [Notes](#notes-on-specific-states)). Playwright required (WAF blocks non-browser traffic); GUID-based filer IDs; candidate↔committee linking via name-token + office-tiebreak heuristic |
+| Missouri (MO) | ⚠️ | ✅ | Playwright required (Incapsula/Imperva WAF blocks datacenter IPs); **semi-automated, not hands-off** — a persistent browser profile keeps CAPTCHA prompts down to roughly once per profile lifetime, but a human may still need to solve one at the start of a run, and Phase E's (independent expenditures) Search button has needed a manual click during long historical backfills. Budget **~1hr/year** for the statewide contributions/expenditures sweep (Phase D); the full ~13,000+ committee registry/detail sweep (Phase B) is an **overnight job**. See [docs/states/missouri.md](docs/states/missouri.md) |
+| Montana (MT) | 🚧 | 🚧 | In development — source fully documented (`docs/states/montana.md`, reverse-engineered CERS AJAX API), but the scraper/parser are not yet implemented in the pipeline. Wil also need to determine if I can make it faster |
+| New Hampshire (NH) | ✅ | ✅ | CSV export API (CFS, `cfsapi.sos.nh.gov`) via curl_cffi (Akamai edge blocks plain `requests`' TLS); 2016–present. No entity roster in source — candidates/committees reconstructed from transaction files, so office/district/party are unavailable |
+| New Jersey (NJ) | ✅ | ✅ | ELEC Reports and Data Search (`njelecefilesearch.com`); pure HTTP, no Playwright. Every grid is a **server-side DataTables** endpoint under `/api/` taking a form-encoded `draw`/`columns[]`/`start`/`length` body plus ELEC's own filters — there is no bulk export at all (the "Download Data - 65000 Max." and Excel buttons are client-side `buttons-html5` widgets over already-loaded rows). Three-stage sweep: entity listing per election year → `GetEntityDataWithCommittee` per entity for treasurer/address/joint-committee → contributions and expenditures. The entity id (`ENTITY_S`) is reissued **per election cycle**, so `committee` person_id. Office and committee type share one overloaded column. Traps: the transaction endpoints **ignore `ENTITY_S`** and scope on `EntityName` + `ElectionYears`, so primary/general contributions can't be separated; and `columns[i][data]` ≠ `columns[i][name]` on some columns, which fails silently as empty output if you conflate them. **Scope transactions by year, not by entity** — a blank `EntityName` returns the whole year in ~4 paged requests, where the per-entity sweep was ~5,000 queries at ~6s of which 97% returned nothing (68 h → under 2 h). `--workers` parallelises the per-entity detail sweep, which is now the dominant cost. All four routes verified from live captures (note they're asymmetrically named: `GetContBitsDataByObject` vs `GetBitsDataByObject`). Expenditures carry per-row `ENTITY_S` so they pin to an exact cycle; contributions don't — their `CONTRIB_S` is a *contributor* id despite the "Entity_S" header. See [docs/states/new_jersey.md](docs/states/new_jersey.md) |
+| New Mexico (NM) | ✅ | ✅ | CFIS (`login.cfis.sos.state.nm.us`); pure HTTP, no Playwright. Bulk CSV per year per type (2020–present) plus JSON search endpoints for candidates/committees/offices. ~1.06M contributions / 391K expenditures. Transaction exports are **positional** — the SOS publishes layout keys, not headers — and those keys are wrong about two things: loans are an explicit `Loans Received` Contribution Type (not a blank one), and the Election column carries no year. The entity API has no public numeric key, so entities are keyed on Org Id from the transactions and the registry is enrichment only; see [docs/states/new_mexico.md](docs/states/new_mexico.md) |
+| New York (NY) | ✅ | ⚠️ | Socrata (SODA) API on `data.ny.gov` — NYSBOE across 4 datasets, split by election year; pure HTTP, no Playwright. All 21 lettered schedules (A–U) live in one 18.4M-row disclosure table; schedule O is a detail schedule and is dropped to avoid double-counting. No party affiliation published anywhere in the source; candidate↔committee link is a name-extraction heuristic (NYSBOE publishes no join). Will need to play around with matching in order to best match candidates with the political parties |
+| Ohio (OH) | ✅ | ✅ | Bulk CSV files via curl_cffi (browser TLS impersonation); validated end-to-end for the Candidate Committee group — PAC/Party groups not yet sampled |
+| Oregon (OR) | ✅ | ✅ | ORESTAR; Playwright required (F5 Bot Defense blocks plain HTTP). Two feeds — transactions (1990–present) and an entities registry (1989–present) — joined for office/party/committee_type; `committee` person_id since Committee Id resets each election cycle. ~2M contribution / 966K expenditure rows |
+| Pennsylvania (PA) | ✅ | ✅ | Plain HTTP zip-per-year download (2000–present, ~25M contribution rows); no shared filer ID between a candidate and their own money committee in source data — hand-verified override table links the largest statewide committees, smaller ones remain unlinked |
+| South Carolina (SC) | ✅ | ✅ | Utilized `ethicsfiling.sc.gov` to gather contribution, expenditure, and financial report (candidates/public officials only). Additional party, office, and jurisdiction information was extracted from `electionhistory.scvotes.gov`. Standalone PACs (`--pacs`), Caucus/State/County/City Party committees (`--party-caucus`), and Ballot Measure committees (`--ballot-measure`) are separate, opt-in sources on `apps.sc.gov` — see [docs/states/south_carolina.md](docs/states/south_carolina.md#non-candidate-committees-pacs) |
+| Tennessee (TN) | ✅ | ✅ | TNCAMP (`apps.tn.gov/tncamp`) form POST + results-page walk — but weird setup. Two button pagination where loads data one chunk at a time and then you can page. Bulk download for each chunk. Has concurrency (default is 4). No filer IDs anywhere in the source (`name_hash` person_id); no loan data in the public search. Committee name in expenditures is lumped into payee_name. Additionally, I'll need to review the tags for scrapping as it's present but wasn't scrapped. |
+| Texas (TX) | ✅ | ⚠️ | Utilies official Texas websites + openstates for political party matching. Will need to play around with matching in order to best match candidates with the political parties |
+| Vermont (VT) | ✅ | ⚠️ | Campaign Finance System of Vermont (`campaignfinance.vermont.gov`) — same vendor platform as ID/NH, pure HTTP JSON API, no Playwright. 412K contributions / 95K expenditures / 1.2K loans, 2014–present. Two acquisition paths per year: the Download Data bulk export (closed filing years) and, for the open year it doesn't publish, the browse-grid CSV download. **The grid refuses any request over 50,000 rows**, so those years come in adaptive date windows (month → halves → day → amount bands) that split on the refusal; 5xx windows split the same way. The two feeds disagree on column names, transaction-type granularity and row identity — see [docs/states/vermont.md](docs/states/vermont.md) before touching the parser. **Party and district are absent from the CF system entirely** (the roster has 35 columns and neither) and are joined in from the VT Elections Database + Open States — 60% party / 53% district overall, ~80% for legislative races, capped by the archive's 2016–2024 even-year, non-local coverage; 2026 loans are also unidentifiable until that year's bulk file publishes. Rosters are active-filers-only, so deregistered committees are backfilled from transactions |
+| Washington (WA) | ✅ | ✅ | Socrata (SODA) API on `data.wa.gov` — PDC data across 4 datasets (contributions/expenditures/debt/loans), split by year; pure HTTP, no Playwright. Filer office/party/jurisdiction carried inline per row, so no separate registry needed (~6.3M contribution rows) |
+| Wyoming (WY) | ✅ | ✅ | ASP.NET WebForms postback simulation (no API) — blank "All tab" search + Export streams the entire 2008–present history in one request for both contributions (~445K rows) and expenditures (~80K rows). A supplementary "Source of Contribution" filter (12 categories) is scraped separately and joined back by full-row match to give `contributor_type` a real, site-sourced value for ~99% of contribution rows. Entity rosters (candidate committees, PACs) come from PDF reports parsed via pdfplumber word coordinates. No numeric filer ID anywhere in the source (`name_hash` person_id) |
+| Virginia (VA) | ✅ | ✅ | Dept. of Elections bulk CSV directory (`apps.elections.virginia.gov/SBE_CSV/CF/`), plain HTTP listing; two eras (yearly 1999–2011, monthly 2012–present with a `Report.csv` cover sheet). Office/party/jurisdiction carried inline from 2012+; `committee` person_id from CommitteeCode. QA/smoke-test filings (`XXXXX_*`, "Test PAC - Ignore", etc.) are suppressed in the parser. ~5.6M contribution rows |
+| Washington (WA) | ✅ | ✅ | Socrata (SODA) API on `data.wa.gov` — PDC data across 4 datasets (contributions/expenditures/debt/loans), split by year; pure HTTP, no Playwright. Filer office/party/jurisdiction carried inline per row, so no separate registry needed (~6.3M contribution rows) |
+| West Virginia (WV) | ✅ | ✅ | CFRS (`cfrs.wvsos.gov`); pure HTTP, no Playwright. **The bulk-CSV export was retired in the site's post-2023 rebuild** (verified twice: new base 404s, legacy base returns the React shell with HTTP 200), so transactions come from the paged JSON grid at `/api/Public-Service/`, streamed to newline-delimited `.jsonl`. The dead download path has been removed; the parser still reads legacy `CON_*.csv`/`EXP_*.csv` already on disk. API is split across five services — a path can exist on more than one base as distinct public/authenticated endpoints. **Requires `verify=False`** (incomplete cert chain). JSON field names are observed, not inferred, and the parser fails loudly if the mapping half-matches. `CON` carries loans, split into `loans_debts`. `committee_name` is blank in-source on candidate rows, resolved via registry then candidate name. 2018–present; see [docs/states/west_virginia.md](docs/states/west_virginia.md) |
+| Wisconsin (WI) | ✅ | ✅ | Sunshine (`campaignfinance.wi.gov`) CSV download endpoints; pure HTTP, no Playwright. **Every download is silently truncated at 99,999 rows**, so the ~13.1M transactions are pulled in adaptive date windows (month → halves → day → amount bands) that are row-counted and re-split on any capped response. One combined contribution/disbursement feed routed by `Transaction Type`. Office/district come from transactions (absent from the registrant list); see [docs/states/wisconsin.md](docs/states/wisconsin.md) |
+
+**Key:** ✅ Done &nbsp; 🚧 In development &nbsp; ⚠️ Partial / known issues &nbsp; ❌ Broken
+
+---
+
+### Notes on specific states
+
+**Mississippi — the 2024–2026 data gap.** Mississippi is fully implemented and validated, but if you query it you'll notice contributions and expenditures cut off cleanly after 2023, with recent years all but empty. This is **not** a scraper bug. It was investigated by querying the live source API directly with explicit date ranges, which returns the same near-empty result — ruling out silent truncation. The root cause is state law: Mississippi does not require electronic filing until **January 1, 2027** ([HB1334, 2025 Regular Session](https://legiscan.com/MS/bill/HB1334/2025)). Until then, candidates and committees may file on paper, and those filings aren't reliably transcribed into the searchable system this pipeline reads from. The window should backfill naturally once mandatory e-filing begins; re-scrapes after that date should be checked for a sudden jump in 2024–2026 coverage. Full detail in [docs/states/mississippi.md](docs/states/mississippi.md).
+
+**Kansas and Montana — in development.** These are not production-ready and their output (if any) should be treated as provisional:
+
+- **Kansas** has a working original scraper/parser (`kansas.py`) but is mid-rewrite — `kansas_v2.py` is the in-progress replacement.
+- **Montana** has its source fully reverse-engineered and documented (`docs/states/montana.md`), but the scraper and parser are not yet wired into the pipeline.
+
+**Tennessee — confirm the search form before the first scrape.** TNCAMP has no bulk download and no API; the scraper drives the public search form and walks the paginated results, downloading each page's CSV export. The POST field names it submits come from a script that scraped this same form successfully, and an earlier iteration in this repo did pull real result pages with them — but they could not be re-verified against the live form's raw HTML while the current version was written, and TN.gov's form has gained at least one selector since. Run:
+
+```bash
+python3 src/pipeline/scrapers/tennessee.py --discover
+```
+
+which prints every field name and option value from both live forms, and reconcile them against `ce_search_body()` / `cp_search_body()`. If they have drifted, the scraper raises on the first empty search rather than writing zero files and letting the parser report a mysteriously empty state. Full detail in [docs/states/tennessee.md](docs/states/tennessee.md).
+

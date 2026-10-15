@@ -1,0 +1,57 @@
+{
+  "_doc": [
+    "Which pipeline feeds each state's cf_* finance data. Read by pipelines/plan_matrix.py (the finance-sync.yml matrix), pipelines/run_state.py and pipelines/load/load_cf.py. See docs/slcf-merge-plan.md.",
+    "pipeline: slcf = SLCF scrape + parse, then the loader | pilot = scripts/data-import/pilot/import_pilot_finance.py | tec = Texas, its own tx-finance-sync.yml | none = no finance source.",
+    "Texas (tec) and Michigan (pilot) keep their infrastructure permanently. Every other pilot state moves to slcf at its cutover, after a dry run reconciles (finance-sync.yml, dry_run input).",
+    "nightly: run on the 07:20 UTC schedule (default true for slcf/pilot). A state can always be dispatched by name.",
+    "since: first transaction date loaded (default 1 Jan of the year before cycle). slcf_args: extra SLCF scraper flags. playwright: the SLCF scraper needs Chromium.",
+    "id_format: per SLCF table, how a source transaction id becomes source_txn_id (default '{st}:{id}'), set to the pilot's own format so a cutover lands on the existing rows.",
+    "individual_types: the raw contributor types (lower-cased) that mean a person; anything else, blank included, is an organisation. Set to the pilot's rule at cutover so the individual / organisation split doesn't move. category_field: the SLCF column holding the spending category (default 'category'). unitemized: {label, type} — the pilot's label and contributor type for nameless lump sums of small gifts.",
+    "soft_fail: why a failure is reported as a warning instead of failing the run; remove it the day the source works again.",
+    "dry_run_only: the state may only be dispatched with dry_run on (a new SLCF state, before its first reconciliation). prune: delete live rows SLCF no longer has, after each load (load_cf.py --prune)."
+  ],
+  "states": {
+    "tx": { "pipeline": "tec", "note": "permanent: TEC importer, tx-finance-sync.yml" },
+    "mi": { "pipeline": "pilot", "cycle": "2026",
+            "note": "permanent: Michigan keeps its importer, legislature roster and ballot-status syncs" },
+
+    "al": { "pipeline": "pilot", "cycle": "2026",
+            "id_format": { "contributions": "al:c{id}", "expenditures": "al:e{id}" } },
+    "ak": { "pipeline": "pilot", "cycle": "2026", "playwright": true },
+    "ar": { "pipeline": "slcf", "cycle": "2026", "prune": true,
+            "individual_types": ["individual", "candidate"],
+            "unitemized": { "label": "Unitemized (small-dollar) contributions", "type": "ENTITY" },
+            "note": "on SLCF since 2026-10-15: txn_id = Transaction ID (the pilot's ar:<id>)" },
+    "az": { "pipeline": "pilot", "cycle": "2026", "playwright": true },
+    "co": { "pipeline": "slcf", "cycle": "2026", "prune": true, "individual_types": ["individual"],
+            "category_field": "transaction_type",
+            "note": "on SLCF since 2026-10-15: txn_id = TRACER RecordID (the pilot's co:<RecordID>, so rows kept their uuids); prune removes rows an amendment replaced" },
+    "ct": { "pipeline": "pilot", "cycle": "2026" },
+    "fl": { "pipeline": "pilot", "cycle": "2026", "playwright": true },
+    "ga": { "pipeline": "slcf", "cycle": "2026", "since": "2024-01-01", "prune": true,
+            "individual_types": ["individual", "self"], "category_field": "purpose",
+            "unitemized": { "label": "Unitemized (small-dollar) contributions", "type": null },
+            "note": "on SLCF since 2026-10-15: txn_id = Peachfile Transaction Id (the pilot's ga:<id>); loans move from contributions to cf_loans" },
+    "hi": { "pipeline": "pilot", "cycle": "2026" },
+    "ia": { "pipeline": "pilot", "cycle": "2026" },
+    "id": { "pipeline": "slcf", "cycle": "2026", "prune": true, "individual_types": ["person"],
+            "note": "on SLCF since 2026-10-15: txn_id = Sunshine Transaction Id (the pilot's id:<id>)" },
+    "il": { "pipeline": "pilot", "cycle": "2026",
+            "id_format": { "contributions": "il:r{id}", "expenditures": "il:e{id}" } },
+    "ks": { "pipeline": "pilot", "cycle": "2026",
+            "soft_fail": "kssos.org cfr_viewer sits behind a CAPTCHA (403 'Human Verification' for every client) since at least 2026-10-01; no automated path" },
+    "ky": { "pipeline": "pilot", "cycle": "2027", "since": "2025-01-01" },
+    "ma": { "pipeline": "pilot", "cycle": "2026" },
+    "md": { "pipeline": "pilot", "cycle": "2026",
+            "id_format": { "contributions": "md:con:{id}", "expenditures": "md:exp:{id}" } },
+    "mn": { "pipeline": "pilot", "cycle": "2026" },
+    "pa": { "pipeline": "pilot", "cycle": "2026" },
+    "wi": { "pipeline": "pilot", "cycle": "2026" },
+
+    "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "dry_run_only": true,
+            "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not; needs a non-datacenter runner. Then: dry run, drop dry_run_only, nightly" },
+
+    "me": { "pipeline": "none", "note": "Maine's disclosure system blocks datacenter IPs (Cloudflare WAF)" },
+    "nv": { "pipeline": "none", "note": "SLCF has a Nevada scraper but no parser yet" }
+  }
+}

@@ -1,0 +1,288 @@
+"""Offline tests for the SLCF -> cf_* loader, the job planner and the manifest.
+
+    python3 -m unittest discover -s pipelines/tests
+
+No network: the Supabase calls the loader makes are replaced with fakes.
+"""
+
+import csv
+import gzip
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+PIPELINES = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PIPELINES))
+sys.path.insert(0, str(PIPELINES / "load"))
+
+import load_cf  # noqa: E402
+import mapping  # noqa: E402
+import plan_matrix  # noqa: E402
+import rest  # noqa: E402
+
+SLCF_PIPELINE = PIPELINES / "slcf" / "src" / "pipeline"
+sys.path.insert(0, str(SLCF_PIPELINE))
+import columns as C  # noqa: E402
+
+
+class MappingTest(unittest.TestCase):
+    def test_split_name(self):
+        self.assertEqual(mapping.split_name("JOHN A SMITH", True), ("SMITH", "JOHN A"))
+        self.assertEqual(mapping.split_name("JOHN SMITH JR", True), ("SMITH JR", "JOHN"))
+        self.assertEqual(mapping.split_name("SMITH, JOHN", True), ("SMITH", "JOHN"))
+        self.assertEqual(mapping.split_name("CHER", True), ("CHER", None))
+        self.assertEqual(mapping.split_name("ACME HOLDINGS LLC", False), ("ACME HOLDINGS LLC", None))
+        self.assertEqual(mapping.split_name("", True), (None, None))
+
+    def test_contributor_type(self):
+        self.assertEqual(mapping.contributor_type("Individual", "JOHN SMITH"), "INDIVIDUAL")
+        self.assertEqual(mapping.contributor_type("Candidate", "JOHN SMITH"), "INDIVIDUAL")
+        self.assertEqual(mapping.contributor_type("Non-Individual", "ACME"), "ENTITY")
+        self.assertEqual(mapping.contributor_type("Political Committee", "X"), "ENTITY")
+        self.assertEqual(mapping.contributor_type("", "ACME CONSULTING LLC"), "ENTITY")
+        self.assertEqual(mapping.contributor_type("", "JANE DOE"), "INDIVIDUAL")
+        self.assertIsNone(mapping.contributor_type("", ""))
+
+    def test_money_and_dates(self):
+        self.assertEqual(mapping.money("$1,000.50"), 1000.5)
+        self.assertEqual(mapping.money("(25)"), -25.0)
+        self.assertEqual(mapping.money("-100"), -100.0)
+        self.assertIsNone(mapping.money("n/a"))
+        self.assertEqual(mapping.iso_date("2026-03-01 00:00:00"), "2026-03-01")
+        self.assertIsNone(mapping.iso_date("03/01/2026"))
+
+    def test_source_ids_use_the_state_format(self):
+        ids = mapping.TxnIds("md", {"contributions": "md:con:{id}"})
+        self.assertEqual(ids.make("contributions", {"txn_id": "123"}), "md:con:123")
+        self.assertEqual(ids.make("expenditures", {"txn_id": "9"}), "md:9")
+
+    def test_hashed_ids_are_stable_and_count_twins(self):
+        row = {"state_filer_id": "16171", "date": "2026-01-02", "amount": "25",
+               "contributor_name": "JANE DOE", "transaction_type": "31-A"}
+        a = mapping.TxnIds("oh").make("contributions", row)
+        b = mapping.TxnIds("oh").make("contributions", dict(row, amount="25.00",
+                                                             raw_file="x.csv", row_num="9"))
+        self.assertEqual(a, b)                        # amount normalised; file/row ignored
+        self.assertTrue(a.startswith("oh:h:"))
+        ids = mapping.TxnIds("oh")
+        first, second = ids.make("contributions", row), ids.make("contributions", row)
+        self.assertEqual(second, first + "-1")        # two identical gifts stay two rows
+
+    def test_to_cf_routes_loans_inkind_and_payments(self):
+        t, r = mapping.to_cf("contributions", {"amount": "500", "date": "2026-01-01",
+                                               "transaction_type": "Loan Received",
+                                               "contributor_name": "JANE DOE"})
+        self.assertEqual(t, "cf_loans")
+        self.assertEqual(r["lender_last_name"], "DOE")
+        t, r = mapping.to_cf("contributions", {"amount": "50", "date": "2026-01-01",
+                                               "transaction_type": "Non-Monetary (Itemized)",
+                                               "contributor_name": "ACME LLC"})
+        self.assertEqual((t, r["source_form_type"], r["contributor_type"]),
+                         ("cf_contributions", "INKIND", "ENTITY"))
+        self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "P"}))
+        self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "Debt"}))
+        t, r = mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "O",
+                                             "counterparty_name": "BARB KIRKMEYER"})
+        self.assertEqual((t, r["amount"], r["lender_last_name"], r["lender_first_name"]),
+                         ("cf_loans", 10.0, "BARB KIRKMEYER", None))
+        t, r = mapping.to_cf("expenditures", {"amount": "9", "transaction_type": "Monetary",
+                                              "purpose": "Mail", "payee_name": "HSP DIRECT"})
+        self.assertEqual((r["category"], r["description"]), ("Monetary", "Mail"))
+        co_exp = {"amount": "9", "category": "Monetary (Itemized)",
+                  "transaction_type": "Fundraising Expenses"}
+        _, r = mapping.to_cf("expenditures", co_exp, category_field="transaction_type")
+        self.assertEqual(r["category"], "Fundraising Expenses")
+
+    def test_unitemized_lumps_keep_the_pilots_label_and_type(self):
+        ga = {"label": "Unitemized (small-dollar) contributions", "type": None}
+        _, r = mapping.to_cf("contributions", {"amount": "900", "contributor_type": "",
+                                               "transaction_type": "Unitemized Contribution"},
+                             ["individual", "self"], unitemized=ga)
+        self.assertEqual((r["contributor_type"], r["contributor_last_name"]),
+                         (None, "Unitemized (small-dollar) contributions"))
+        ar = dict(ga, type="ENTITY")
+        row = {"amount": "30", "contributor_type": "Individual",
+               "contributor_name": ar["label"], "contributor_last": ar["label"]}
+        _, r = mapping.to_cf("contributions", row, ["individual", "candidate"], unitemized=ar)
+        self.assertEqual(r["contributor_type"], "ENTITY")
+        _, r = mapping.to_cf("contributions", {"amount": "30", "contributor_type": "Individual",
+                                               "contributor_name": "JANE DOE",
+                                               "transaction_type": "Unitemized"},
+                             ["individual"], unitemized=ar)
+        self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # a named row is a person
+
+    def test_nonmoney_payee_parts_and_loan_balances(self):
+        _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_name": "X",
+                                               "transaction_type": "Itemized Nonmoney"})
+        self.assertEqual(r["source_form_type"], "INKIND")
+        _, r = mapping.to_cf("expenditures", {"amount": "9", "payee_name": "SPEED, MARY BETH",
+                                              "payee_last": "Speed", "payee_first": "Mary Beth"})
+        self.assertEqual((r["payee_last_name"], r["payee_first_name"]), ("Speed", "Mary Beth"))
+        for t in ("Outstanding Loan", "Loan Payment", "Loan Forgiven"):
+            self.assertIsNone(mapping.to_cf("contributions", {"amount": "5", "transaction_type": t}), t)
+        t, _ = mapping.to_cf("contributions", {"amount": "5", "transaction_type": "Loan Received"})
+        self.assertEqual(t, "cf_loans")
+
+    def test_source_name_parts_and_pilot_type_rule(self):
+        row = {"amount": "5", "contributor_name": "JOHN A VAN NORTWICK JR",
+               "contributor_first": "JOHN", "contributor_last": "VAN NORTWICK",
+               "contributor_type": "Individual"}
+        _, r = mapping.to_cf("contributions", row, ["individual"])
+        self.assertEqual((r["contributor_last_name"], r["contributor_first_name"],
+                          r["contributor_type"]), ("VAN NORTWICK", "JOHN", "INDIVIDUAL"))
+        _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_type": ""},
+                             ["individual"])
+        self.assertEqual(r["contributor_type"], "ENTITY")   # the pilot's rule: blank = ENTITY
+        self.assertIsNone(mapping.to_cf("expenditures", {"amount": ""}))
+
+
+class PlanTest(unittest.TestCase):
+    STATES = {
+        "mi": {"pipeline": "pilot"}, "co": {"pipeline": "pilot"},
+        "oh": {"pipeline": "slcf", "nightly": False}, "ga": {"pipeline": "slcf"},
+        "nv": {"pipeline": "slcf", "dry_run_only": True},
+        "tx": {"pipeline": "tec"}, "me": {"pipeline": "none"},
+    }
+
+    def plan(self, codes, dry_run=False):
+        return plan_matrix.plan(codes, dry_run, self.STATES)
+
+    def test_schedule_runs_every_nightly_state(self):
+        self.assertEqual(self.plan([]), (["mi", "co"], ["ga"]))
+
+    def test_named_states_ignore_nightly(self):
+        self.assertEqual(self.plan(["OH", "mi"]), (["mi"], ["oh"]))
+
+    def test_dry_run_sends_everything_to_slcf(self):
+        self.assertEqual(self.plan(["co", "oh"], dry_run=True), ([], ["co", "oh"]))
+
+    def test_dry_run_only_states(self):
+        self.assertEqual(self.plan(["nv"], dry_run=True), ([], ["nv"]))
+        with self.assertRaises(ValueError):
+            self.plan(["nv"])                     # a console Sync can't load it for real
+
+    def test_refusals(self):
+        for codes, dry in ((["tx"], False), (["me"], False), (["zz"], False),
+                           (["mi"], True), ([], True)):
+            with self.assertRaises(ValueError):
+                self.plan(codes, dry)
+
+
+class ManifestTest(unittest.TestCase):
+    def test_texas_and_michigan_keep_their_infrastructure(self):
+        states = json.loads((PIPELINES / "states.json").read_text())["states"]
+        self.assertEqual(states["tx"]["pipeline"], "tec")
+        self.assertEqual(states["mi"]["pipeline"], "pilot")
+        for st, e in states.items():
+            self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "none"), st)
+
+    def test_schedule_covers_every_pilot_state_once(self):
+        # Every state the pilot imported before the merge is still scheduled,
+        # by exactly one pipeline; Texas never is; Michigan stays on the pilot.
+        pilot, slcf = plan_matrix.plan([])
+        before = "mi al ak ar az co ct fl ga hi ia id il ks ky ma md mn pa wi".split()
+        self.assertEqual(sorted(pilot + slcf), sorted(set(pilot + slcf)))
+        self.assertTrue(set(before) <= set(pilot + slcf))
+        self.assertIn("mi", pilot)
+        self.assertNotIn("tx", pilot + slcf)
+
+    def test_loader_columns_stay_out_of_slcf_master_db(self):
+        for t in ("CONTRIBUTIONS", "EXPENDITURES", "LOANS_DEBTS"):
+            for col in ("state_filer_id", "txn_id", "superseded"):
+                self.assertIn(col, getattr(C, t))
+                self.assertNotIn(col, getattr(C, t + "_AGG"))
+        for col in ("payee_first", "payee_last"):
+            self.assertIn(col, C.EXPENDITURES)
+            self.assertNotIn(col, C.EXPENDITURES_AGG)
+
+
+def write_gz(path, fields, rows):
+    with gzip.open(path, "wt", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields, restval="", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+class LoaderTest(unittest.TestCase):
+    REFS = {"co:1": ("uuid-weiser", "phil-weiser"), "co:2": ("uuid-marx", "victor-marx")}
+    ENTRY = {"pipeline": "pilot", "cycle": "2026"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.clean = Path(self.tmp.name) / "Colorado" / "cleaned"
+        self.clean.mkdir(parents=True)
+        c = lambda **kw: dict({"state_filer_id": "1", "date": "2026-02-01", "amount": "10",
+                               "contributor_name": "JANE DOE", "contributor_type": "Individual",
+                               "transaction_type": "Monetary (Itemized)"}, **kw)
+        write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
+            c(txn_id="100"),
+            c(txn_id="101", superseded="1"),                 # replaced by an amendment
+            c(txn_id="102", date="2024-12-31"),              # before since
+            c(txn_id="103", state_filer_id="999"),           # untracked committee
+            c(txn_id="100"),                                 # overlapping year file
+            c(txn_id="104", state_filer_id="2", amount="-10"),
+        ])
+        write_gz(self.clean / "expenditures.csv.gz", C.EXPENDITURES, [
+            {"state_filer_id": "2", "date": "2026-03-01", "amount": "5", "txn_id": "200",
+             "payee_name": "HSP DIRECT"},
+            {"state_filer_id": "2", "date": "2026-03-01", "amount": "5", "txn_id": "201",
+             "transaction_type": "FEC_NONFEDERAL_IE"},
+        ])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def rows(self):
+        return list(load_cf.rows_for_state("co", self.ENTRY, self.clean, self.REFS))
+
+    def test_filters_and_ids(self):
+        got = [(t, slug, r["source_txn_id"], r["amount"]) for t, slug, r in self.rows()]
+        self.assertEqual(got, [
+            ("cf_contributions", "phil-weiser", "co:100", 10.0),
+            ("cf_contributions", "victor-marx", "co:104", -10.0),
+            ("cf_expenditures", "victor-marx", "co:200", 5.0),
+        ])
+        _, _, r = self.rows()[0]
+        self.assertEqual((r["candidate_id"], r["committee_id"], r["source"], r["cycle"]),
+                         ("uuid-weiser", "co:1", "slcf", "2026"))
+
+    def test_missing_loader_columns_is_an_error(self):
+        write_gz(self.clean / "contributions.csv.gz", ["state", "amount"], [{"amount": "1"}])
+        with self.assertRaises(SystemExit):
+            self.rows()
+
+    def stats(self, rows):
+        s = load_cf.defaultdict(load_cf.new_stat)
+        for key, amount, date, txn in rows:
+            load_cf.add(s[key], amount, date, txn)
+        return s
+
+    def test_stale_rows_are_those_slcf_no_longer_has_inside_the_window(self):
+        k = ("victor-marx", "cf_expenditures")
+        new = self.stats([(k, 5, "2026-03-01", "co:200")])
+        live = self.stats([(k, 5, "2026-03-01", "co:200"),
+                           (k, 187687.85, "2026-08-31", "co:1702268"),   # superseded
+                           (k, 7, "2024-06-01", "co:1")])               # before since
+        self.assertEqual(load_cf.stale_ids(new, live, "2025-01-01"), {k: {"co:1702268": 187687.85}})
+
+    def test_prune_deletes_stale_rows_and_refuses_a_truncated_load(self):
+        k = ("victor-marx", "cf_expenditures")
+        live = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(10)])
+        full = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(9)])
+        with mock.patch.object(rest, "delete") as delete:
+            load_cf.prune("co", self.REFS, full, live, "2025-01-01")
+        (path,), _ = delete.call_args
+        self.assertIn("source=eq.slcf", path)
+        self.assertIn("candidate_id=eq.uuid-marx", path)
+        self.assertIn('source_txn_id=in.("co:9")', path)
+        truncated = self.stats([(k, 1, "2026-03-01", "co:0")])
+        with mock.patch.object(rest, "delete") as delete, self.assertRaises(SystemExit):
+            load_cf.prune("co", self.REFS, truncated, live, "2025-01-01")
+        delete.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

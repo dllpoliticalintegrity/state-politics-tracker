@@ -1,5 +1,15 @@
 name: Finance sync
 
+# Campaign finance for every state except Texas (tx-finance-sync.yml), split by
+# pipelines/states.json into two kinds of job (docs/slcf-merge-plan.md):
+#   pilot  one job running scripts/data-import/pilot/import_pilot_finance.py for
+#          Michigan (permanently: its importer, legislature roster and ballot
+#          syncs) and for the states not yet cut over to SLCF;
+#   slcf   one matrix job per SLCF state: pipelines/slcf scrape + parse, then
+#          pipelines/load/load_cf.py into cf_*.
+# The matviews are refreshed once, after both. The admin console's Sync tab
+# dispatches this file with `states` = one code; that still runs just that state.
+
 on:
   schedule:
     # Nightly at 07:20 UTC — after state systems have posted the day's filings
@@ -10,13 +20,39 @@ on:
         description: "Space-separated state codes (blank = all)"
         required: false
         default: ""
+      dry_run:
+        description: "Reconcile the named states' SLCF output against their live rows; writes nothing (report under the run's artifacts)"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: finance-sync
   cancel-in-progress: false
 
 jobs:
-  sync:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      pilot: ${{ steps.pick.outputs.pilot }}
+      slcf: ${{ steps.pick.outputs.slcf }}
+    steps:
+      - uses: actions/checkout@v4
+      # The input goes through env, never ${{ }} inside the script, so it can't
+      # inject shell. Unknown codes, Texas and `none` states fail here.
+      - id: pick
+        env:
+          STATES: ${{ inputs.states }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          FLAG=""
+          if [ "$DRY_RUN" = "true" ]; then FLAG="--dry-run"; fi
+          # shellcheck disable=SC2086 — states is intentionally word-split
+          python3 pipelines/plan_matrix.py $STATES $FLAG | tee -a "$GITHUB_OUTPUT"
+
+  pilot:
+    needs: plan
+    if: needs.plan.outputs.pilot != ''
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -25,15 +61,93 @@ jobs:
       # Requires the SUPABASE_SERVICE_ROLE_KEY repository secret (Settings →
       # Secrets and variables → Actions). The importer is idempotent — rows
       # upsert on (source, source_txn_id) — so reruns are safe.
-      - name: Import state finance
+      - name: Import state finance (pilot importer)
         env:
           SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          STATES: ${{ inputs.states }}
+          STATES: ${{ needs.plan.outputs.pilot }}
         run: |
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."
             exit 0
           fi
           # shellcheck disable=SC2086 — states is intentionally word-split
-          python3 scripts/data-import/pilot/import_pilot_finance.py ${STATES:+--states $STATES}
+          python3 scripts/data-import/pilot/import_pilot_finance.py --states $STATES --no-refresh
+
+  slcf:
+    needs: plan
+    if: needs.plan.outputs.slcf != '[]' && needs.plan.outputs.slcf != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false          # one state's outage must not cancel the others
+      max-parallel: 6
+      matrix:
+        state: ${{ fromJSON(needs.plan.outputs.slcf) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pipelines/requirements.txt
+            pipelines/slcf/requirements.txt
+      - run: pip install -r pipelines/requirements.txt
+
+      - name: SLCF sync + load
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STATE: ${{ matrix.state }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."
+            exit 0
+          fi
+          mkdir -p reports
+          if [ "$DRY_RUN" = "true" ]; then
+            python3 pipelines/run_state.py "$STATE" --dry-run --report "reports/recon-$STATE.csv"
+          else
+            python3 pipelines/run_state.py "$STATE"
+          fi
+
+      # SLCF's per-run log.jsonl + validation JSON, and a dry run's reconciliation.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finance-${{ matrix.state }}
+          path: |
+            pipelines/slcf/logs/
+            pipelines/slcf/metadata/
+            reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  refresh:
+    needs: [plan, pilot, slcf]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    steps:
+      # Rebuild the matviews so summaries/top-donor views pick up the new rows.
+      # The refresh takes ~3 min on ~2M rows and the Supabase API gateway drops
+      # the request at ~2 min with a 502/504, but the statement runs to
+      # completion server-side (verified 2026-10-01); the pg_cron job
+      # cf-finance-refresh-nightly (09:15 UTC) refreshes again regardless.
+      - name: Refresh cf_* matviews
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then exit 0; fi
+          CODE=$(curl -sS --max-time 300 -o resp.txt -w '%{http_code}' -X POST \
+            "$SUPABASE_URL/rest/v1/rpc/refresh_cf_finance_views" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+            -H "Content-Type: application/json" -d '{}') || true
+          echo "refresh: HTTP $CODE"; cat resp.txt 2>/dev/null; echo
+          case "$CODE" in
+            2*) ;;
+            502|504|000) echo "::notice::gateway gave up; the refresh continues server-side" ;;
+            *) exit 1 ;;
+          esac
