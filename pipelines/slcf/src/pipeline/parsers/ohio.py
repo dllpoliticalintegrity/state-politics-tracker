@@ -781,6 +781,11 @@ def _run(log, t0: float):
                             "election_year": _clean(_get(row, resolved, "rpt_year")),
                             "amended": "",
                             "filing_id": _clean(_get(row, resolved, "report_key")),
+                            # MASTER_KEY of the filing committee. Ohio publishes no
+                            # per-transaction id, so txn_id stays blank and the
+                            # state-politics-tracker loader hashes the row instead
+                            # (columns.py, TRANSACTION_IDS).
+                            "state_filer_id": filer_id,
                             "raw_file": raw_file.name,
                             "row_num": rows_in + 1,
                         })
@@ -895,6 +900,7 @@ def _run(log, t0: float):
                             "support_oppose": support_oppose,
                             "amended": "",
                             "filing_id": _clean(_get(row, resolved, "report_key")),
+                            "state_filer_id": filer_id,   # MASTER_KEY; see contributions
                             "raw_file": raw_file.name,
                             "row_num": rows_in + 1,
                         })

@@ -160,6 +160,15 @@ def valid_election_year(val: str) -> str:
     return ""
 
 
+def superseded_flag(val: str) -> str:
+    """TRACER's `Amended` = 'Y' -> '1': the row was replaced by a later
+    amendment. An amendment arrives as three rows — the original (Amended Y),
+    a negative reversal of it (Amended Y) and the replacement (Amended N,
+    Amendment Y) — so dropping the Amended = Y rows leaves exactly the current
+    version of every transaction (columns.py, TRANSACTION_IDS)."""
+    return "1" if clean(val).upper() == "Y" else ""
+
+
 def amended_flag(val: str) -> str:
     """'Y' → '1', 'N' → '0', else ''."""
     v = clean(val).upper()
@@ -511,6 +520,11 @@ def run():
                         "office":            "",
                         "election_year":     elec_year,
                         "filing_id":         clean(row.get("RecordID", "")),
+                        # CO_ID of the filing committee + TRACER's RecordID, for the
+                        # state-politics-tracker loader (columns.py, TRANSACTION_IDS).
+                        "state_filer_id":    clean(row.get("CO_ID", "")),
+                        "txn_id":            clean(row.get("RecordID", "")),
+                        "superseded":        superseded_flag(row.get("Amended", "")),
                         "amended":           amended_flag(row.get("Amendment", "")),
                         "raw_file":          path.name,
                         "row_num":           row_num,
@@ -565,6 +579,9 @@ def run():
                         "office":           "",
                         "election_year":    elec_year,
                         "filing_id":        clean(row.get("RecordID", "")),
+                        "state_filer_id":   clean(row.get("CO_ID", "")),
+                        "txn_id":           clean(row.get("RecordID", "")),
+                        "superseded":       superseded_flag(row.get("Amended", "")),
                         "amended":          amended_flag(row.get("Amendment", "")),
                         "raw_file":         path.name,
                         "row_num":          row_num,
@@ -620,6 +637,9 @@ def run():
                         "candidate_name":     utils.clean_name(row.get("CandidateName", "")),
                         "election_year":      elec_year,
                         "filing_id":          clean(row.get("RecordID", "")),
+                        "state_filer_id":     clean(row.get("CO_ID", "")),
+                        "txn_id":             clean(row.get("RecordID", "")),
+                        "superseded":         superseded_flag(row.get("Amended", "")),
                         "amended":            amended_flag(row.get("Amendment", "")),
                         "raw_file":           path.name,
                         "row_num":            row_num,

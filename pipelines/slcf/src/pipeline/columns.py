@@ -18,6 +18,29 @@ person/committee/name_hash id_model split made it an unreliable identity
 across cycles and sources in practice. Both fields remain in the per-state
 DBs; the master db identifies candidates/committees by name + state instead.
 Raw source traceability is preserved via raw_file + row_num.
+
+TRANSACTION_IDS (contributions / expenditures / loans_debts, 2026-10):
+state_filer_id and txn_id were added to the three transaction tables for
+state-politics-tracker's loader (pipelines/load/), which ties money to
+candidates by committee id and upserts on a stable per-row key. Neither
+existed on transaction rows before: committee_name was the only link to the
+filer, and filing_id means a different thing per state (a transaction id in
+GA/MI/PA, a report id in IL/VA/OH, a check number in NJ) so it is not a key.
+  state_filer_id  the filing committee's id, in the same form the committees
+                  table uses for that state.
+  txn_id          the source's own transaction id, verbatim, when the state
+                  publishes one; blank otherwise. Never a hash of raw_file /
+                  row_num (they change on every re-download) -- the loader
+                  synthesizes a deterministic id for blank rows.
+  superseded      "1" when the source itself marks this row as replaced by a
+                  later amendment (Colorado's Amended = Y), so it no longer
+                  counts; the loader skips such rows. Not the same thing as
+                  `amended`, whose meaning varies by state (Colorado's is the
+                  Amendment flag: "this row IS an amendment", which must be
+                  kept).
+Parsers fill them as each state moves onto the loader; elsewhere they are
+blank. All three are dropped from the *_AGG lists, so state-level-cf.db is
+unchanged.
 """
 
 # ============================= committees =============================
@@ -107,6 +130,9 @@ CONTRIBUTIONS = [
     # identifiers
     "amended",
     "filing_id",
+    "state_filer_id",   # the FILING committee's source-system id -- see TRANSACTION_IDS below
+    "txn_id",           # the source's own per-transaction id, where it publishes one
+    "superseded",       # "1" when the source marks the row replaced by a later amendment
     "raw_file",
     "row_num",
 ]
@@ -143,6 +169,9 @@ EXPENDITURES = [
     # identifiers
     "amended",
     "filing_id",
+    "state_filer_id",   # the FILING committee's source-system id -- see TRANSACTION_IDS below
+    "txn_id",           # the source's own per-transaction id, where it publishes one
+    "superseded",       # "1" when the source marks the row replaced by a later amendment
     "raw_file",
     "row_num",
 ]
@@ -166,6 +195,9 @@ LOANS_DEBTS = [
     # identifiers
     "amended",
     "filing_id",
+    "state_filer_id",   # the FILING committee's source-system id -- see TRANSACTION_IDS below
+    "txn_id",           # the source's own per-transaction id, where it publishes one
+    "superseded",       # "1" when the source marks the row replaced by a later amendment
     "raw_file",
     "row_num",
 ]
@@ -179,6 +211,7 @@ COLUMN_TYPES = {
     "state":                "VARCHAR",
     "person_id":            "BIGINT",
     "state_filer_id":       "VARCHAR",
+    "txn_id":               "VARCHAR",
     "raw_file":             "VARCHAR",
     "row_num":              "BIGINT",
     # committee fields
@@ -249,15 +282,19 @@ COMMITTEES_AGG    = [c for c in COMMITTEES if c not in ("state_filer_id", "activ
 
 # CONTRIBUTIONS_AGG adds transaction_category (derived normalization) after transaction_type.
 # contributor_type is kept but aggregate.py replaces raw values with canonical ones.
-_contrib = list(CONTRIBUTIONS)
+# The loader-only identifiers (see TRANSACTION_IDS in the module docstring)
+# stay out of the master db, like state_filer_id on the entity tables.
+_LOADER_IDS = ("state_filer_id", "txn_id", "superseded")
+
+_contrib = [c for c in CONTRIBUTIONS if c not in _LOADER_IDS]
 _contrib.insert(_contrib.index("transaction_type") + 1, "transaction_category")
 CONTRIBUTIONS_AGG = _contrib
 
 # EXPENDITURES_AGG drops both category (inconsistent per state) and transaction_type
 # (raw; preserved in per-state DBs). Adds transaction_category (derived normalization)
 # in their place after date. aggregate.py computes it inline from transaction_type.
-_expend = [c for c in EXPENDITURES if c not in ("category", "transaction_type")]
+_expend = [c for c in EXPENDITURES if c not in ("category", "transaction_type") + _LOADER_IDS]
 _expend.insert(_expend.index("date") + 1, "transaction_category")
 EXPENDITURES_AGG  = _expend
 
-LOANS_DEBTS_AGG   = LOANS_DEBTS     # no state_filer_id to drop
+LOANS_DEBTS_AGG   = [c for c in LOANS_DEBTS if c not in _LOADER_IDS]
