@@ -13,12 +13,26 @@ Data begins in 2021; earlier filing years return empty responses.
 Response is text/csv (CRLF line endings) with a timestamp title row on
 line 0 followed by a standard header row on line 1. Some fields (ZipCode)
 use Excel-style quoting (="VALUE") — stripped in the parser.
+
+--grid (transactions only): fetch contributions and expenditures from the
+PublicGrid export instead —
+  https://api-campaignfinance.maryland.gov/api/PublicGrid/DownloadPublicGridData
+the CSV behind the site's contribution / expenditure search pages, and the
+source of state-politics-tracker's old pilot importer. The bulk export above
+carries no transaction id; the grid's TransactionID is the stable per-row key
+that tracker's loader upserts on (columns.py, TRANSACTION_IDS). The grid is
+queried statewide by TRANSACTION DATE, one calendar month per request (~60k
+rows / ~30 s in a busy month), and each year's months are concatenated into
+grid_{contributions|expenditures}_{year}.csv, which the parser reads in place
+of the bulk files. The TCON grid holds no loans (they have their own grid),
+so grid mode writes no loans_debts rows — as the pilot.
 """
 
+import calendar
 import csv
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import requests
@@ -46,6 +60,17 @@ TRANSACTION_TYPES = {
 
 # Earliest filing year that returns data — 2020 and earlier return empty responses.
 START_YEAR = 2021
+
+# --grid: per transaction type, (grid name, filter key, row-count endpoint,
+# extra filter). The expenditure grid takes no type code (as the pilot).
+GRID_URL   = "https://api-campaignfinance.maryland.gov/api/PublicGrid/DownloadPublicGridData"
+GRID_COUNT = "https://api-campaignfinance.maryland.gov/api/PublicGrid/{}"
+GRID = {
+    "TCON": ("ContributionPublicGrid", "contributionSearchFilter", "GetContributionList",
+             {"transactionTypeCode": "TCON"}),
+    "TEXP": ("ExpenditurePublicGrid", "expenditureSearchFilter", "GetExpenditureList", {}),
+}
+GRID_TRIES = 4
 
 # ========================= manifest helpers ===========================
 
@@ -199,6 +224,108 @@ def download_transaction(log, transaction_type: str, year: str,
     return filename, row_count
 
 
+# ===================== transactions: --grid mode =====================
+
+def _grid_windows(year: int) -> list[tuple[str, str]]:
+    """One (from, to) window per calendar month of `year`, through the
+    current month. The current year's last window runs to 31 December, so a
+    row dated ahead of today (a filer's typo) is still fetched."""
+    today = date.today()
+    last  = 12 if year < today.year else today.month
+    out   = []
+    for m in range(1, last + 1):
+        end = (date(year, 12, 31) if m == last and year == today.year
+               else date(year, m, calendar.monthrange(year, m)[1]))
+        out.append((f"{year}-{m:02d}-01", end.isoformat()))
+    return out
+
+
+def _grid_window(session: requests.Session, code: str, start: str, end: str) -> str:
+    """CSV text (title row, header row, data) of one statewide window, or ''
+    when the window holds no rows. The download answers an EMPTY result with
+    HTTP 500 (error code 999), so a 500 is checked against the grid's own
+    row-count endpoint: 0 rows is an empty window; anything else is a real
+    failure, retried, then raised — a silently missing month would read as
+    deleted transactions downstream."""
+    grid, key, count_endpoint, extra = GRID[code]
+    filt = {"pageNumber": 1, "pageSize": 100, "sortBy": "TransactionDate",
+            "sortType": "DESC", "fromDate": start, "toDate": end, **extra}
+    body = {"publicGridName": grid, "fileName": "export", "type": "CSV", key: filt}
+    last = None
+    for attempt in range(GRID_TRIES):
+        if attempt:
+            time.sleep(10 * attempt)
+        try:
+            resp = session.post(GRID_URL, json=body, timeout=900)
+            if resp.status_code == 500:
+                n = session.post(GRID_COUNT.format(count_endpoint),
+                                 json={**filt, "pageSize": 1}, timeout=120)
+                n.raise_for_status()
+                if n.json()["data"]["totalItems"] == 0:
+                    return ""
+            resp.raise_for_status()
+            text  = _decode_response(resp.content)
+            lines = text.split("\n", 2)
+            if len(lines) >= 2 and lines[1].startswith("TransactionID,"):
+                return text
+            last = f"unexpected response: {text[:200]!r}"
+        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+            last = e
+    raise RuntimeError(f"{grid} {start}..{end}: failed after {GRID_TRIES} tries: {last}")
+
+
+def download_grid_year(log, transaction_type: str, year: str,
+                       session: requests.Session) -> tuple[str, int]:
+    """Fetch one transaction-date year from the PublicGrid export, month by
+    month, into grid_{label}_{year}.csv (one title + header row, then every
+    month's rows). Written to a .part file and renamed only when every month
+    succeeded; any failure raises, so the scraper exits non-zero and the
+    orchestrator stops before parsing a partial year."""
+    label    = TRANSACTION_TYPES[transaction_type]
+    filename = f"grid_{label}_{year}.csv"
+    out_path = RAW_DIR / filename
+    part     = RAW_DIR / (filename + ".part")
+
+    log.file_download_start(filename=filename)
+    t0 = time.perf_counter()
+    header = None
+    row_count = 0
+    try:
+        with open(part, "w", encoding="utf-8", newline="") as out:
+            for start, end in _grid_windows(int(year)):
+                text = _grid_window(session, transaction_type, start, end)
+                if not text:
+                    continue
+                title, head, data = (text.split("\n", 2) + [""])[:3]
+                if header is None:
+                    header = head
+                    out.write(title + "\n" + head + "\n")
+                elif head != header:
+                    raise RuntimeError(f"{filename}: header changed in {start}..{end}")
+                if data and not data.endswith("\n"):
+                    data += "\n"
+                out.write(data)
+                row_count += data.count("\n")
+                time.sleep(0.5)
+    except Exception as e:
+        part.unlink(missing_ok=True)
+        log.file_download_error(filename=filename, error=str(e))
+        raise
+
+    if header is None:
+        part.unlink(missing_ok=True)
+        log.file_download_skip(filename=filename)
+        return filename, 0
+    part.replace(out_path)
+    log.file_download_ok(
+        filename=filename,
+        bytes=out_path.stat().st_size,
+        rows=row_count,
+        duration_s=round(time.perf_counter() - t0, 2),
+    )
+    return filename, row_count
+
+
 # ============================== run ==================================
 
 def run(
@@ -211,6 +338,7 @@ def run(
     expenditures: bool = False,
     candidates: bool = False,
     committees: bool = False,
+    grid: bool = False,
 ):
     """Orchestrate download of Maryland campaign finance data.
 
@@ -226,6 +354,10 @@ def run(
         expenditures            — expenditures only
         candidates / committees — treated as entities (single committee file)
 
+    grid=True: transactions come from the PublicGrid export by transaction-date
+    year (grid_*_{year}.csv, with TransactionIDs) instead of the bulk files —
+    see the module docstring. A failed grid window raises (exit 1).
+
     Note: committees are always re-downloaded regardless of manifest — they
     update continuously as new committees register throughout the cycle.
     Year flags do not apply to committees (single all-committee request).
@@ -235,7 +367,7 @@ def run(
     log._emit("scrape_started", force=force, entities=entities, transactions=transactions,
               start_year=start_year, end_year=end_year,
               contributions=contributions, expenditures=expenditures,
-              candidates=candidates, committees=committees)
+              candidates=candidates, committees=committees, grid=grid)
 
     # ── Resolve granular scope ────────────────────────────────────────
     no_horizontal = not (entities or transactions or contributions or
@@ -289,8 +421,12 @@ def run(
 
         # ── Transactions ──────────────────────────────────────────────
         if do_transactions:
+            # Grid downloads keep their own manifest rows (TCON_GRID / TEXP_GRID):
+            # their years are transaction-date years, not filing years.
+            suffix = "_GRID" if grid else ""
             if force:
-                strip_manifest(lambda r: r["transaction_type"] in active_tx_types)
+                strip_manifest(lambda r: r["transaction_type"] in
+                               {code + suffix for code in active_tx_types})
                 done = set()
             else:
                 done = load_manifest()
@@ -298,19 +434,23 @@ def run(
             year_range_explicit = start_year is not None or end_year is not None
             for transaction_type, label in active_tx_types.items():
                 for year in years:
-                    key = (transaction_type, year)
+                    key = (transaction_type + suffix, year)
                     if key in done and year != current_year_str and not year_range_explicit:
-                        log.file_download_skip(filename=f"{label}_{year}.csv")
+                        log.file_download_skip(
+                            filename=f"{'grid_' if grid else ''}{label}_{year}.csv")
                         continue
 
-                    result = download_transaction(log, transaction_type, year, session)
+                    if grid:
+                        result = download_grid_year(log, transaction_type, year, session)
+                    else:
+                        result = download_transaction(log, transaction_type, year, session)
                     if result is None:
                         files_err += 1
                         continue
 
                     filename, row_count = result
                     append_manifest({
-                        "transaction_type": transaction_type,
+                        "transaction_type": transaction_type + suffix,
                         "year":             year,
                         "filename":         filename,
                         "downloaded_at":    datetime.today().strftime("%Y-%m-%d"),
@@ -370,6 +510,9 @@ if __name__ == "__main__":
                     help="committees only (alias; MD has no separate candidate file)")
     ap.add_argument("--committees",    action="store_true",
                     help="committees only")
+    ap.add_argument("--grid",          action="store_true",
+                    help="transactions from the PublicGrid export (with transaction "
+                         "ids) by transaction-date year, instead of the bulk files")
 
     args, _ = ap.parse_known_args()
 
@@ -393,6 +536,7 @@ if __name__ == "__main__":
             expenditures=args.expenditures,
             candidates=args.candidates,
             committees=args.committees,
+            grid=args.grid,
         )
     except KeyboardInterrupt:
         sys.exit(130)

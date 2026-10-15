@@ -114,6 +114,16 @@ class MappingTest(unittest.TestCase):
                              ["individual"], unitemized=ar)
         self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # a named row is a person
 
+    def test_unitemized_form_type(self):
+        al = {"form_type": "NON-ITEMIZED"}
+        _, r = mapping.to_cf("contributions", {"amount": "20", "contributor_type": "Individual",
+                                               "transaction_type": "Non-Itemized"}, unitemized=al)
+        self.assertEqual(r["source_form_type"], "NON-ITEMIZED")
+        _, r = mapping.to_cf("contributions", {"amount": "20", "contributor_type": "Individual",
+                                               "transaction_type": "Non-Itemized In-Kind"},
+                             unitemized=al)
+        self.assertEqual(r["source_form_type"], "INKIND")
+
     def test_nonmoney_payee_parts_and_loan_balances(self):
         _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_name": "X",
                                                "transaction_type": "Itemized Nonmoney"})
@@ -248,6 +258,17 @@ class LoaderTest(unittest.TestCase):
         _, _, r = self.rows()[0]
         self.assertEqual((r["candidate_id"], r["committee_id"], r["source"], r["cycle"]),
                          ("uuid-weiser", "co:1", "slcf", "2026"))
+
+    def test_skip_types(self):
+        entry = dict(self.ENTRY, skip_types={"contributions": ["Interest"]})
+        write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
+            {"state_filer_id": "1", "date": "2026-02-01", "amount": "9", "txn_id": "1",
+             "transaction_type": "interest", "contributor_name": "CHAIN BRIDGE BANK"},
+            {"state_filer_id": "1", "date": "2026-02-01", "amount": "9", "txn_id": "2",
+             "transaction_type": "Individual", "contributor_name": "JANE DOE"}])
+        got = [r["source_txn_id"] for _, _, r in
+               load_cf.rows_for_state("co", entry, self.clean, self.REFS)]
+        self.assertEqual(got[0], "co:2")
 
     def test_missing_loader_columns_is_an_error(self):
         write_gz(self.clean / "contributions.csv.gz", ["state", "amount"], [{"amount": "1"}])

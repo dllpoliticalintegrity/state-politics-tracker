@@ -181,10 +181,12 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
     state — Colorado's is the payment form ("Monetary (Itemized)") and its
     spending type ("Fundraising Expenses") is in transaction_type.
 
-    unitemized (states.json): {"label": ..., "type": ...} — how the pilot
-    stored a state's nameless lump sums of small gifts: contributor_last_name
-    = the label, contributor_type = `type` (null in GA, ENTITY in AR), so the
-    individual / organisation split and the donor lists don't move."""
+    unitemized (states.json): how the pilot stored a state's lump sums of
+    small gifts. {"label": ..., "type": ...}: nameless ones get
+    contributor_last_name = the label and contributor_type = `type` (null in
+    GA, ENTITY in AR), so the individual / organisation split and the donor
+    lists don't move. {"form_type": ...}: unitemized rows that aren't in-kind
+    get that source_form_type (AL: "NON-ITEMIZED")."""
     amount = money(row.get(AMOUNT_FIELD[table]))
     if amount is None:
         return None
@@ -221,7 +223,10 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
             "city": text(row.get("contributor_city")),
             "state": text(row.get("contributor_state")),
             "zip": text(row.get("contributor_zip")),
-            "source_form_type": "INKIND" if is_inkind(row.get("transaction_type")) else None,
+            "source_form_type": (
+                "INKIND" if is_inkind(row.get("transaction_type"))
+                else (unitemized or {}).get("form_type")
+                if is_unitemized(row.get("transaction_type")) else None),
         }
 
     if table == "expenditures":

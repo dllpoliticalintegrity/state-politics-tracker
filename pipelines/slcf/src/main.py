@@ -105,7 +105,8 @@ SCRAPER_FLAGS     = {"--force", "--transactions", "--entities",
                      "--contributions", "--expenditures",
                      "--candidates", "--committees",
                      "--pacs", "--party-caucus", "--ballot-measure",
-                     "--no-fec-ie"}
+                     "--no-fec-ie",
+                     "--grid"}       # MD: PublicGrid export, which carries TransactionID
 YEAR_FLAGS        = {"--start-year", "--end-year"}
 
 

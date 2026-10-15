@@ -106,6 +106,9 @@ def rows_for_state(st, entry, clean_dir, refs):
     individual_types = entry.get("individual_types")
     category_field = entry.get("category_field", "category")
     unitemized = entry.get("unitemized")
+    # skip_types: per SLCF table, transaction types the pilot never imported
+    # (AL's Other Receipts extract: bank interest, vendor refunds).
+    skip_types = {t: {v.lower() for v in vs} for t, vs in entry.get("skip_types", {}).items()}
     seen = set()
     counts = defaultdict(int)
     for table in TABLES:
@@ -130,6 +133,9 @@ def rows_for_state(st, entry, clean_dir, refs):
                 continue
             if "FEC_NONFEDERAL_IE" in (row.get("transaction_type"), row.get("category")):
                 continue                     # FEC outside spending, not the committee's own
+            if (row.get("transaction_type") or "").strip().lower() in skip_types.get(table, ()):
+                counts["skip_type"] += 1
+                continue
             date = mapping.iso_date(row.get("date"))
             if not date or date < since:
                 counts["before_since"] += 1
