@@ -12,7 +12,9 @@ browse tab calls a JSON-parameterized CSV endpoint:
 `queryParams` is a URL-encoded JSON object mirroring the browse-page filter
 sidebar. The ones used here:
 
-    dateFrom / dateTo   ISO timestamps, inclusive on both ends
+    dateFrom / dateTo   ISO timestamps, compared as timestamps (UTC) and
+                        inclusive on both ends — so dateTo is the END of the
+                        window's last day, see _iso_end()
     amountFrom / amountTo   plain numbers (used only to break up huge days)
 
 Row cap
@@ -232,6 +234,18 @@ def _iso(d: date) -> str:
     return d.strftime("%Y-%m-%dT00:00:00.000Z")
 
 
+def _iso_end(d: date) -> str:
+    """Date → the last millisecond of that day, for dateTo.
+
+    The server compares dateTo as a timestamp, and most transactions carry a
+    time of day: dateTo = midnight returned only the rows stamped exactly
+    00:00Z on the window's last day (581 of 3,074 on 2026-09-15, checked
+    2026-10-15), so every window silently lost most of its last day.
+    23:59:59.999Z returns the whole day and nothing of the next, so windows
+    stay disjoint."""
+    return d.strftime("%Y-%m-%dT23:59:59.999Z")
+
+
 def _fetch_csv(session: requests.Session, url: str) -> str:
     """
     GET a data-download URL and return the CSV body.
@@ -251,6 +265,11 @@ def _fetch_csv(session: requests.Session, url: str) -> str:
                 )
                 continue
             resp.raise_for_status()
+            # Sunshine sends UTF-8 under a bare "text/csv" (no charset), which
+            # requests decodes as ISO-8859-1; written back out as UTF-8 that
+            # double-encoded every non-ASCII character (’ → â\x80\x99,
+            # ó → Ã³). Decode as what the server actually sends.
+            resp.encoding = "utf-8"
             body = resp.text
             ctype = resp.headers.get("Content-Type", "")
             if "csv" not in ctype.lower() and not body.lstrip().startswith("ID,"):
@@ -330,7 +349,7 @@ def _download_chunk(log, session: requests.Session, relation: str,
     `keep_capped` writes the chunk anyway, flagged truncated in the manifest —
     used when there is no split left to try.
     """
-    params: dict = {"dateFrom": _iso(w_from), "dateTo": _iso(w_to)}
+    params: dict = {"dateFrom": _iso(w_from), "dateTo": _iso_end(w_to)}
     if a_from is not None:
         params["amountFrom"] = a_from
     if a_to is not None:

@@ -109,6 +109,13 @@ def rows_for_state(st, entry, clean_dir, refs):
     # skip_types: per SLCF table, transaction types the pilot never imported
     # (AL's Other Receipts extract: bank interest, vendor refunds).
     skip_types = {t: {v.lower() for v in vs} for t, vs in entry.get("skip_types", {}).items()}
+    # loan_records: loans_debts record types the pilot imported as
+    # contributions or expenditures (mapping.loan_record_target).
+    loan_records = {k.strip().lower(): v for k, v in entry.get("loan_records", {}).items()}
+    bad = {v for v in loan_records.values() if v not in mapping.LOAN_RECORD_TABLES}
+    if bad:
+        raise SystemExit(f"{st}: loan_records maps to {sorted(bad)}; "
+                         f"use one of {mapping.LOAN_RECORD_TABLES}")
     seen = set()
     counts = defaultdict(int)
     for table in TABLES:
@@ -123,9 +130,14 @@ def rows_for_state(st, entry, clean_dir, refs):
         for row in reader:
             fid = (row.get("state_filer_id") or "").strip()
             hit = refs.get(f"{st}:{fid}") if fid else None
+            t = table
+            if hit and table == "loans_debts":
+                target = mapping.loan_record_target(row, loan_records)
+                if target:
+                    t, row = target, mapping.loan_record_as(target, row)
             # The id is assigned before any filtering below, so a row's hashed
             # id doesn't depend on which of its twins were filtered out.
-            txn = ids.make(table, row) if hit else None
+            txn = ids.make(t, row) if hit else None
             if not hit:
                 continue
             if is_flag_set(row.get("superseded")):
@@ -133,14 +145,15 @@ def rows_for_state(st, entry, clean_dir, refs):
                 continue
             if "FEC_NONFEDERAL_IE" in (row.get("transaction_type"), row.get("category")):
                 continue                     # FEC outside spending, not the committee's own
-            if (row.get("transaction_type") or "").strip().lower() in skip_types.get(table, ()):
+            if (row.get("transaction_type") or "").strip().lower() in skip_types.get(t, ()):
                 counts["skip_type"] += 1
                 continue
             date = mapping.iso_date(row.get("date"))
             if not date or date < since:
                 counts["before_since"] += 1
                 continue
-            out = mapping.to_cf(table, row, individual_types, category_field, unitemized)
+            out = mapping.to_cf(t, row, individual_types, category_field, unitemized,
+                                loan_record=t != table)
             if out is None:
                 counts["unmapped"] += 1
                 continue

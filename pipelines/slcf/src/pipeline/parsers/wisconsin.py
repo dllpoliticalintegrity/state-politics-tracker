@@ -465,6 +465,46 @@ def route(row: dict) -> str:
     return "contributions" if tx_type else ""
 
 
+def filer_entity_id(row: dict) -> str:
+    """
+    The filing registrant's Sunshine *entity* id, for state_filer_id on
+    transaction rows (columns.py, TRANSACTION_IDS).
+
+    Not the Registrant ID the committees table carries: the transaction feed
+    only names the filer by entity id (Tiffany for Wisconsin is entity 16621
+    and registrant 0104212 — see route()), Registrant ID is blank on some
+    party rows, and state-politics-tracker's cf_candidates.filer_refs
+    ("wi:16621") and its pilot importer key on the entity id. The filer sits
+    on the payee side of money in and the payer side of money out:
+
+        Contribution          Payee Entity ID   (the candidate's own receipts)
+        Disbursement          payer entity id
+        Conduit Contribution  payer entity id   (the conduit passing a gift on;
+                                                 the recipient reports the same
+                                                 money as a Contribution, so
+                                                 these never key to the
+                                                 recipient — as in the pilot)
+
+    Any other type falls back to whichever side carries the registrant's
+    name, as route() does; blank when neither does.
+    """
+    payee_id = clean(row.get("Payee Entity ID", ""))
+    payer_id = clean(row.get(
+        "Contributor Entity ID (-> Related Payer Entity ID if applicable)", ""))
+    tx_type = clean(row.get("Transaction Type", "")).lower()
+    if tx_type == "contribution":
+        return payee_id
+    if tx_type in ("disbursement", "conduit contribution"):
+        return payer_id
+    reg_name = utils.clean_name(row.get("Registrant Name", ""))
+    if reg_name and utils.clean_name(row.get("Payee Name", "")) == reg_name:
+        return payee_id
+    if reg_name and utils.clean_name(row.get(
+            "Contributor Name (-> Related Payer Name if applicable)", "")) == reg_name:
+        return payer_id
+    return ""
+
+
 def ie_purpose(row: dict) -> str:
     """
     Expenditure purpose, with independent-expenditure context appended.
@@ -480,7 +520,9 @@ def ie_purpose(row: dict) -> str:
     elif related:
         parts.append(f"[re: {related}]")
     comment = clean(row.get("Comment", ""))
-    if comment:
+    # Filers often type the purpose again as the comment, which read back as
+    # "Office Supplies Office Supplies"; the repeat adds nothing.
+    if comment and comment.casefold() != parts[0].casefold():
         parts.append(comment)
     return " ".join(p for p in parts if p)
 
@@ -698,6 +740,14 @@ def run():
                     report_id = first_report_id(row.get("Reports", ""))
                     amended   = reports.get(report_id, "")
                     office, district, jurisdiction = transaction_office_parts(row)
+                    # For the state-politics-tracker loader (columns.py,
+                    # TRANSACTION_IDS): the filer's entity id and Sunshine's
+                    # own transaction ID, which the pilot importer stored as
+                    # "wi:<ID>". superseded stays blank: the feed has no such
+                    # flag — a transaction an amendment removes is simply gone
+                    # from it (the loader's prune drops it from the site).
+                    filer_eid = filer_entity_id(row)
+                    txn_id    = clean(row.get("ID", ""))
 
                     # ── Registrant metadata harvested from the row ──────────
                     if reg_id:
@@ -751,6 +801,8 @@ def run():
                             "election_year":     elec_year,
                             "amended":           amended,
                             "filing_id":         report_id,
+                            "state_filer_id":    filer_eid,
+                            "txn_id":            txn_id,
                             "raw_file":          path.name,
                             "row_num":           row_num,
                         })
@@ -778,6 +830,8 @@ def run():
                             "election_year":    elec_year,
                             "amended":          amended,
                             "filing_id":        report_id,
+                            "state_filer_id":   filer_eid,
+                            "txn_id":           txn_id,
                             "raw_file":         path.name,
                             "row_num":          row_num,
                         })
@@ -812,6 +866,8 @@ def run():
                             "election_year":      elec_year,
                             "amended":            amended,
                             "filing_id":          report_id,
+                            "state_filer_id":     filer_eid,
+                            "txn_id":             txn_id,
                             "raw_file":           path.name,
                             "row_num":            row_num,
                         })

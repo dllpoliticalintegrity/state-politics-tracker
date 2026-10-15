@@ -135,6 +135,40 @@ def is_lent_money(record_type):
     return not _NOT_A_LOAN.search((record_type or "").strip())
 
 
+LOAN_RECORD_TABLES = ("contributions", "expenditures")
+
+
+def loan_record_target(row, loan_records):
+    """The SLCF table a loans_debts row is mapped as instead, or None.
+
+    loan_records (states.json): {record type, lower-cased: "contributions" |
+    "expenditures"} — the records a state's pilot imported as receipts or
+    spending rather than loans (Wisconsin: a forgiven loan becomes the
+    candidate's contribution, a loan repayment is a disbursement)."""
+    if not loan_records:
+        return None
+    return loan_records.get((row.get("record_type") or "").strip().lower())
+
+
+def loan_record_as(target, row):
+    """A loans_debts row re-shaped as a `target` row for to_cf: the
+    counterparty becomes the contributor or payee, the record type the
+    transaction type (and an expenditure's category). The committee, txn_id
+    and flags carry over, so the row keeps its source id under the target
+    table's id_format — the id the pilot stored it under."""
+    out = {k: row.get(k) for k in ("state", "committee_name", "date", "state_filer_id",
+                                   "txn_id", "superseded", "amended", "filing_id")}
+    side = "contributor" if target == "contributions" else "payee"
+    out.update({"amount": row.get("original_amount"),
+                "transaction_type": row.get("record_type"),
+                f"{side}_name": row.get("counterparty_name")})
+    for f in ("city", "state", "zip"):
+        out[f"{side}_{f}"] = row.get(f"counterparty_{f}")
+    if target == "expenditures":
+        out["category"] = row.get("record_type")
+    return out
+
+
 class TxnIds:
     """source_txn_id for each row of one state's run.
 
@@ -172,7 +206,8 @@ class TxnIds:
         return self.source(table, sid) if sid else self.hashed(table, row)
 
 
-def to_cf(table, row, individual_types=None, category_field="category", unitemized=None):
+def to_cf(table, row, individual_types=None, category_field="category", unitemized=None,
+          loan_record=False):
     """(cf_table, row) for one SLCF row, or None when it carries nothing the
     site shows. Ids, candidate and cycle are added by the caller.
 
@@ -186,7 +221,13 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
     contributor_last_name = the label and contributor_type = `type` (null in
     GA, ENTITY in AR), so the individual / organisation split and the donor
     lists don't move. {"form_type": ...}: unitemized rows that aren't in-kind
-    get that source_form_type (AL: "NON-ITEMIZED")."""
+    get that source_form_type (AL: "NON-ITEMIZED").
+
+    loan_record: the row is a loans_debts record re-shaped by loan_record_as
+    (states.json loan_records). Its record type stays its transaction type,
+    so it is never sent back to cf_loans (a "Loan Forgiven" would otherwise
+    match the loan rule), and with no contributor type in loans_debts the
+    type comes from the name, as a lender's does."""
     amount = money(row.get(AMOUNT_FIELD[table]))
     if amount is None:
         return None
@@ -194,7 +235,8 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
 
     if table == "contributions":
         name = text(row.get("contributor_name"))
-        ctype = contributor_type(row.get("contributor_type"), name, individual_types)
+        ctype = contributor_type(row.get("contributor_type"), name,
+                                 None if loan_record else individual_types)
         if text(row.get("contributor_last")) or text(row.get("contributor_first")):
             last, first = text(row.get("contributor_last")), text(row.get("contributor_first"))
         else:
@@ -203,7 +245,7 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
         if label and name in (None, label) and not text(row.get("contributor_first")) \
                 and (name == label or is_unitemized(row.get("transaction_type"))):
             ctype, last, first = unitemized.get("type"), label, None
-        if is_loan_receipt(row.get("transaction_type")):
+        if not loan_record and is_loan_receipt(row.get("transaction_type")):
             if not is_lent_money(row.get("transaction_type")):
                 return None      # a payment, forgiveness or carried-forward balance
             # The pilot's rule: a loan reported on the receipts schedule is a
