@@ -485,7 +485,12 @@ def run():
 
                         contributor      = utils.clean_name(llc_name)
                         contributor_type = "Business"
+                        contributor_first, contributor_last = "", contributor
                     else:
+                        # Source name parts, kept apart for the loader (the
+                        # site stores last and first name separately).
+                        contributor_first = utils.clean_name(row.get("FirstName", ""))
+                        contributor_last  = utils.clean_name(row.get("LastName", ""))
                         # Normal row — build name from individual fields
                         contributor = " ".join(filter(None, [
                             clean(row.get("FirstName", "")),
@@ -516,6 +521,8 @@ def run():
                         "employer":          clean(row.get("Employer", "")),
                         "occupation":        (clean(row.get("Occupation", ""))
                                               or clean(row.get("OccupationComments", ""))),
+                        "contributor_first": contributor_first,
+                        "contributor_last":  contributor_last,
                         "candidate_name":    utils.clean_name(row.get("CandidateName", "")),
                         "office":            "",
                         "election_year":     elec_year,

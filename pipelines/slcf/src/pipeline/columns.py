@@ -38,8 +38,14 @@ GA/MI/PA, a report id in IL/VA/OH, a check number in NJ) so it is not a key.
                   `amended`, whose meaning varies by state (Colorado's is the
                   Amendment flag: "this row IS an amendment", which must be
                   kept).
+  contributor_first / contributor_last (contributions only)
+                  the source's separate first and last name, when it keeps
+                  them apart. contributor_name joins first, middle, last and
+                  suffix, which can't be split back reliably ("VAN NORTWICK",
+                  middle initials), and the site stores last and first names
+                  separately.
 Parsers fill them as each state moves onto the loader; elsewhere they are
-blank. All three are dropped from the *_AGG lists, so state-level-cf.db is
+blank. All of them are dropped from the *_AGG lists, so state-level-cf.db is
 unchanged.
 """
 
@@ -124,6 +130,8 @@ CONTRIBUTIONS = [
     "contributor_zip",
     "employer",
     "occupation",
+    "contributor_first",  # the source's own name parts, when it keeps them apart
+    "contributor_last",   # (loader-only -- see TRANSACTION_IDS)
     "candidate_name",
     "office",
     "election_year",
@@ -284,7 +292,8 @@ COMMITTEES_AGG    = [c for c in COMMITTEES if c not in ("state_filer_id", "activ
 # contributor_type is kept but aggregate.py replaces raw values with canonical ones.
 # The loader-only identifiers (see TRANSACTION_IDS in the module docstring)
 # stay out of the master db, like state_filer_id on the entity tables.
-_LOADER_IDS = ("state_filer_id", "txn_id", "superseded")
+_LOADER_IDS = ("state_filer_id", "txn_id", "superseded",
+               "contributor_first", "contributor_last")
 
 _contrib = [c for c in CONTRIBUTIONS if c not in _LOADER_IDS]
 _contrib.insert(_contrib.index("transaction_type") + 1, "transaction_category")

@@ -85,11 +85,27 @@ class MappingTest(unittest.TestCase):
         self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "P"}))
         self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "Debt"}))
         t, r = mapping.to_cf("loans_debts", {"original_amount": "10", "record_type": "O",
-                                             "counterparty_name": "FIRSTBANK"})
-        self.assertEqual((t, r["amount"]), ("cf_loans", 10.0))
+                                             "counterparty_name": "BARB KIRKMEYER"})
+        self.assertEqual((t, r["amount"], r["lender_last_name"], r["lender_first_name"]),
+                         ("cf_loans", 10.0, "BARB KIRKMEYER", None))
         t, r = mapping.to_cf("expenditures", {"amount": "9", "transaction_type": "Monetary",
                                               "purpose": "Mail", "payee_name": "HSP DIRECT"})
         self.assertEqual((r["category"], r["description"]), ("Monetary", "Mail"))
+        co_exp = {"amount": "9", "category": "Monetary (Itemized)",
+                  "transaction_type": "Fundraising Expenses"}
+        _, r = mapping.to_cf("expenditures", co_exp, category_field="transaction_type")
+        self.assertEqual(r["category"], "Fundraising Expenses")
+
+    def test_source_name_parts_and_pilot_type_rule(self):
+        row = {"amount": "5", "contributor_name": "JOHN A VAN NORTWICK JR",
+               "contributor_first": "JOHN", "contributor_last": "VAN NORTWICK",
+               "contributor_type": "Individual"}
+        _, r = mapping.to_cf("contributions", row, ["individual"])
+        self.assertEqual((r["contributor_last_name"], r["contributor_first_name"],
+                          r["contributor_type"]), ("VAN NORTWICK", "JOHN", "INDIVIDUAL"))
+        _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_type": ""},
+                             ["individual"])
+        self.assertEqual(r["contributor_type"], "ENTITY")   # the pilot's rule: blank = ENTITY
         self.assertIsNone(mapping.to_cf("expenditures", {"amount": ""}))
 
 

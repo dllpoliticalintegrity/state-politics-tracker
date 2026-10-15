@@ -78,10 +78,17 @@ def is_entity_name(name):
     return bool(name and _ENTITY_NAME.search(name))
 
 
-def contributor_type(raw, name):
+def contributor_type(raw, name, individual_types=None):
     """INDIVIDUAL / ENTITY from SLCF's per-state contributor_type, falling back
-    to the name heuristic when the state gives none."""
+    to the name heuristic when the state gives none.
+
+    individual_types (states.json): the exact raw values, lower-cased, that
+    mean a person; every other value, blank included, is ENTITY. Set it to the
+    pilot importer's own rule for a state being cut over, so the site's
+    individual / organisation split doesn't move."""
     raw = (raw or "").strip()
+    if individual_types is not None:
+        return "INDIVIDUAL" if raw.lower() in individual_types else "ENTITY"
     if raw:
         return "INDIVIDUAL" if _INDIVIDUAL_TYPE.match(raw) else "ENTITY"
     if not name:
@@ -159,9 +166,14 @@ class TxnIds:
         return self.source(table, sid) if sid else self.hashed(table, row)
 
 
-def to_cf(table, row):
+def to_cf(table, row, individual_types=None, category_field="category"):
     """(cf_table, row) for one SLCF row, or None when it carries nothing the
-    site shows. Ids, candidate and cycle are added by the caller."""
+    site shows. Ids, candidate and cycle are added by the caller.
+
+    category_field (states.json): which SLCF column holds the spending
+    category the site groups expenditures by. SLCF's `category` varies by
+    state — Colorado's is the payment form ("Monetary (Itemized)") and its
+    spending type ("Fundraising Expenses") is in transaction_type."""
     amount = money(row.get(AMOUNT_FIELD[table]))
     if amount is None:
         return None
@@ -169,8 +181,11 @@ def to_cf(table, row):
 
     if table == "contributions":
         name = text(row.get("contributor_name"))
-        ctype = contributor_type(row.get("contributor_type"), name)
-        last, first = split_name(name, ctype != "ENTITY")
+        ctype = contributor_type(row.get("contributor_type"), name, individual_types)
+        if text(row.get("contributor_last")) or text(row.get("contributor_first")):
+            last, first = text(row.get("contributor_last")), text(row.get("contributor_first"))
+        else:
+            last, first = split_name(name, ctype != "ENTITY")
         if is_loan_receipt(row.get("transaction_type")):
             # The pilot's rule: a loan reported on the receipts schedule is a
             # loan, not a contribution.
@@ -200,17 +215,19 @@ def to_cf(table, row):
             "payee_zip": text(row.get("payee_zip")),
             "amount": amount,
             "expenditure_date": date,
-            "category": text(row.get("category")) or text(row.get("transaction_type")),
+            "category": (text(row.get(category_field)) or text(row.get("category"))
+                         or text(row.get("transaction_type"))),
             "description": text(row.get("purpose")),
         }
 
     if not is_lent_money(row.get("record_type")):
         return None
+    # The whole lender name goes in lender_last_name, as the pilot importer
+    # stores it (loans_debts has no separate name parts to split on).
     name = text(row.get("counterparty_name"))
     individual = bool(name) and not is_entity_name(name)
-    last, first = split_name(name, individual)
     return "cf_loans", {
         "lender_type": None if not name else ("INDIVIDUAL" if individual else "ENTITY"),
-        "lender_last_name": last, "lender_first_name": first,
+        "lender_last_name": name, "lender_first_name": None,
         "amount": amount, "loan_date": date,
     }

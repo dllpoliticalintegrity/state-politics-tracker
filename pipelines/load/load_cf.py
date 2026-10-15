@@ -103,6 +103,8 @@ def rows_for_state(st, entry, clean_dir, refs):
     since = since_of(entry)
     cycle = entry.get("cycle", "2026")
     ids = mapping.TxnIds(st, entry.get("id_format"))
+    individual_types = entry.get("individual_types")
+    category_field = entry.get("category_field", "category")
     seen = set()
     counts = defaultdict(int)
     for table in TABLES:
@@ -131,7 +133,7 @@ def rows_for_state(st, entry, clean_dir, refs):
             if not date or date < since:
                 counts["before_since"] += 1
                 continue
-            out = mapping.to_cf(table, row)
+            out = mapping.to_cf(table, row, individual_types, category_field)
             if out is None:
                 counts["unmapped"] += 1
                 continue
