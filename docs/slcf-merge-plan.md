@@ -21,6 +21,43 @@ Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec
 
 ---
 
+## Status (2026-10-15)
+
+Built on branch `claude/slcf-pipelines`. Nothing in production changed.
+
+- **Phase 1 done.** SLCF is in `pipelines/slcf/` with all 150 commits of its
+  history. `pipelines/requirements.txt` holds one Python 3.12 environment.
+  SLCF's tests pass from the new path, and the site's build and tests are
+  unchanged.
+- **Phase 2, for Colorado and Ohio.** `columns.py` gained `state_filer_id`,
+  `txn_id` and `superseded` on the transaction tables; none of them enters
+  SLCF's master database.
+- **Phase 3 built:**
+  - `states.json`;
+  - `load/load_cf.py`, with `--dry-run` reconciliation and a guarded `--prune`;
+  - `run_state.py` and `plan_matrix.py`;
+  - `finance-sync.yml`, now with a pilot job, an SLCF matrix and a `dry_run`
+    input. The schedule still runs exactly today's 20 pilot states.
+  - `pipelines-ci.yml`, plus 17 offline tests.
+- **Colorado reconciles end to end against the live rows.** This was a real
+  SLCF run plus a dry run against production, read-only:
+  - every SLCF row's id is already live, so the old importer's
+    `co:<RecordID>` ids are reproduced exactly;
+  - every dollar of difference is a live row SLCF no longer has.
+
+  Those stale rows are a production bug today. The old importer upserts with
+  `ignore-duplicates` and never deletes, so a Colorado record that an amendment
+  later replaced stays live next to its replacement. For example, Victor Marx's
+  spending shows $4,410,822 where the source's current total is $3,975,238
+  ($435,584 of superseded rows), and his contributions are $93,023 high. A
+  Colorado cutover with `prune` fixes this.
+- **Ohio can't be fetched from the Claude sandbox.** ohiosos.gov's Cloudflare
+  answers 403 to its IP, and the sandbox's TLS-inspecting proxy defeats SLCF's
+  browser impersonation. Its first run has to be a `dry_run` dispatch from
+  Actions. `oh` is in the manifest as `slcf` with `nightly: false` until then.
+- **SLCF's CLI exits 0 even when a state fails.** `run_state.py` judges success
+  by the rows SLCF wrote instead.
+
 ## 1. Where we end up
 
 - **One repo** (`dllpoliticalintegrity/state-politics-tracker`) holds:
@@ -258,30 +295,38 @@ not across all 42 parsers up front.
    - AK, matched by last name plus office;
    - KS;
    - FL, where the pilot keys on the candidate.
-2. **Add a `txn_id` column: one stable, namespaced id per row.**
-   - Use the source's own transaction id when the state publishes one.
-   - Otherwise, use a deterministic hash of the row's identifying fields, plus
-     an occurrence index within identical rows. This is the pilot's
-     `Sink.txn_id` rule.
-   - **Never hash `raw_file`, `row_num` or a report id.** Amended re-filings
-     must hash to the same id; Kansas taught us this.
-   - For the batch-1 states in §8, **emit exactly the pilot's format** (e.g.
-     `mi:<contribution_id>-<cont_detail_id>`, `il:r<ID>`, `md:con:<TransactionID>`).
-     Upserts then land on the existing rows: same uuids, no delete.
-   - `filing_id` keeps its current mixed meaning. Document it in
-     `columns.py`, and never use it as a key.
-3. **Amendments.** Pin down per state that superseded rows are dropped by the
-   parser. The pilot's rules are the reference:
+2. **Add a `txn_id` column** (built): the source's own transaction id,
+   verbatim, or blank where the state publishes none. **The loader** turns it
+   into `source_txn_id`:
+   - **Source ids:** `id_format` in `states.json` (default `{st}:{id}`)
+     formats them, so a batch-1 state reproduces the pilot's exact ids (e.g.
+     `il:r<ID>`, `md:con:<TransactionID>`). Upserts then land on the existing
+     rows, keeping their uuids, with no delete.
+   - **No source id:** `mapping.TxnIds` builds `{st}:h:` + an md5 of the row's
+     identifying fields, plus `-n` for identical twins in the run. It never
+     hashes `raw_file`, `row_num` or a report id, because amended re-filings
+     must keep their id.
+   - `filing_id` keeps its mixed meaning and is never used as a key.
+3. **Add a `superseded` column** (built): "1" when the source marks a row as
+   replaced by a later amendment. The loader always skips such rows.
+   - This is not SLCF's `amended`, whose meaning varies by state. Colorado's
+     `amended` is TRACER's `Amendment` flag ("this row IS an amendment"), which
+     must be kept.
+   - TRACER records an amendment as three rows: the original (`Amended` = Y),
+     a negative reversal (`Amended` = Y) and the replacement (`Amended` = N).
+     Dropping the `Amended` = Y rows leaves the current version, which is the
+     pilot's rule.
+
+   Other states' rules to carry over:
    - PA keeps the max `CampaignFinanceID` per (filer, year, cycle);
-   - CO skips amended rows and dedupes `RecordID`s across overlapping year
-     files;
    - KS hashes without the report id.
-4. **Validation.** Extend `validate.py` with hard failures that stop the run
-   before anything is loaded:
-   - `state_filer_id` is blank on transaction rows;
-   - `txn_id` repeats within a run;
-   - the row count drops more than X% against the last run's
-     `metadata/<state>_latest.json`.
+4. **Validation.** SLCF's `validate.py` checks the tables as a whole. On a
+   `--transactions` run it reports the committee and candidate tables empty,
+   and its CLI exits 0 regardless. So `run_state.py` requires the cleaned
+   contributions to exist and hold rows, and `load_cf.py` refuses a file
+   without the loader columns. Still to add: hard failures for a blank
+   `state_filer_id` and for a row-count drop against
+   `metadata/<state>_latest.json`.
 5. **Tests.** Add `txn_id` stability tests: parse the same raw file twice, or
    in shuffled row order, and the ids must be identical. Add fixtures for any
    parser rule the reconciliation finds.
@@ -370,140 +415,60 @@ The single source of truth for which pipeline feeds each state:
 6. **No matview refresh in the loader.** The workflow refreshes once, at the
    end of the run.
 
-### 7.3 `pipelines/run_state.py XX`
+### 7.3 `pipelines/run_state.py XX [--dry-run]` (built)
 
-Branches on the manifest entry:
+What each SLCF matrix job runs:
+1. Install Playwright's Chromium if the manifest says the state needs it.
+2. Run `pipelines/slcf/src/main.py --daemon --no-report sync <ST> --start-year
+   <since year> --no-aggregate --no-fec-ie --transactions`.
+   - `--no-fec-ie`: SLCF pulls FEC independent expenditures by default, with
+     `DEMO_KEY` when no `FEC_API_KEY` is set, and the loader has no use for
+     them until Phase 6.
+   - `--transactions`: the loader never reads the committee and candidate
+     sweeps, and several are slow (CO's SeqID probe, IN's CommitteeDetail
+     pages).
+3. Require that SLCF wrote contributions.
+4. Run `load_cf.py`.
 
-- **`slcf`:**
-  1. Run `python3 pipelines/slcf/src/main.py --daemon sync <ST> --start-year <since year> --no-aggregate --no-fec-ie`.
-     SLCF's sync pulls FEC independent expenditures by default, using
-     `DEMO_KEY` when no `FEC_API_KEY` is set. The loader has no use for them
-     until Phase 6, so skip them until then.
-  2. Run `load_cf.py --state XX`.
-- **`pilot`:** run
-  `python3 scripts/data-import/pilot/import_pilot_finance.py --states XX --no-refresh`.
-  The `--no-refresh` flag is new; the pilot refreshes matviews itself today.
-  Michigan is permanently `pilot`, so its roster and ballot syncs keep running
-  first, inside the pilot, exactly as now. The other pilot states stay
-  `pilot` until their cutover.
-- **`tec` / `none`:** nothing. Texas has its own workflow.
-- **`soft_fail` set:** a failure prints `::warning::` and exits 0, as the pilot
-  does today.
+A `soft_fail` state reports a failure as a warning.
 
-Check per state whether the parser needs SLCF's entity files (committees and
-candidates). Where it does and the sweep is slow, refresh entities weekly from
-a cache instead of every night. Examples of slow sweeps: CO's SeqID probe, IN's
-CommitteeDetail pages, MI's roughly 10,700 committees.
+The pilot states are not split across the matrix. They run in one `pilot` job,
+exactly as tonight: `import_pilot_finance.py --states <codes> --no-refresh`.
+The new `--no-refresh` flag is opt-in; run by hand, the pilot still refreshes.
+Michigan is permanently `pilot`, so its roster and ballot syncs keep running
+first, inside the pilot. Texas never enters this workflow.
 
-### 7.4 `finance-sync.yml`, rewritten
+### 7.4 `finance-sync.yml` (built)
 
-The filename, the 07:20 UTC schedule, the `states` input, the concurrency
-group and the "skip if the secret is missing" guard all stay the same.
+See `.github/workflows/finance-sync.yml`. It keeps the filename, the 07:20 UTC
+schedule, the `states` input and the concurrency group. Its jobs:
 
-```yaml
-name: Finance sync
-on:
-  schedule:
-    - cron: "20 7 * * *"
-  workflow_dispatch:
-    inputs:
-      states:
-        description: "Space-separated state codes (blank = all)"
-        required: false
-        default: ""
-concurrency:
-  group: finance-sync
-  cancel-in-progress: false
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      states: ${{ steps.pick.outputs.states }}
-    steps:
-      - uses: actions/checkout@v4
-      # Prints states=["ga","mi",…]: the input's codes, or every nightly-enabled
-      # manifest entry when blank. Unknown codes fail here, not mid-run.
-      # The input goes through env, not ${{ }} inside the script, so it can't inject shell.
-      - id: pick
-        env:
-          STATES: ${{ inputs.states }}
-        run: python3 pipelines/plan_matrix.py $STATES >> "$GITHUB_OUTPUT"
+| Job | What it does |
+|---|---|
+| `plan` | `plan_matrix.py` splits the selection. Unknown codes, Texas and `none` states fail here. |
+| `pilot` | One job, if any pilot states are selected. |
+| `slcf` | A matrix, `fail-fast: false`, 6 at a time. Uploads SLCF's logs, its validation JSON and any reconciliation CSV as `finance-<state>`. |
+| `refresh` | `refresh_cf_finance_views()` once, tolerating the gateway's 502/504. |
 
-  sync:
-    needs: plan
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false          # one state's outage must not cancel the rest
-      max-parallel: 6
-      matrix:
-        state: ${{ fromJSON(needs.plan.outputs.states) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pipelines/requirements.txt
-      - run: pip install -r pipelines/requirements.txt
-      - name: Run ${{ matrix.state }}
-        env:
-          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}   # SLCF's fec_ie.py; falls back to DEMO_KEY
-        run: |
-          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping."; exit 0
-          fi
-          # Installs Playwright's Chromium itself when the manifest says the state needs it.
-          python3 pipelines/run_state.py ${{ matrix.state }}
-      - uses: actions/upload-artifact@v4       # SLCF's per-run log.jsonl + report.html + validation JSON
-        if: always()
-        with:
-          name: logs-${{ matrix.state }}
-          path: pipelines/slcf/logs/
-          if-no-files-found: ignore
-          retention-days: 14
-
-  refresh:
-    needs: sync
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      # Same call and the same 502/504 tolerance as the pilot's main(): the refresh
-      # runs ~3 min server-side after the gateway gives up at ~2 min. The pg_cron
-      # job cf-finance-refresh-nightly (09:15 UTC) stays as the backstop.
-      - run: |
-          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-            "https://lohxdfrxnxuxjdvvyfjc.supabase.co/rest/v1/rpc/refresh_cf_finance_views" \
-            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
-            -H "Content-Type: application/json" -d '{}')
-          case "$CODE" in 2*|502|504) echo "refresh: HTTP $CODE";; *) exit 1;; esac
-        env:
-          KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-```
+**`dry_run` input.** Every named state runs through SLCF + `load_cf.py
+--dry-run`, pilot state or not, and nothing is written. This is how a state is
+reconciled in Actions before its cutover. Michigan refuses a dry run.
 
 Notes:
 
 - **The console keeps working unchanged.** Its Sync tab still sends
-  `{ states: "oh" }` and lists runs by filename. A run's status covers all its
-  states, as it does now.
-- **No raw-file cache in the first version.** Each night re-downloads the
-  cycle's files, which is what the pilot already does. Add a per-state cache
-  (an R2 bucket on the existing Cloudflare account, or `actions/cache`) only
-  for states whose nightly download passes about 30 minutes.
-- **`slcf-backfill.yml`** is a manual run (`state`, `start_year`, `force`) for
-  full-history or `--force` re-pulls. It never runs on a schedule. To make it
-  dispatchable from the console, add it to data-diamine's `WORKFLOW_REPO` map
-  in `github-actions-proxy` (and to `SyncTab.tsx` if it should appear there).
-  data-diamine's CLAUDE.md requires that for any new workflow.
-- **`pipelines-ci.yml`** runs on PRs that touch `pipelines/**`, offline only:
-  - `python3 pipelines/slcf/tests/run_all.py`;
-  - `python3 -m unittest discover -s pipelines/load/tests`;
-  - a loader `--dry-run` against fixture CSVs.
-
-  It never hits state sites or Supabase. This repo has no CI today, so this is
-  new; it keeps a parser edit from silently breaking the loader.
+  `{ states: "<code>" }` and lists runs by filename.
+- **No raw-file cache in the first version.** Each run re-downloads the
+  cycle's files, as the pilot does. Add a per-state cache only for states
+  whose download passes about 30 minutes.
+- **`slcf-backfill.yml`** (not built): a manual full-history or `--force`
+  re-pull. If it should be dispatchable from the console, add it to
+  data-diamine's `WORKFLOW_REPO` map.
+- **`pipelines-ci.yml`** (built) runs on PRs that touch the pipelines, offline:
+  - SLCF's tests;
+  - `python3 -m unittest discover -s pipelines/tests`;
+  - a compile of every scraper and parser;
+  - tonight's planned matrix.
 
 ### 7.5 First state live: Ohio
 
@@ -514,14 +479,19 @@ Ohio is the proof run:
   end-to-end for the Candidate Committee group").
 
 Steps:
-1. Do the Phase 2 work for `ohio.py`.
-2. Fill Ohio's `filer_refs`.
-3. Dry-run, and spot-check totals against Ohio's own search site.
+1. ~~Do the Phase 2 work for `ohio.py`.~~ Done: `state_filer_id` = MASTER_KEY.
+   Ohio publishes no transaction id, so its rows get hashed ids.
+2. ~~Fill Ohio's `filer_refs`.~~ Five of its six candidates already have them;
+   `don-kissick` has none.
+3. Dispatch Finance sync with `states: oh`, `dry_run: true`. Spot-check
+   `finance-oh`'s totals against Ohio's own search site, and check whether
+   amended reports repeat rows. The Ohio parser's docstring says amendments
+   weren't verified.
 4. Flip `oh` to `nightly: true`.
 5. Watch three nightlies.
 
 **Exit:** Ohio's money pages are populated nightly by SLCF + the loader, and
-the other 20 states are still on the pilot, via `run_state.py`.
+the other 20 states are still on the pilot.
 
 *Rough size: 3–5 days.*
 
@@ -639,10 +609,15 @@ Two weeks after the last cutover, with no rollbacks:
    `cf_ie_contributions`. The pilot loads none of these today, so this is new
    coverage. SLCF's link is by name, not id, so it needs a review step. Add an
    `FEC_API_KEY` repo secret; `DEMO_KEY` is heavily rate-limited.
-4. **Rows that disappear upstream.** Once runs are stable, the loader can
-   delete rows in the state's date window that no longer appear in the source,
-   for example amended away. Guard it: only after a complete, validated run,
-   and only if the row count is at least 95% of the last run.
+4. **Rows that disappear upstream** (built early, because Colorado needs it):
+   - `load_cf.py --prune`, or `"prune": true` in the manifest, deletes live
+     rows inside the date window whose id SLCF no longer has, for example rows
+     amended away.
+   - It runs only after a complete load, and refuses if the load holds fewer
+     than 90% of the live rows in the window.
+   - Its deletes filter on `source = 'slcf'` and the candidate.
+   - It is off by default; turn it on per state at cutover, after the dry run
+     shows its `stale` rows are real.
 5. **"Last synced" per state.** This is an open question in `docs/plan.md`.
    Write each state's last successful load into a small `cf_sync_status` table,
    and show the stamp on the money pages.
