@@ -36,11 +36,13 @@ HASH_FIELDS = {
 }
 
 _INDIVIDUAL_TYPE = re.compile(r"^(individual|self|candidate|family|spouse|person)", re.I)
-_INKIND = re.compile(r"in[\s-]?kind|non[\s-]?monetary", re.I)
+_INKIND = re.compile(r"in[\s-]?kind|non[\s-]?mone(?:tary|y)", re.I)   # AR: "Nonmoney"
 _LOAN = re.compile(r"\bloans?\b", re.I)
 # loans_debts record types that are not money lent to the committee: payments
 # on a loan, forgiveness, and debts (unpaid bills) owed by the committee.
-_NOT_A_LOAN = re.compile(r"^p$|pay|forgiv|debt|owed|obligation", re.I)
+# "Outstanding Loan" (ID) is a balance carried forward, not money lent again.
+_NOT_A_LOAN = re.compile(r"^p$|pay|forgiv|debt|owed|obligation|outstanding", re.I)
+_UNITEMIZED = re.compile(r"\bun-?itemi[sz]ed\b|\bnon-?itemi[sz]ed\b", re.I)
 _DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 _SUFFIXES = {"JR", "JR.", "SR", "SR.", "II", "III", "IV", "V"}
 # The pilot importer's organisation-name heuristic, for rows whose source
@@ -125,6 +127,10 @@ def is_loan_receipt(transaction_type):
     return bool(_LOAN.search(transaction_type or ""))
 
 
+def is_unitemized(transaction_type):
+    return bool(_UNITEMIZED.search(transaction_type or ""))
+
+
 def is_lent_money(record_type):
     return not _NOT_A_LOAN.search((record_type or "").strip())
 
@@ -166,14 +172,19 @@ class TxnIds:
         return self.source(table, sid) if sid else self.hashed(table, row)
 
 
-def to_cf(table, row, individual_types=None, category_field="category"):
+def to_cf(table, row, individual_types=None, category_field="category", unitemized=None):
     """(cf_table, row) for one SLCF row, or None when it carries nothing the
     site shows. Ids, candidate and cycle are added by the caller.
 
     category_field (states.json): which SLCF column holds the spending
     category the site groups expenditures by. SLCF's `category` varies by
     state — Colorado's is the payment form ("Monetary (Itemized)") and its
-    spending type ("Fundraising Expenses") is in transaction_type."""
+    spending type ("Fundraising Expenses") is in transaction_type.
+
+    unitemized (states.json): {"label": ..., "type": ...} — how the pilot
+    stored a state's nameless lump sums of small gifts: contributor_last_name
+    = the label, contributor_type = `type` (null in GA, ENTITY in AR), so the
+    individual / organisation split and the donor lists don't move."""
     amount = money(row.get(AMOUNT_FIELD[table]))
     if amount is None:
         return None
@@ -186,7 +197,13 @@ def to_cf(table, row, individual_types=None, category_field="category"):
             last, first = text(row.get("contributor_last")), text(row.get("contributor_first"))
         else:
             last, first = split_name(name, ctype != "ENTITY")
+        label = (unitemized or {}).get("label")
+        if label and name in (None, label) and not text(row.get("contributor_first")) \
+                and (name == label or is_unitemized(row.get("transaction_type"))):
+            ctype, last, first = unitemized.get("type"), label, None
         if is_loan_receipt(row.get("transaction_type")):
+            if not is_lent_money(row.get("transaction_type")):
+                return None      # a payment, forgiveness or carried-forward balance
             # The pilot's rule: a loan reported on the receipts schedule is a
             # loan, not a contribution.
             return "cf_loans", {
@@ -208,8 +225,13 @@ def to_cf(table, row, individual_types=None, category_field="category"):
         }
 
     if table == "expenditures":
+        if text(row.get("payee_last")) or text(row.get("payee_first")):
+            p_last, p_first = text(row.get("payee_last")), text(row.get("payee_first"))
+        else:
+            p_last, p_first = text(row.get("payee_name")), None
         return "cf_expenditures", {
-            "payee_last_name": text(row.get("payee_name")),
+            "payee_last_name": p_last,
+            "payee_first_name": p_first,
             "payee_city": text(row.get("payee_city")),
             "payee_state": text(row.get("payee_state")),
             "payee_zip": text(row.get("payee_zip")),

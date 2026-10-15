@@ -49,6 +49,13 @@ Loan/debt routing:
   Archive cont Type code in {"L","Loan"}       -> loans_debts.csv.gz
   Archive exp  Type code == "Repayment"        -> loans_debts.csv.gz
 
+Portal rows for state-politics-tracker's loader (2026-10): state_filer_id /
+txn_id = Filing Entity ID / Transaction Id (columns.py, TRANSACTION_IDS), and
+contributor_first / contributor_last = the source's name parts. Their cities
+stay in source case. Portal expenditures: category = the coded Purpose,
+purpose = Transaction Description, and the Sub Type is folded into
+transaction_type (as the electionstats era labels it).
+
 2020-2022 gap (see docs/states/idaho.md): RESOLVED 2026-06-13. Previously,
 2020-2022 donations TO PAC/Central Committees and ALL spending by
 Candidate/PAC committees were unavailable — the only third-party source
@@ -900,11 +907,22 @@ def run():
                         contributor_name = utils.clean_name(f"{c_first} {c_last}")
                     else:
                         contributor_name = utils.clean_name(c_company)
-                    contributor_city  = utils.clean_name(row.get("Contributor Address City", ""))
+                    # City in source case, not upper-cased like the names
+                    # above: it needs no cross-source matching, and
+                    # state-politics-tracker shows it as filed.
+                    contributor_city  = clean(row.get("Contributor Address City", ""))
                     contributor_state = clean(row.get("Contributor Address State", ""))
                     contributor_zip   = clean_zip_field(row.get("Contributor Address Zip Code", ""))
                     amended   = bool01(row.get("Amended", ""))
                     filing_id = clean(row.get("Transaction Id", ""))
+                    # Loader-only (columns.py, TRANSACTION_IDS): the Filing
+                    # Entity ID cf_candidates.filer_refs holds ("id:392") and
+                    # the portal's Transaction Id, the pilot importer's
+                    # "id:<Transaction Id>". No `superseded`: the export holds
+                    # only current rows (a refiled report's replaced rows drop
+                    # out of it, checked 2026-10-15), Amended = Y never sits
+                    # beside the row it replaced, and the pilot kept every row.
+                    txn_ids = {"state_filer_id": fid, "txn_id": filing_id}
 
                     if txn_type in LOAN_INCOME_TYPES:
                         loan_w.writerow({
@@ -921,11 +939,18 @@ def run():
                             "election_year":      ey,
                             "amended":            amended,
                             "filing_id":          filing_id,
+                            **txn_ids,
                             "raw_file":           path.name,
                             "row_num":            row_num,
                         })
                         n_loan += 1
                     else:
+                        # In-kind gifts are Transaction Type "Contribution" with
+                        # Sub Type "In-Kind"; label them as the electionstats
+                        # era does (ES_DONATE_TYPE_MAP) so the loader's in-kind
+                        # rule sees them, as the pilot did from the Sub Type.
+                        if clean(row.get("Transaction Sub Type", "")) == "In-Kind":
+                            txn_type = "In-Kind Contribution"
                         cont_w.writerow({
                             "state":             STATE,
                             "committee_name":    committee_name,
@@ -939,11 +964,17 @@ def run():
                             "contributor_zip":   contributor_zip,
                             "employer":          "",
                             "occupation":        "",
+                            # Source name parts in source case, kept apart for
+                            # the loader as the pilot stored them: an
+                            # organisation's name goes in the last name.
+                            "contributor_first": c_first,
+                            "contributor_last":  c_last or c_company,
                             "candidate_name":    candidate_name,
                             "office":            office,
                             "election_year":     ey,
                             "amended":           amended,
                             "filing_id":         filing_id,
+                            **txn_ids,
                             "raw_file":          path.name,
                             "row_num":           row_num,
                         })
@@ -993,13 +1024,24 @@ def run():
                         payee_name = utils.clean_name(f"{p_first} {p_last}")
                     else:
                         payee_name = utils.clean_name(p_company)
-                    payee_city  = utils.clean_name(row.get("Payee Address City", ""))
+                    # Source case, as in the contributions loop.
+                    payee_city  = clean(row.get("Payee Address City", ""))
                     payee_state = clean(row.get("Payee Address State", ""))
                     payee_zip   = clean_zip_field(row.get("Payee Address Zip Code", ""))
-                    purpose   = clean(row.get("Purpose", ""))
-                    category  = clean(row.get("Transaction Sub Type", ""))
+                    # Purpose is a coded spending category (19 codes, e.g.
+                    # "G - General Operational Expenses") and Transaction
+                    # Description the free-text explanation: category and
+                    # purpose, as the archive era (PurposeCodes / Expense
+                    # Purpose) and Arkansas's Civix export have them. The
+                    # codes' non-breaking spaces (Latin-1 0xA0, read as
+                    # U+FFFD) become plain spaces, as the pilot importer did.
+                    purpose   = clean(row.get("Transaction Description", ""))
+                    category  = re.sub(r"[^\x20-\x7e]+", " ", row.get("Purpose") or "").strip()
+                    sub_type  = clean(row.get("Transaction Sub Type", ""))
                     amended   = bool01(row.get("Amended", ""))
                     filing_id = clean(row.get("Transaction Id", ""))
+                    # Loader-only, as in the contributions loop.
+                    txn_ids = {"state_filer_id": fid, "txn_id": filing_id}
 
                     if txn_type in LOAN_EXPENSE_TYPES:
                         loan_w.writerow({
@@ -1016,11 +1058,20 @@ def run():
                             "election_year":      ey,
                             "amended":            amended,
                             "filing_id":          filing_id,
+                            **txn_ids,
                             "raw_file":           path.name,
                             "row_num":            row_num,
                         })
                         n_loan += 1
                     else:
+                        # The Sub Type (Itemized / Unitemized / In-Kind, or
+                        # which half of an IE / electioneering row) goes into
+                        # transaction_type, labelled as the electionstats era
+                        # does (ES_SPEND_TYPE_MAP), now category holds Purpose.
+                        if sub_type in ("Unitemized", "In-Kind"):
+                            txn_type = f"{sub_type} {txn_type}"
+                        elif sub_type in ("Independent Expenditure", "Electioneering Communication"):
+                            txn_type = sub_type
                         expn_w.writerow({
                             "state":            STATE,
                             "committee_name":   committee_name,
@@ -1038,6 +1089,14 @@ def run():
                             "election_year":    ey,
                             "amended":          amended,
                             "filing_id":        filing_id,
+                            **txn_ids,
+                            # Source name parts for the loader, as on
+                            # contributions (the pilot stored Payee Last Name or
+                            # the company, and Payee First Name). Dropped by the
+                            # writer until columns.py lists payee_first /
+                            # payee_last on EXPENDITURES.
+                            "payee_first":      p_first,
+                            "payee_last":       p_last or p_company,
                             "raw_file":         path.name,
                             "row_num":          row_num,
                         })

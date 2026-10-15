@@ -96,6 +96,36 @@ class MappingTest(unittest.TestCase):
         _, r = mapping.to_cf("expenditures", co_exp, category_field="transaction_type")
         self.assertEqual(r["category"], "Fundraising Expenses")
 
+    def test_unitemized_lumps_keep_the_pilots_label_and_type(self):
+        ga = {"label": "Unitemized (small-dollar) contributions", "type": None}
+        _, r = mapping.to_cf("contributions", {"amount": "900", "contributor_type": "",
+                                               "transaction_type": "Unitemized Contribution"},
+                             ["individual", "self"], unitemized=ga)
+        self.assertEqual((r["contributor_type"], r["contributor_last_name"]),
+                         (None, "Unitemized (small-dollar) contributions"))
+        ar = dict(ga, type="ENTITY")
+        row = {"amount": "30", "contributor_type": "Individual",
+               "contributor_name": ar["label"], "contributor_last": ar["label"]}
+        _, r = mapping.to_cf("contributions", row, ["individual", "candidate"], unitemized=ar)
+        self.assertEqual(r["contributor_type"], "ENTITY")
+        _, r = mapping.to_cf("contributions", {"amount": "30", "contributor_type": "Individual",
+                                               "contributor_name": "JANE DOE",
+                                               "transaction_type": "Unitemized"},
+                             ["individual"], unitemized=ar)
+        self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # a named row is a person
+
+    def test_nonmoney_payee_parts_and_loan_balances(self):
+        _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_name": "X",
+                                               "transaction_type": "Itemized Nonmoney"})
+        self.assertEqual(r["source_form_type"], "INKIND")
+        _, r = mapping.to_cf("expenditures", {"amount": "9", "payee_name": "SPEED, MARY BETH",
+                                              "payee_last": "Speed", "payee_first": "Mary Beth"})
+        self.assertEqual((r["payee_last_name"], r["payee_first_name"]), ("Speed", "Mary Beth"))
+        for t in ("Outstanding Loan", "Loan Payment", "Loan Forgiven"):
+            self.assertIsNone(mapping.to_cf("contributions", {"amount": "5", "transaction_type": t}), t)
+        t, _ = mapping.to_cf("contributions", {"amount": "5", "transaction_type": "Loan Received"})
+        self.assertEqual(t, "cf_loans")
+
     def test_source_name_parts_and_pilot_type_rule(self):
         row = {"amount": "5", "contributor_name": "JOHN A VAN NORTWICK JR",
                "contributor_first": "JOHN", "contributor_last": "VAN NORTWICK",
@@ -164,6 +194,9 @@ class ManifestTest(unittest.TestCase):
             for col in ("state_filer_id", "txn_id", "superseded"):
                 self.assertIn(col, getattr(C, t))
                 self.assertNotIn(col, getattr(C, t + "_AGG"))
+        for col in ("payee_first", "payee_last"):
+            self.assertIn(col, C.EXPENDITURES)
+            self.assertNotIn(col, C.EXPENDITURES_AGG)
 
 
 def write_gz(path, fields, rows):

@@ -38,7 +38,8 @@ GA/MI/PA, a report id in IL/VA/OH, a check number in NJ) so it is not a key.
                   `amended`, whose meaning varies by state (Colorado's is the
                   Amendment flag: "this row IS an amendment", which must be
                   kept).
-  contributor_first / contributor_last (contributions only)
+  contributor_first / contributor_last (contributions), payee_first /
+  payee_last (expenditures)
                   the source's separate first and last name, when it keeps
                   them apart. contributor_name joins first, middle, last and
                   suffix, which can't be split back reliably ("VAN NORTWICK",
@@ -156,6 +157,8 @@ EXPENDITURES = [
     "transaction_type",
     # enrichment
     "payee_name",
+    "payee_first",      # the source's own name parts, when it keeps them apart
+    "payee_last",       # (loader-only -- see TRANSACTION_IDS)
     "purpose",
     "category",
     "payee_city",
@@ -293,7 +296,7 @@ COMMITTEES_AGG    = [c for c in COMMITTEES if c not in ("state_filer_id", "activ
 # The loader-only identifiers (see TRANSACTION_IDS in the module docstring)
 # stay out of the master db, like state_filer_id on the entity tables.
 _LOADER_IDS = ("state_filer_id", "txn_id", "superseded",
-               "contributor_first", "contributor_last")
+               "contributor_first", "contributor_last", "payee_first", "payee_last")
 
 _contrib = [c for c in CONTRIBUTIONS if c not in _LOADER_IDS]
 _contrib.insert(_contrib.index("transaction_type") + 1, "transaction_category")

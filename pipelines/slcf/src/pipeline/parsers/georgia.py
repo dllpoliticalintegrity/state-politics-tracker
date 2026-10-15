@@ -78,6 +78,13 @@ Notes
   • person_id model: "committee" — filerRegistrationId is per-cycle, not person-level.
   • Filing Entity ID in transactions = filerEntityId in candidates.csv — used for
     registry enrichment (office, party, district).
+  • state_filer_id / txn_id on transaction rows (loader-only, columns.py
+    TRANSACTION_IDS) = Filing Entity ID / Transaction Id, on the Peachfile bulk
+    export and two-business-day rows. Note the committees table's
+    state_filer_id is filerRegistrationId instead (per cycle); the loader's
+    cf_candidates.filer_refs hold the Filing Entity ID ("ga:100663"). Blank on
+    IE-API rows (no Filing Entity ID), legacy rows (pre-2025 FilerIDs) and
+    recordsearch rows (GACFIS ids, not known to share Peachfile's id space).
 """
 
 import csv
@@ -775,6 +782,15 @@ def run():
                         "election_year":     clean(row.get("electionYear")),
                         "amended":           "",
                         "filing_id":         txid,
+                        # Loader-only (columns.py, TRANSACTION_IDS): the same
+                        # Peachfile Filing Entity ID / Transaction Id as the
+                        # bulk export below, so a transaction keeps one id
+                        # whichever of the two sources carries it. payee*Name
+                        # holds the CONTRIBUTOR's name parts in this API shape.
+                        "state_filer_id":    clean(row.get("filerEntityId")),
+                        "txn_id":            txid,
+                        "contributor_first": clean(row.get("payeeFirstName")),
+                        "contributor_last":  clean(row.get("payeeLastName")),
                         "raw_file":          two_biz_contrib_path.name,
                         "row_num":           row_num,
                     })
@@ -823,6 +839,13 @@ def run():
                         "election_year":    clean(row.get("electionYear")),
                         "amended":          "",
                         "filing_id":        txid,
+                        # Loader ids only on rows that really are expenditures:
+                        # on 2026-10-15 this TEXP query returned the same 77
+                        # TCON rows as the contributions file, and an id must
+                        # not send a contribution into cf_expenditures.
+                        **({"state_filer_id": clean(row.get("filerEntityId")),
+                            "txn_id":         txid}
+                           if clean(row.get("transactionTypeCode")) == "TEXP" else {}),
                         "raw_file":         two_biz_expn_path.name,
                         "row_num":          row_num,
                         "candidate_name":   (recordsearch_candidate_name(row)
@@ -884,6 +907,16 @@ def run():
                         "election_year":  clean(row.get("Election Year")),
                         "amended":        amended_flag(row.get("Amended")),
                         "filing_id":      txid,
+                        # Loader-only (columns.py, TRANSACTION_IDS): Filing
+                        # Entity ID is what cf_candidates.filer_refs holds
+                        # ("ga:<id>") and Transaction Id the pilot importer's
+                        # "ga:<Transaction Id>". No `superseded`: Peachfile's
+                        # Amended = Y marks the CURRENT, amended version of a
+                        # transaction (its report refiled), and the export
+                        # carries only current (finalized) rows -- nothing in
+                        # it has been replaced.
+                        "state_filer_id": entity_id,
+                        "txn_id":         txid,
                         "raw_file":       path.name,
                         "row_num":        row_num,
                         # from registry
@@ -895,13 +928,19 @@ def run():
                     }
 
                     if tx_type in ("Loan Received", "Loan Payment", "Loan Forgiven"):
+                        # LOANS_DEBTS column names. This row used to be
+                        # written as loan_type / lender_* / amount, none of
+                        # which loans_debts has, so DictWriter dropped them
+                        # and every Peachfile loan reached loans_debts with
+                        # no amount, no type and no lender.
                         loan_w.writerow({
                             **base,
-                            "loan_type":       tx_type,
-                            "lender_name":     contributor_name(row),
-                            "lender_city":     clean(row.get("Contributor Address City")),
-                            "lender_state":    clean(row.get("Contributor Address State")),
-                            "lender_zip":      clean_zip(row.get("Contributor Address Zip Code", "")),
+                            "original_amount":    amount,
+                            "record_type":        tx_type,
+                            "counterparty_name":  contributor_name(row),
+                            "counterparty_city":  clean(row.get("Contributor Address City")),
+                            "counterparty_state": clean(row.get("Contributor Address State")),
+                            "counterparty_zip":   clean_zip(row.get("Contributor Address Zip Code", "")),
                         })
                         total_loans += 1
 
@@ -916,6 +955,11 @@ def run():
                             "contributor_zip":   clean_zip(row.get("Contributor Address Zip Code", "")),
                             "occupation":        clean(row.get("Contributor/Person Responsible for Loan Occupation")),
                             "employer":          clean(row.get("Contributor/Person Responsible for Loan Employer")),
+                            # Source name parts, kept apart for the loader (the
+                            # site stores last and first name separately; the
+                            # pilot importer stored these two fields as-is).
+                            "contributor_first": clean(row.get("Contributor First Name")),
+                            "contributor_last":  clean(row.get("Contributor Last Name")),
                         })
                         total_contributions += 1
                         _index_row(contrib_index, base["date"], base["amount"],
@@ -1208,6 +1252,11 @@ def run():
                         "election_year":    clean(first.get("electionYear")),
                         "amended":          "",
                         "filing_id":        txid,
+                        # No state_filer_id / txn_id (columns.py,
+                        # TRANSACTION_IDS): this API names the spender only by
+                        # filerRegistrationGuid, not the Filing Entity ID the
+                        # loader matches on, and repeats a transaction once
+                        # per target.
                         "raw_file":         path.name,
                         "row_num":          row_num,
                         # Always the SPENDER, never the target — same rule as
@@ -1342,12 +1391,24 @@ def run():
                         "transaction_type": f"{tx_type}" + (f" – {sub_type}" if sub_type else ""),
                         "purpose":          purpose,
                         "payee_name":       expn_payee_nm,
+                        # Loader-only source name parts, stripped only, as the
+                        # pilot importer stores them (columns.py, TRANSACTION_IDS).
+                        "payee_first":      (row.get("Payee First Name") or "").strip(),
+                        "payee_last":       (row.get("Payee Last Name") or "").strip(),
                         "payee_city":       clean(row.get("Payee Address City")),
                         "payee_state":      clean(row.get("Payee Address State")),
                         "payee_zip":        clean_zip(row.get("Payee Address Zip Code", "")),
                         "election_year":    clean(row.get("Election Year")),
                         "amended":          amended_flag(row.get("Amended")),
                         "filing_id":        txid,
+                        # Loader-only, as in the contributions loop. A
+                        # Reimbursement / Credit Card transaction is one parent
+                        # row (Transaction Amount) followed by its itemized
+                        # End Recipient rows under the same Transaction ID; the
+                        # parent comes first, so the loader's keep-the-first-id
+                        # rule keeps the parent, as the pilot importer did.
+                        "state_filer_id":   entity_id,
+                        "txn_id":           txid,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                         "candidate_name":   candidate_name,

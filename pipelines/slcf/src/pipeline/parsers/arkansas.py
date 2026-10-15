@@ -14,13 +14,27 @@ Output: data/Arkansas/cleaned/
 Notes
 ─────
   • Address field is a single string "Street, City, ST ZIP" — parsed with regex.
-  • Amounts arrive as "$1,000.00" — dollar sign and commas stripped.
-  • Non-itemized contributions have no Source Name — rows are kept as aggregate totals.
+  • Amounts arrive as "$1,000.00" — dollar sign and commas stripped; a few
+    arrive as "($3,600.00)" (payroll adjustments) and are kept as negatives.
+  • Return Contribution rows (money given back) arrive positive and are written
+    negative — Georgia's Civix export, the same vendor, already signs them so.
+  • Non-itemized contributions (one row per small gift) have no Source Name —
+    they are named UNITEMIZED_NAME (the pilot importer's relabel, moved here per
+    docs/slcf-merge-plan.md so every consumer gets it).
   • Entity Name for candidates may include committee name in parens:
       "Smith, John  (Smith for Governor)" → candidate_name = "Smith, John"
   • 2022 data is sparse (Nov–Dec only, candidates only) — included as-is.
-  • No loans/debts table available from this source.
+  • No loans/debts table available from this source. Loans to a committee arrive
+    in TCON as Transaction Type "Loan" with a blank sub type; they stay in
+    contributions with transaction_type "Loan" (the sub type, else the type).
+  • Expenditure category is the portal's standard Transaction Category
+    ("Other(list)" included); the filer's own words for an Other(list) row go in
+    Transaction Category Others, which nearly always repeats the description.
   • Registry join: Filing Entity ID in transactions = filerEntityID in registry files.
+  • Loader ids (columns.py, TRANSACTION_IDS): state_filer_id = Filing Entity ID,
+    txn_id = Transaction ID (the pilot importer's ar:<Transaction ID>).
+    superseded is never set: Amended = Y marks a row filed on an amended report —
+    the current version, almost never with an older twin left in the export.
   • person_id model: "person" — filerEntityID is a stable person-level ID that
     persists across election cycles (unlike Alabama/Arizona which re-register per cycle).
 """
@@ -51,6 +65,12 @@ CLEAN_DIR.mkdir(parents=True, exist_ok=True)
 STATE          = "AR"
 MAX_VALID_YEAR = date.today().year + 2
 
+# Contributor name for a non-itemized gift, which has no Source Name.
+UNITEMIZED_NAME = "Unitemized (small-dollar) contributions"
+
+# Funding Source types that name a person, written "Last, First" in Source Name.
+PERSON_SOURCE_TYPES = {"individual", "candidate"}
+
 
 # ============================== helpers ===============================
 
@@ -59,8 +79,10 @@ def clean(val) -> str:
 
 
 def parse_amount(val: str) -> str:
-    """'$1,000.00' → '1000.00', '' on failure."""
+    """'$1,000.00' → '1000.00', '($3,600.00)' → '-3600.00', '' on failure."""
     v = (val or "").strip().replace("$", "").replace(",", "")
+    if v.startswith("(") and v.endswith(")"):
+        v = "-" + v[1:-1].strip()
     if not v:
         return ""
     try:
@@ -68,6 +90,23 @@ def parse_amount(val: str) -> str:
         return v
     except ValueError:
         return ""
+
+
+def negated(amount: str) -> str:
+    """-|amount| as a string; '0.00' stays as is."""
+    v = amount.lstrip("-")
+    return v if float(v) == 0 else "-" + v
+
+
+def name_parts(source_name: str, source_type: str) -> tuple[str, str]:
+    """(first, last) for the loader's contributor_first / contributor_last.
+    A person (PERSON_SOURCE_TYPES) is written "Last, First M" and splits on the
+    first comma; anything else, a person without a comma included, goes whole
+    into last — the split the pilot importer stored."""
+    if source_type.lower() in PERSON_SOURCE_TYPES and "," in source_name:
+        last, _, first = source_name.partition(",")
+        return first.strip(), last.strip()
+    return "", source_name
 
 
 def parse_date(val: str) -> str:
@@ -340,23 +379,42 @@ def run():
                     occupation = clean(row.get("Occupation", "")) \
                                  or clean(row.get("Occupation Other", ""))
 
+                    tx_type  = clean(row.get("Transaction Type", ""))
+                    sub_type = clean(row.get("Transaction Sub Type", ""))
+                    if tx_type == "Return Contribution":
+                        amount = negated(amount)
+
+                    source_type = clean(row.get("Funding Source / Loan Source Type", ""))
+                    contributor = clean(row.get("Source Name", ""))
+                    if not contributor and "non-itemized" in sub_type.lower():
+                        contributor = UNITEMIZED_NAME
+                    contributor_first, contributor_last = name_parts(contributor, source_type)
+
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cmte_name,
-                        "contributor_name":  clean(row.get("Source Name", "")),
+                        "contributor_name":  contributor,
                         "amount":            amount,
                         "date":              parse_date(row.get("Transaction Date", "")),
-                        "transaction_type":  clean(row.get("Transaction Sub Type", "")),
-                        "contributor_type":  clean(row.get("Funding Source / Loan Source Type", "")),
+                        # Loans carry no sub type; their type ("Loan") is what
+                        # tells them apart from gifts.
+                        "transaction_type":  sub_type or tx_type,
+                        "contributor_type":  source_type,
                         "contributor_city":  city,
                         "contributor_state": st,
                         "contributor_zip":   zipcode,
                         "employer":          clean(row.get("Employer Name", "")),
                         "occupation":        occupation,
+                        "contributor_first": contributor_first,
+                        "contributor_last":  contributor_last,
                         "candidate_name":    cand_name,
                         "office":            office,
                         "election_year":     elec_year,
                         "filing_id":         clean(row.get("Transaction ID", "")),
+                        # Filing Entity ID + Transaction ID, for the
+                        # state-politics-tracker loader (columns.py, TRANSACTION_IDS).
+                        "state_filer_id":    fid,
+                        "txn_id":            clean(row.get("Transaction ID", "")),
                         "amended":           amended_flag(row.get("Amended", "")),
                         "raw_file":          path.name,
                         "row_num":           row_num,
@@ -400,10 +458,11 @@ def run():
 
                     city, st, zipcode = parse_address(row.get("Payee Address", ""))
 
-                    # Prefer Transaction Category Others when more specific than the
-                    # standardized Transaction Category value
-                    category = clean(row.get("Transaction Category Others", "")) \
-                               or clean(row.get("Transaction Category", ""))
+                    # The standard Transaction Category, as the pilot importer
+                    # stored it for the site. Transaction
+                    # Category Others is free text that repeats the description
+                    # on ~93% of rows and would split one category into dozens.
+                    category = clean(row.get("Transaction Category", ""))
 
                     expn_w.writerow({
                         "state":            STATE,
@@ -411,7 +470,9 @@ def run():
                         "payee_name":       clean(row.get("Payee Name", "")),
                         "amount":           amount,
                         "date":             parse_date(row.get("Transaction Date", "")),
-                        "transaction_type": clean(row.get("Transaction Sub Type", "")),
+                        # Loan Payment / Debt rows carry no sub type.
+                        "transaction_type": clean(row.get("Transaction Sub Type", ""))
+                                            or clean(row.get("Transaction Type", "")),
                         "purpose":          clean(row.get("Transaction Description", "")),
                         "category":         category,
                         "payee_city":       city,
@@ -421,6 +482,8 @@ def run():
                         "office":           office,
                         "election_year":    elec_year,
                         "filing_id":        clean(row.get("Transaction ID", "")),
+                        "state_filer_id":   fid,
+                        "txn_id":           clean(row.get("Transaction ID", "")),
                         "amended":          amended_flag(row.get("Amended", "")),
                         "raw_file":         path.name,
                         "row_num":          row_num,

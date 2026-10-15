@@ -1954,7 +1954,10 @@ if __name__ == "__main__":
     ap.add_argument("--end-year",     type=int, default=None,
                     help=f"last year to download (default: {LEGACY_END_YEAR} for --legacy, "
                          "current year for --recordsearch)")
-    args = ap.parse_args()
+    # parse_known_args, like every other scraper: orc.py forwards flags this
+    # scraper doesn't define (run_state.py always passes --no-fec-ie), and
+    # parse_args() exited 2 on them, failing the whole Georgia sync.
+    args, _ = ap.parse_known_args()
     try:
         if args.legacy:
             run_legacy(force=args.force, entities=args.entities,
