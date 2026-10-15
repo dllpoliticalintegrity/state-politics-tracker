@@ -2797,6 +2797,10 @@ def main():
     all_states = ["fl", "ga", "mi", "az", "ky", "pa", "co", "mn", "ma", "hi",
                   "ia", "md", "wi", "al", "ak", "ar", "ct", "id", "il", "ks"]
     ap.add_argument("--states", nargs="+", default=all_states, choices=all_states)
+    # finance-sync.yml runs this beside the SLCF matrix and refreshes the
+    # matviews once, after both (refresh job); a run by hand still refreshes.
+    ap.add_argument("--no-refresh", action="store_true",
+                    help="skip refresh_cf_finance_views() at the end")
     args = ap.parse_args()
 
     if not SUPABASE_URL or not SERVICE_KEY:
@@ -2847,6 +2851,14 @@ def main():
                 print(f"   {st}: FAILED — {ex}", flush=True)
                 failed.append(st)
         print(f"   running totals: {sink.counts}", flush=True)
+
+    if args.no_refresh:
+        print("done:", sink.counts)
+        if soft_failed:
+            print(f"skipped (known-blocked sources): {' '.join(soft_failed)}")
+        if failed:
+            sys.exit(f"finance sync: {len(failed)} state(s) failed: {' '.join(failed)}")
+        return
 
     # Rebuild the matviews so summaries/top-donor views pick up the new rows.
     # The refresh takes ~3 min on ~2M rows and the Supabase API gateway drops
