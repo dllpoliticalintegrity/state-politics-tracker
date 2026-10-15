@@ -51,10 +51,15 @@ Built on branch `claude/slcf-pipelines`. Nothing in production changed.
   spending shows $4,410,822 where the source's current total is $3,975,238
   ($435,584 of superseded rows), and his contributions are $93,023 high. A
   Colorado cutover with `prune` fixes this.
-- **Ohio can't be fetched from the Claude sandbox.** ohiosos.gov's Cloudflare
-  answers 403 to its IP, and the sandbox's TLS-inspecting proxy defeats SLCF's
-  browser impersonation. Its first run has to be a `dry_run` dispatch from
-  Actions. `oh` is in the manifest as `slcf` with `nightly: false` until then.
+- **Ohio blocks datacenter IPs.** ohiosos.gov's Cloudflare answers 403 to the
+  Claude sandbox and to GitHub's runners alike; a `dry_run` dispatch on
+  2026-10-15 got 403 on every listing, despite SLCF's browser impersonation.
+  Like Maine, Ohio needs a runner outside a datacenter (a self-hosted runner),
+  or a different source. `oh` stays `slcf` + `dry_run_only` + `nightly: false`
+  in the manifest until then.
+- **Colorado's dry run from Actions** (run 38664932934, about 90 seconds)
+  reproduced the local reconciliation exactly. The workflow path works end to
+  end.
 - **SLCF's CLI exits 0 even when a state fails.** `run_state.py` judges success
   by the rows SLCF wrote instead.
 

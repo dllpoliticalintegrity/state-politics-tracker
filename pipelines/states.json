@@ -40,7 +40,7 @@
     "wi": { "pipeline": "pilot", "cycle": "2026" },
 
     "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "dry_run_only": true,
-            "note": "first SLCF state: drop dry_run_only and nightly once a dry run from Actions reconciles" },
+            "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not; needs a non-datacenter runner. Then: dry run, drop dry_run_only, nightly" },
 
     "me": { "pipeline": "none", "note": "Maine's disclosure system blocks datacenter IPs (Cloudflare WAF)" },
     "nv": { "pipeline": "none", "note": "SLCF has a Nevada scraper but no parser yet" }

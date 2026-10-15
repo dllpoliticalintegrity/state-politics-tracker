@@ -6,8 +6,10 @@ Run one SLCF state end to end — what each finance-sync.yml matrix job does:
 
 1. SLCF scrape + parse for the state, transactions only, from the year of the
    state's `since` (states.json), without the FEC outside-spending pull:
-       pipelines/slcf/src/main.py --daemon --no-report sync OH --start-year 2025
+       pipelines/slcf/src/main.py --no-report sync OH --start-year 2025
            --no-aggregate --no-fec-ie --transactions [slcf_args...]
+   (not --daemon: that silences the scrapers' own messages, and a blocked
+   source's "HTTP Error 403" then shows only in the log.jsonl artifact)
    The loader needs only the transaction tables; the committee and candidate
    sweeps are slow in several states and nothing here reads them, so SLCF's
    own validation reports those two tables empty — expected, and ignored.
@@ -47,7 +49,7 @@ def sync(st, entry):
         if run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"]):
             raise RuntimeError("playwright install failed")
     start_year = load_cf.since_of(entry)[:4]
-    run([sys.executable, str(PIPELINES / "slcf" / "src" / "main.py"), "--daemon", "--no-report",
+    run([sys.executable, str(PIPELINES / "slcf" / "src" / "main.py"), "--no-report",
          "sync", st.upper(), "--start-year", start_year, "--no-aggregate", "--no-fec-ie",
          "--transactions", *entry.get("slcf_args", [])], cwd=PIPELINES / "slcf")
     clean_dir = load_cf.cleaned_dir(st, load_cf.SLCF_DATA)
