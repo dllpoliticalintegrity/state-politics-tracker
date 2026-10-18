@@ -1,5 +1,5 @@
 import { useCandidates } from "@/hooks/useCandidates";
-import { useRacePolling } from "@/hooks/usePolling";
+import { readCandidatePct, useRacePolling } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
 import { isOffBallot } from "@/lib/candidateStatus";
 
@@ -26,7 +26,7 @@ export default function PollingAveragesList() {
   const rows = candidates
     .map((c) => {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
-      const pct = avg[surname] ? Number(avg[surname]) : 0;
+      const pct = readCandidatePct(avg, c.name, c.id) ?? 0;
       return {
         slug: c.slug,
         lastName: surname,

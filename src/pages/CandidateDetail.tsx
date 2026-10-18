@@ -217,7 +217,7 @@ export default function CandidateDetail() {
             </div>
             <div className="flex gap-4 md:gap-6">
               {(() => {
-                const pct = readCandidatePct(polling?.average, candidate.name);
+                const pct = readCandidatePct(polling?.average, candidate.name, candidate.id);
                 return <Stat label="Poll average" value={pct !== null ? `${pct}%` : "—"} />;
               })()}
               <Stat label="Raised" value={formatCurrency(totals.totalRaised)} />
@@ -240,7 +240,7 @@ export default function CandidateDetail() {
             <span className="text-xs text-muted-foreground">Source: {pollingSourceLabel(race)} average</span>
           </div>
           <CandidatePollingChart
-            candidate={{ slug: candidate.slug, name: candidate.name, party: candidate.party }}
+            candidate={{ id: candidate.id, slug: candidate.slug, name: candidate.name, party: candidate.party }}
           />
         </Card>
         )}

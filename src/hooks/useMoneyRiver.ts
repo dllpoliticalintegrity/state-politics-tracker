@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { RIVER_PAGE_SIZE, type RiverFilters, type RiverRow } from "@/lib/moneyRiver";
 import { scopeToRace } from "./useCandidates";
+import * as lptReads from "@/integrations/lpt/reads";
+import { raceScope } from "@/integrations/lpt/reads";
 
 /**
  * One page of the money river for the current race (the cf_money_river view:
@@ -15,10 +17,11 @@ export function useMoneyRiver(filters: RiverFilters, pageSize = RIVER_PAGE_SIZE)
   const race = useRaceConfig();
   const { kind, candidate, page } = filters;
   return useQuery({
-    queryKey: ["cf_money_river", stateCfg.code, race.office, race.district ?? null, kind, candidate, page, pageSize],
+    queryKey: ["cf_money_river", stateCfg.source, stateCfg.code, race.office, race.district ?? null, kind, candidate, page, pageSize],
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     queryFn: async (): Promise<{ rows: RiverRow[]; total: number }> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchMoneyRiver(raceScope(stateCfg, race), filters, pageSize);
       const from = (page - 1) * pageSize;
       // cf_money_river postdates the generated types.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

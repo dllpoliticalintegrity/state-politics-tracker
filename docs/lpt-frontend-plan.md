@@ -1,15 +1,28 @@
 # Plan: the State Politics Tracker frontend on Local Politics Tracker data
 
-Written 2026-10-18. The target, as decided that day:
+Written 2026-10-18; decisions of 2026-10-18 (evening) folded in. The target:
 
-- **Data and pipeline:** Henry's and Colin's. The SLCF scrapers feed the Local
-  Politics Tracker Supabase project (`rwiueylzgcgnzypdyszi`, "LPT"), the
-  database behind statemoney.us.
+- **One store for every state's data:** the Local Politics Tracker Supabase
+  project (`rwiueylzgcgnzypdyszi`, "LPT"), Henry's and Colin's database
+  behind statemoney.us, fed by their SLCF scrapers. Every state the hub shows
+  reads it, and it is the only database the frontend will read once every
+  state has moved.
+- **Per-state tables for the states we load ourselves.** Henry's push owns the
+  shared tables (`contributions`, `candidates`, … with a `state_id` column);
+  we never write to them. A state that we load (California first, since it is
+  not in LPT) gets its own `<st>_*` tables in the same project, mirroring his
+  columns, so his push can neither wipe nor be blocked by our rows. The
+  `hub_*` read functions route by state.
 - **Frontend:** this repo's React app, with the hub plus one Cloudflare Worker
   and domain per state (michiganpoliticstracker.com, texaspoliticstracker.com,
-  and so on).
+  and so on). Every site is the same build.
+- **Curation:** the data-diamine admin console, writing `hub_candidate_overrides`
+  with the service role (its state-tracker screens are still to be built).
 - **States:** the ones live on statemoney.us (AK, AZ, FL, GA, MI, OH, OR, TX,
-  WI) plus California.
+  WI) plus California — and only those. The 16 other states with dashboards
+  (AL, AR, CO, CT, HI, IA, ID, IL, KS, KY, MA, MD, ME, MN, NV, PA) are hidden
+  on the hub (`HIDDEN` in `src/states/registry.ts`); their nightly imports
+  keep running so un-hiding one is a one-line change.
 
 The site's current database is the Texas Politics Tracker project
 (`lohxdfrxnxuxjdvvyfjc`, "tracker"). It stays up and keeps being fed until
@@ -81,7 +94,52 @@ each hook dispatches on the active state's source. This means:
   title. The app layers it over `candidates`, so his upserts can't overwrite
   our edits.
 - **Our LPT SQL lives in this repo**, under `supabase/lpt/`, applied by hand
-  in order. Every object is prefixed `hub_`.
+  in order with the Supabase MCP's `execute_sql` (never `apply_migration`, so
+  his project gets no migration history). Every object is prefixed `hub_`.
+  `001_hub_read_layer.sql` is applied (2026-10-18).
+
+**Two things learned applying it:**
+
+- PostgREST passes RPC arguments as sub-selects, so inside a function the
+  state is never a literal; the planner's generic estimate for
+  `state_id = $1` chose a sequential scan of the 3.5M-row contribution
+  matview (32 s, past anon's 30 s statement timeout). Every race- or
+  state-scoped function walks its candidates with a `LATERAL` join on
+  `candidate_id`, which forces the index.
+- Even so, the race-wide donor and committee aggregates (hundreds of
+  thousands of rows per request) ran 7–30 s on LPT's instance. They now read
+  plain `hub_cache_*` tables (`002_hub_cache.sql`) that `hub_refresh_cache()`
+  refills from his matviews — per-candidate finance and row counts, the top
+  300 donors per candidate and type, every organizational donor per state,
+  the itemized loans. A plain table survives a cascade drop; the refresh
+  fails until his objects are back and the cache keeps serving. Georgia
+  refreshes in 46 s; every state will take some minutes. **Nothing schedules
+  it yet** (the choice is a pg_cron job in his project, after his 15:00 UTC
+  weekday refresh, or the hub's nightly Action once the LPT service key
+  exists); until then it is run by hand after his push.
+- The river reads his base `contributions` table through its
+  `(candidate_id, contribution_date)` index, taking only the rows that can
+  reach the requested page per candidate; its total comes from the cached
+  counts. ~1 s. The ticker uses the `(candidate_id, amount)` index: 13 ms.
+- PostgREST caps any response at 1,000 rows, RPCs included; rosters and the
+  committee-donor list page through it.
+- The pages key polling by surname. LPT's poll results carry `candidate_id`,
+  so the LPT average is also written under `id:<candidate_id>` keys and the
+  pages prefer those (`readCandidatePct`, `pollRowIsCandidate`); without
+  that, Derrick Jackson (off the ballot) inherited Rick Jackson's average.
+
+**Polling** for an LPT state comes from LPT's `race_polls` (one row per poll,
+no aggregate). The site averages each candidate over the race's five most
+recent polls (`src/lib/lpt.ts`), labels it "Local Politics Tracker" and links
+the race's statemoney.us page. FiftyPlusOne stays the source for tracker
+states.
+
+**Names and status.** LPT files names as "LAST, FIRST M." but also carries
+cased first and last names, which the hub shows ("Keisha Bottoms"); the
+curated `display_name` override restores a preferred form ("Keisha Lance
+Bottoms", "Rick Jackson"). Ballot status derives from `on_ballot` and the
+Green Papers `disposition`; candidates off the ballot read "Not on ballot"
+unless the disposition says withdrew or lost, or an override says otherwise.
 
 ## 3. Query mapping (tracker → LPT)
 
@@ -119,14 +177,19 @@ each hook dispatches on the active state's source. This means:
 
 ## 4. Phases
 
-1. **Read layer and adapter, for one state (Georgia).** Georgia is on SLCF in
-   both databases, so the two sets of numbers can be compared directly.
-   - Write `supabase/lpt/001_hub_read_layer.sql`: the overrides table and the
-     `hub_*` functions.
-   - Add the LPT client and the per-hook dispatch, with `source: "lpt"` on
-     Georgia.
-   - Verify page by page against the tracker numbers.
-   - Ship behind the flag.
+1. **Read layer and adapter, for one state (Georgia).** Done 2026-10-18 on
+   `claude/lpt-frontend`: `supabase/lpt/001_hub_read_layer.sql` applied; the
+   LPT client, `src/integrations/lpt/reads.ts` and the per-hook dispatch;
+   Georgia on `source: "lpt"` with its legislature (56 + 180 districts);
+   `VITE_LPT_STATES` overrides the set at build time. Georgia's governor
+   totals match the tracker within 0.3% for Jackson, Bottoms, Jones, Duncan
+   and Thurmond; LPT is more complete for Esteves and Raffensperger (the
+   tracker tracked the wrong or no committee) and lower for Carr (−$0.9M,
+   attribution differs — to check). The tracker's curated names, titles,
+   featured flags and lost-primary statuses for Georgia's 23 statewide
+   candidates were seeded into `hub_candidate_overrides` (the tracker had no
+   photos or bios for Georgia; LPT has photos for some). Every Georgia page
+   was walked on the dev server against LPT.
 2. **The other in-scope states:** AZ, AK, FL, WI, OH (new on the site), OR
    (new), then MI and TX. Each needs its races in the registry (or the
    registry reading `races`) and the same page-by-page check. Michigan's

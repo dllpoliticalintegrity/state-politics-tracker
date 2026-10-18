@@ -26,7 +26,9 @@ describe("chamber registry", () => {
     expect(senate.districts).toBe(38);
     expect(getChamber(mi, "state-house")!.districts).toBe(110);
     expect(getChamber(mi, "governor")).toBeUndefined();
-    expect(getChamber(getState("ga")!, "state-senate")).toBeUndefined();
+    expect(getChamber(getState("ga")!, "state-senate")!.districts).toBe(56);
+    expect(getChamber(getState("ga")!, "state-house")!.districts).toBe(180);
+    expect(getChamber(getState("fl")!, "state-senate")).toBeUndefined();
   });
 
   it("keeps chamber offices distinct from statewide offices in every live state", () => {

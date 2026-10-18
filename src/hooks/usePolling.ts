@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useRaceConfig } from "@/states/StateContext";
+import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceKey, pollingSourceLabel, type RaceConfig } from "@/states/registry";
+import { fetchRacePolls } from "@/integrations/lpt/reads";
+import { buildPollingBundle, pollIdKey, pollRowIsCandidate, readCandidatePct, toRacePollRows } from "@/lib/lpt";
 
 export type PollRow = {
   Poll: string;
@@ -9,8 +11,16 @@ export type PollRow = {
   Sample: string;
   MoE: string;
   Spread?: string;
+  /**
+   * Keyed by candidate surname ("Jackson" → "47.2"). A source that knows the
+   * candidate (LPT's poll results carry candidate_id) also writes an
+   * "id:<candidate_id>" key, which readCandidatePct prefers so two candidates
+   * sharing a surname never share an average.
+   */
   [candidateLastName: string]: string | undefined;
 };
+
+export { pollIdKey, pollRowIsCandidate, readCandidatePct };
 
 export type PollingBundle = {
   rcp_url: string | null;
@@ -98,9 +108,17 @@ export function parsePollDate(d: string | undefined | null): string {
 
 export function useRacePolling() {
   const race = useRaceConfig();
+  const stateCfg = useStateConfig();
   return useQuery({
-    queryKey: ["race_polling", race.raceSlug, pollingSourceKey(race)],
-    queryFn: () => fetchRacePolling(race),
+    queryKey: ["race_polling", stateCfg.source, stateCfg.code, race.raceSlug, pollingSourceKey(race)],
+    queryFn: async () => {
+      // LPT stores one row per poll and no aggregate; the average is the
+      // site's own, over the most recent polls (src/lib/lpt.ts).
+      if (stateCfg.source === "lpt") {
+        return buildPollingBundle(await fetchRacePolls(stateCfg.code, race), race, pollingSourceLabel(race));
+      }
+      return fetchRacePolling(race);
+    },
   });
 }
 
@@ -111,6 +129,8 @@ export function useRacePolling() {
 export type RacePollRow = {
   candidate_name: string;
   candidate_party: string | null;
+  /** Set by sources that identify the candidate (LPT); null for the FiftyPlusOne import. */
+  candidate_id?: string | null;
   pct: number;
   pollster: string;
   field_end: string;
@@ -129,9 +149,11 @@ export function isGeneralMatchup(m: string | null | undefined): boolean {
 
 export function useRacePolls() {
   const raceCfg = useRaceConfig();
+  const stateCfg = useStateConfig();
   return useQuery({
-    queryKey: ["race_polls", raceCfg.raceSlug, pollingSourceKey(raceCfg)],
+    queryKey: ["race_polls", stateCfg.source, stateCfg.code, raceCfg.raceSlug, pollingSourceKey(raceCfg)],
     queryFn: async (): Promise<RacePollRow[]> => {
+      if (stateCfg.source === "lpt") return toRacePollRows(await fetchRacePolls(stateCfg.code, raceCfg));
       const { data: race } = await (supabase as any)
         .from("races")
         .select("race_id")
@@ -152,15 +174,4 @@ export function useRacePolls() {
   });
 }
 
-/**
- * Extracts per-candidate pct from a poll row by matching on the candidate's surname.
- * RCP uses last-name-only keys (e.g. "Porter", "Hilton").
- */
-export function readCandidatePct(row: PollRow | null | undefined, fullName: string): number | null {
-  if (!row) return null;
-  const surname = fullName.trim().split(/\s+/).pop() ?? "";
-  const val = row[surname];
-  if (val === undefined || val === "") return null;
-  const n = Number(val);
-  return Number.isFinite(n) ? n : null;
-}
+

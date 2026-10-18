@@ -9,7 +9,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { useMemo } from "react";
-import { isGeneralMatchup, useRacePolls } from "@/hooks/usePolling";
+import { isGeneralMatchup, pollRowIsCandidate, useRacePolls } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
 
 // Same CUD-safe palette as the overview chart so colors stay consistent.
@@ -30,6 +30,7 @@ const WINDOW_DAYS = 30;
 
 type Props = {
   candidate: {
+    id?: string;
     slug: string;
     name: string;
     party: string | null;
@@ -48,7 +49,7 @@ export default function CandidatePollingChart({ candidate }: Props) {
     const todayIso = new Date().toISOString().slice(0, 10);
 
     const raw = racePolls
-      .filter((r) => (r.candidate_name.trim().split(/\s+/).pop() ?? "") === surname)
+      .filter((r) => pollRowIsCandidate(r, candidate))
       .map((r) => {
         const iso = (r.field_end ?? "").slice(0, 10);
         const n = Number(r.pct);
@@ -74,7 +75,7 @@ export default function CandidatePollingChart({ candidate }: Props) {
     });
 
     return { rawPoints: raw, rollingPoints: rolling };
-  }, [racePolls, surname]);
+  }, [racePolls, candidate]);
 
   if (isLoading) {
     return (

@@ -7,6 +7,7 @@ import { useCandidates } from "@/hooks/useCandidates";
 import {
   useRacePolling,
   useRacePolls,
+  readCandidatePct,
   type RacePollRow,
 } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
@@ -85,8 +86,8 @@ export default function Polling() {
   const rankedCandidates = (candidates ?? [])
     .map((c) => {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
-      const avgPct = avg && avg[surname] ? Number(avg[surname]) : null;
-      return { cand: c, surname, avgPct };
+      const avgPct = readCandidatePct(avg, c.name, c.id);
+      return { cand: c, surname, avgPct: avgPct && avgPct > 0 ? avgPct : null };
     })
     .filter((x) => x.avgPct !== null)
     .sort((a, b) => (b.avgPct ?? 0) - (a.avgPct ?? 0));

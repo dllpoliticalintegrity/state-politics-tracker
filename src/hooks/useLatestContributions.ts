@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { scopeToRace } from "./useCandidates";
 import { onBallot } from "@/lib/candidateStatus";
+import * as lptReads from "@/integrations/lpt/reads";
+import { raceScope } from "@/integrations/lpt/reads";
 
 /**
  * Latest individual + PAC contributions across the cycle, joined to the
@@ -39,8 +41,9 @@ export function useLatestContributions(limit = 20, minAmount?: number) {
   const race = useRaceConfig();
   const floor = minAmount ?? tickerMinAmount(race.district);
   return useQuery({
-    queryKey: ["cf_latest_contributions", stateCfg.code, race.office, race.district ?? null, limit, floor],
+    queryKey: ["cf_latest_contributions", stateCfg.source, stateCfg.code, race.office, race.district ?? null, limit, floor],
     queryFn: async (): Promise<LatestContribution[]> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchLatestContributions(raceScope(stateCfg, race), floor, limit);
       // Two steps on purpose. The obvious single query — cf_contributions
       // with an embedded cf_candidates!inner filter, ordered by date — makes
       // Postgres walk the date index across all ~1.5M rows looking for the

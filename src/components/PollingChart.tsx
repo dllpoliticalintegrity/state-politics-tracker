@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import { useCandidates } from "@/hooks/useCandidates";
-import { isGeneralMatchup, parsePollDate, useRacePolling, useRacePolls } from "@/hooks/usePolling";
+import { isGeneralMatchup, parsePollDate, pollRowIsCandidate, readCandidatePct, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import { partyColor } from "@/lib/finance";
 import { isOffBallot } from "@/lib/candidateStatus";
 
@@ -34,7 +34,7 @@ export default function PollingChart() {
     const withPct = candidates
       .map((c) => {
         const surname = c.name.trim().split(/\s+/).pop() ?? "";
-        const avgPct = avg && avg[surname] ? Number(avg[surname]) : 0;
+        const avgPct = readCandidatePct(avg, c.name, c.id) ?? 0;
         return { cand: c, surname, avgPct };
       })
       .filter((x) => x.avgPct > 0)
@@ -50,14 +50,16 @@ export default function PollingChart() {
       for (const r of racePolls) {
         const iso = (r.field_end ?? "").slice(0, 10);
         if (!iso || iso > todayIso) continue;
-        const surname = r.candidate_name.trim().split(/\s+/).pop() ?? "";
         const key = `${iso}|${r.pollster}`;
         let entry = byKey.get(key);
         if (!entry) {
           entry = { iso, values: {} };
           byKey.set(key, entry);
         }
-        if (Number.isFinite(r.pct)) entry.values[surname] = Number(r.pct);
+        // Values keyed by the candidate's slug: the row's candidate when it
+        // names one, else whoever shares its surname.
+        const owner = withPct.find(({ cand }) => pollRowIsCandidate(r, cand));
+        if (owner && Number.isFinite(r.pct)) entry.values[owner.cand.slug] = Number(r.pct);
       }
       for (const e of byKey.values()) {
         if (Object.keys(e.values).length > 0) normalized.push(e);
@@ -67,11 +69,11 @@ export default function PollingChart() {
         const iso = parsePollDate(poll.Date);
         if (!iso || iso === "0000-00-00" || iso > todayIso) continue;
         const values: Record<string, number> = {};
-        for (const { surname } of withPct) {
+        for (const { cand, surname } of withPct) {
           const v = poll[surname];
           if (v !== undefined && v !== "") {
             const n = Number(v);
-            if (Number.isFinite(n)) values[surname] = n;
+            if (Number.isFinite(n)) values[cand.slug] = n;
           }
         }
         if (Object.keys(values).length > 0) normalized.push({ iso, values });
@@ -94,9 +96,9 @@ export default function PollingChart() {
         return t >= start && t <= end;
       });
       const point: Record<string, any> = { date: iso };
-      for (const { cand, surname } of withPct) {
+      for (const { cand } of withPct) {
         const samples = inWindow
-          .map((p) => p.values[surname])
+          .map((p) => p.values[cand.slug])
           .filter((n): n is number => typeof n === "number");
         if (samples.length > 0) {
           const mean = samples.reduce((s, n) => s + n, 0) / samples.length;
