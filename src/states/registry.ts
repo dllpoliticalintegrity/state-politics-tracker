@@ -135,11 +135,11 @@ const SLCF_READY = new Set([
 // States whose pages read the Local Politics Tracker project. A state moves
 // here only while the tracker has no rows for it (docs/lpt-frontend-plan.md).
 // The tracker project is the unified store: every state reads it as soon as
-// its own pipeline reconciles. OH and OR read Henry's tables until their
-// SLCF scrapes land in the tracker. VITE_LPT_STATES ("oh,or,ga") overrides
-// the set at build time, for previews and local checks.
+// its own pipeline reconciles. OR reads Henry's tables until its ORESTAR
+// scrape lands in the tracker. VITE_LPT_STATES ("or,oh") overrides the set
+// at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "oh,or")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
@@ -479,18 +479,15 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "ohio-governor-2026",
-        pollingSource: "lpt",
-        pollingSourceUrl: lptRace("oh", "governor-2026"),
+        pollingSourceUrl: fpoGovernor("Ohio"),
       },
       { office: "attorney-general", title: "Attorney General", generalDate: "2026-11-03", raceSlug: "ohio-attorney-general-2026" },
       { office: "secretary-of-state", title: "Secretary of State", generalDate: "2026-11-03", raceSlug: "ohio-secretary-of-state-2026" },
       { office: "auditor", title: "Auditor", generalDate: "2026-11-03", raceSlug: "ohio-auditor-2026" },
       { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "ohio-treasurer-2026" },
     ],
-    chambers: [
-      { office: "state-senate", title: "State Senate", districts: 17, generalDate: "2026-11-03" },
-      { office: "state-house", title: "State House", districts: 100, generalDate: "2026-11-03" },
-    ],
+    // Legislature: no chambers until the tracker has an Ohio legislative
+    // roster (17 Senate and all 100 House seats are on the 2026 ballot).
   },
   // Oregon (Oct 2026): new on the site, from the Local Politics Tracker
   // data. Half the Senate (15 odd-numbered seats) and the whole House are

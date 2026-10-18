@@ -14,8 +14,8 @@ describe("state registry", () => {
   it("covers the statemoney.us states plus Michigan and California, reading Georgia from LPT", () => {
     expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "or", "tx", "wi"]);
     // Only the states the tracker has no rows for yet read LPT (plan doc).
-    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["oh", "or"]);
-    expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "tx", "wi"]);
+    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["or"]);
+    expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "tx", "wi"]);
     for (const s of STATES) expect(["lpt", "tracker"]).toContain(s.source);
     // Hidden states keep their dashboards and pipelines; the hub just does not list them as live.
     const hidden = hiddenStates().map((s) => s.code).sort();

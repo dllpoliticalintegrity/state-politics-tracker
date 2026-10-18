@@ -89,6 +89,9 @@
     "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false,
             "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not. From a residential connection it works: dry run 2026-10-18 from a Mac reconciled (5 tracked committees, 1.16M rows, totals above LPT's Aug 31 copy), so load it by hand with python pipelines/run_state.py oh until a non-datacenter runner exists; nightly stays off" },
 
+    "or": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "playwright": true, "prune": true,
+            "individual_types": ["individual"],
+            "note": "ORESTAR needs a visible Chromium (F5 bot defense fingerprints headless and plain HTTP), so it runs from a desktop, not GitHub's runners; nightly off. First local run 2026-10-18 failed: early windows got blank pages, and the export now returns .xlsx, which the scraper's xlrd reader rejects (Excel xlsx file; not supported), so the scraper needs an openpyxl path before Oregon can load. Book Type Individual = person. state_filer_id = ORESTAR Committee Id (filer_refs or:<id>, seeded 2026-10-18 from LPT's roster for the governor race)" },
     "me": { "pipeline": "none", "note": "Maine's disclosure system blocks datacenter IPs (Cloudflare WAF)" },
     "nv": { "pipeline": "none", "note": "SLCF has a Nevada scraper but no parser yet" }
   }
