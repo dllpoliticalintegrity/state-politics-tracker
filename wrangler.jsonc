@@ -1,14 +1,15 @@
-// Cloudflare Workers deploy config (`npx wrangler deploy`), for the
-// dashboard's Workers Git-import flow. The classic Pages flow ignores this
-// file and uses functions/ instead — both targets share shared/seo.ts.
+// Cloudflare Workers deploy config (`npx wrangler deploy`), published by
+// .github/workflows/deploy.yml on every push to main. The classic Pages
+// flow ignores this file and uses functions/ instead — both share
+// shared/seo.ts.
 //
-// One build, several Workers: the top-level config is the multi-state hub;
-// each `env` below is a dedicated single-state site served from the same
-// `dist/` (deploy with `npx wrangler deploy --env michigan`). The SITE_STATE
-// var pins the Worker to one state; the SPA picks the pin up from the
-// <meta name="site-state"> tag the Worker injects, so *.workers.dev previews
-// of an env render as that state too. Production hostnames also resolve on
-// their own via SINGLE_STATE_HOSTS in shared/site.ts.
+// One Worker serves everything: the multi-state hub at its workers.dev
+// address, and the dedicated single-state sites (michiganpoliticstracker.com,
+// texaspoliticstracker.com, cagovtracker.com) as custom domains attached to
+// it in the dashboard. The Worker pins the state from the hostname
+// (SINGLE_STATE_HOSTS in shared/site.ts) and injects a <meta name="site-state">
+// tag so the SPA agrees. A SITE_STATE var would pin a whole Worker to one
+// state instead, for a preview deployment of a single site.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "state-politics-tracker",
@@ -19,24 +20,5 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": true
-  },
-  "env": {
-    // michiganpoliticstracker.com — Michigan-only site. Add the zone to the
-    // Cloudflare account first; the custom-domain routes below then attach on
-    // deploy (the Worker 301s www. to the apex).
-    "michigan": {
-      "name": "michigan-politics-tracker",
-      "vars": { "SITE_STATE": "mi" },
-      "routes": [
-        { "pattern": "michiganpoliticstracker.com", "custom_domain": true },
-        { "pattern": "www.michiganpoliticstracker.com", "custom_domain": true }
-      ],
-      "assets": {
-        "directory": "./dist",
-        "binding": "ASSETS",
-        "not_found_handling": "single-page-application",
-        "run_worker_first": true
-      }
-    }
   }
 }

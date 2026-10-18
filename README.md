@@ -95,21 +95,13 @@ so the SPA agrees, and hub-style links such as `/mi/governor` redirect
 to the prefix-less path. Data, importers and design are shared with the
 hub — see `docs/plan.md`, "Dedicated single-state sites".
 
-Each dedicated site is a `wrangler.jsonc` environment, deployed from the
-same `dist/`:
-
-```sh
-npm run build
-npx wrangler deploy --env michigan   # michigan-politics-tracker Worker
-npx wrangler deploy --env ""         # the multi-state hub (top-level config)
-```
-
-In the Cloudflare dashboard that is a second Workers project on this
-repo with deploy command `npx wrangler deploy --env michigan`. The
-`michiganpoliticstracker.com` zone must be on the account before the
-first deploy so the custom-domain routes attach; the Worker 301s `www.`
-to the apex. To add another state's site, add its hostname to
-`SINGLE_STATE_HOSTS` and a matching `env` block.
+The dedicated sites are not separate Workers: each hostname is a custom
+domain attached to the one `state-politics-tracker` Worker in the Cloudflare
+dashboard (Settings → Domains & Routes), so the deploy workflow updates the
+hub and every state site together. The zone must be on the account before
+its domain can attach; the Worker 301s `www.` to the apex. To add another
+state's site, add its hostname to `SINGLE_STATE_HOSTS` and attach the
+domain to the Worker.
 
 ## Local development
 
