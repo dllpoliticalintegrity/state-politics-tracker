@@ -78,4 +78,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # The top-level environment is the hub + custom domains; the
           # `michigan` env in wrangler.jsonc is unused (no such Worker exists).
-          command: deploy --env ""
+          # Wrangler warns that no --env was given and deploys the top level;
+          # the action cannot pass an empty --env "" argument.
+          command: deploy
