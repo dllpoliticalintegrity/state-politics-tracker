@@ -1,10 +1,13 @@
 name: LPT publish
 
-# Copies the hub's own states (Michigan, Texas, California) from the
-# tracker's settled cf_* rows into the Local Politics Tracker project's
-# <st>_* tables and refreshes LPT's hub caches — the bridge in
-# docs/lpt-frontend-plan.md. Runs after the three importers have published
-# (MI 07:20, CA 10:30, TX 14:30 UTC).
+# Nightly: refreshes the hub caches in the Local Politics Tracker project
+# for the states the site still reads from Henry's tables (Oregon, as of
+# 2026-10-18), after his weekday 15:00 UTC refresh.
+#
+# On manual dispatch with a state list it also runs the bridge: copies that
+# state's settled cf_* rows from the tracker into LPT's <st>_* tables
+# (docs/lpt-frontend-plan.md, section 0). The tracker is the site's store
+# now, so the scheduled run bridges nothing.
 
 on:
   schedule:
@@ -12,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       states:
-        description: "Space-separated states (mi tx ca)"
+        description: "Space-separated states to bridge into LPT (e.g. mi tx ca); blank = refresh caches only"
         required: false
-        default: "mi tx ca"
+        default: ""
       dry_run:
         description: "Read and report only"
         type: boolean
@@ -49,11 +52,15 @@ jobs:
           SUPABASE_KEY: sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX
           LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
           LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
-          STATES: ${{ inputs.states || 'mi tx ca' }}
+          STATES: ${{ inputs.states }}
           DRY_RUN: ${{ inputs.dry_run }}
           LIMIT: ${{ inputs.limit }}
           FORCE_PRUNE: ${{ inputs.force_prune }}
         run: |
+          if [ -z "$STATES" ]; then
+            echo "No states to bridge (the tracker is the site's store); refreshing LPT caches only."
+            exit 0
+          fi
           if [ -z "$LPT_SERVICE_ROLE_KEY" ] && [ "$DRY_RUN" != "true" ]; then
             echo "::warning::LPT_SERVICE_ROLE_KEY secret not set — skipping LPT publish."
             exit 0
@@ -67,13 +74,13 @@ jobs:
           done
           exit $status
 
-      # Henry's states on LPT read his matviews; the hub's caches over them
-      # are refilled here, after his weekday 15:00 UTC refresh.
-      - name: Refresh hub caches for the LPT-native states
+      # The states still read from Henry's tables use the hub's caches over
+      # his matviews; refill them here, after his weekday 15:00 UTC refresh.
+      - name: Refresh hub caches for the states still on LPT
         env:
           LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
           LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
-          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'GA OH OR' }}
+          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'OR' }}
         run: |
           if [ -z "$LPT_SERVICE_ROLE_KEY" ]; then exit 0; fi
           arr=$(printf '"%s",' $HIS_STATES); arr="[${arr%,}]"
