@@ -23,6 +23,10 @@ on:
         description: "First N transaction rows per table (a smoke test; skips prune)"
         required: false
         default: ""
+      force_prune:
+        description: "Allow a prune larger than 20% of a table"
+        type: boolean
+        default: false
 
 concurrency:
   group: lpt-publish
@@ -39,13 +43,16 @@ jobs:
           python-version: "3.12"
       - name: Publish
         env:
+          # Every tracker table read here is public, so the publishable key is
+          # enough (least privilege next to LPT's service key).
           SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX
           LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
           LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
           STATES: ${{ inputs.states || 'mi tx ca' }}
           DRY_RUN: ${{ inputs.dry_run }}
           LIMIT: ${{ inputs.limit }}
+          FORCE_PRUNE: ${{ inputs.force_prune }}
         run: |
           if [ -z "$LPT_SERVICE_ROLE_KEY" ] && [ "$DRY_RUN" != "true" ]; then
             echo "::warning::LPT_SERVICE_ROLE_KEY secret not set — skipping LPT publish."
@@ -55,6 +62,7 @@ jobs:
           for st in $STATES; do
             python3 pipelines/lpt/publish_state.py --state "$st" \
               ${DRY_RUN:+$( [ "$DRY_RUN" = "true" ] && echo --dry-run )} \
-              ${LIMIT:+--limit "$LIMIT"} || status=1
+              ${LIMIT:+--limit "$LIMIT"} \
+              $( [ "$FORCE_PRUNE" = "true" ] && echo --force-prune ) || status=1
           done
           exit $status
