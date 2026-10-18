@@ -47,7 +47,7 @@ found this; the cutover's `prune` fixes it.
 | AK | cutover PR | Kreiss-Tomkins appears ($4.49M raised; the pilot's Office filter dropped his filings); Wilson, Bronson and Walker gain their pre-ticket filings |
 | HI | cutover PR | the pilot re-inserted every CKAN reload: Green $7.83M → $3.64M raised, $5.21M → $2.52M spent; Cordery likewise |
 | FL, IA | in progress | — |
-| MA | pilot | contributions and loans reconcile (Healey's $2.9M savings transfer is booked as a gift today); expenditures need a decision: OCPF's search shows itemized line items where SLCF's bulk export has the bank payment, and transfers to savings count as spending |
+| MA | pilot until after the election (decided 2026-10-18) | contributions and loans reconcile (Healey's $2.9M savings transfer is booked as a gift today); spending differs by model: OCPF's search shows itemized line items where SLCF's bulk export has the bank payment, and transfers to savings count as spending. The parser work (swap a payment for its itemization, drop savings transfers) is prototyped in the reconciliation notes |
 | KS | pilot, soft-fail | CAPTCHA |
 | OH, ME | — | Cloudflare blocks datacenter IPs, GitHub's runners included; need a runner outside a datacenter |
 | NV | — | SLCF has no parser |
