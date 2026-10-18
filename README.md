@@ -38,6 +38,22 @@ for the target UX (open in a browser; mock data).
 
 ## Deploying
 
+**Main deploys itself.** `.github/workflows/deploy.yml` builds and runs
+`npx wrangler deploy` on every push to main that touches the site (docs,
+pipelines and SQL are ignored), using the `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` repository secrets. Without the token it skips with
+a notice, and the manual route still works from a logged-in `wrangler`:
+
+```sh
+git checkout main && git pull && npm run build && npx wrangler deploy --env ""
+```
+
+The one Worker, `state-politics-tracker`, serves the hub at its workers.dev
+address and the state domains attached to it as custom domains. Cloudflare
+has no Git integration for this repo; before the workflow existed every
+deployment was a manual push, and the site sat on an October 7 build until
+2026-10-18.
+
 Two Cloudflare targets are supported; both share `shared/seo.ts`:
 
 - **Workers Git-import flow** (dashboard default): build command
