@@ -29,6 +29,9 @@ interface Env {
 const DEFAULT_SUPABASE_URL = "https://lohxdfrxnxuxjdvvyfjc.supabase.co";
 const DEFAULT_ANON_KEY = "sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX";
 
+// Paths with an extension that the Worker generates rather than serves.
+const GENERATED_PATHS = new Set(["/sitemap.xml", "/robots.txt", "/llms.txt"]);
+
 // One lookup (and one cache) per isolate.
 let lookup: ReturnType<typeof makeStateSitesLookup> | null = null;
 function hostLookup(env: Env) {
@@ -46,7 +49,9 @@ export default {
     const url = new URL(request.url);
 
     // Assets never use the site state; skip the hostname lookup for them.
-    if (isAssetPath(url.pathname)) return env.ASSETS.fetch(request);
+    if (isAssetPath(url.pathname) && !GENERATED_PATHS.has(url.pathname)) {
+      return env.ASSETS.fetch(request);
+    }
 
     const siteState = await resolveSiteStateAsync({
       override: env.SITE_STATE,
