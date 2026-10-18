@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { useStateConfig } from "@/states/StateContext";
-import { SITE_NAME, isSingleStateSite } from "@/states/site";
+import { SITE_STATE, isSingleStateSite } from "@/states/site";
+import { useSiteConfig } from "@/hooks/useSiteConfig";
 import { pollingSourceLabel } from "@/states/registry";
 import { SINGLE_STATE_SITES } from "../../shared/site";
 import { stateGuide } from "@/states/guides";
@@ -8,8 +9,9 @@ import StateRulesGuide from "@/components/StateRulesGuide";
 
 export default function About() {
   const stateCfg = useStateConfig();
-  const races = stateCfg.races ?? [];
-  const polled = races.find((r) => r.pollingSourceUrl);
+  const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
+  const races = isSingleStateSite ? chrome.races : stateCfg.races ?? [];
+  const polled = (stateCfg.races ?? []).find((r) => r.pollingSourceUrl);
   const pollingLabel = pollingSourceLabel(polled ?? {});
   // Every dedicated single-state site except the one being read.
   const otherSites = Object.entries(SINGLE_STATE_SITES).filter(([code]) => code !== stateCfg.code);
@@ -24,8 +26,11 @@ export default function About() {
         <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">
           About & methodology
         </h1>
+        {chrome.aboutText && (
+          <p className="text-base text-foreground whitespace-pre-line">{chrome.aboutText}</p>
+        )}
         <p className="text-base text-muted-foreground">
-          {SITE_NAME} is a public-interest project of the Political Integrity Project.
+          {chrome.siteName} is a public-interest project of the Political Integrity Project.
           We follow the money and the polls in{" "}
           {isSingleStateSite ? `${stateCfg.name}'s` : ""} 2026 statewide races — who's
           giving, who's spending, and where each race stands.
