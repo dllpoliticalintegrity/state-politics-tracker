@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   SINGLE_STATE_HOSTS,
   SINGLE_STATE_SITES,
@@ -76,6 +76,7 @@ describe("single-state site resolution", () => {
 });
 
 describe("state_sites hostname lookup", () => {
+  afterEach(() => vi.restoreAllMocks());
   const ok = (rows: unknown[]) =>
     (async () => new Response(JSON.stringify(rows), { status: 200 })) as unknown as typeof fetch;
 
@@ -109,6 +110,7 @@ describe("state_sites hostname lookup", () => {
   });
 
   it("returns null for an unknown host, a non-2xx response or a thrown fetch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const miss = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl: ok([]) });
     expect(await miss("nobody.example")).toBeNull();
     const bad = makeStateSitesLookup({
@@ -130,5 +132,55 @@ describe("state_sites hostname lookup", () => {
     expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com", lookup })).toBe("mi");
     expect(await resolveSiteStateAsync({ hostname: "localhost", lookup })).toBeNull();
     expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com" })).toBe("mi");
+  });
+
+  it("re-fetches an error after errorTtlMs but keeps a success until ttlMs", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let t = 0;
+    const calls = { bad: 0, good: 0 };
+    const fetchImpl = (async (url: string) => {
+      if (url.includes("bad.example")) {
+        calls.bad += 1;
+        return new Response("nope", { status: 500 });
+      }
+      calls.good += 1;
+      return new Response(JSON.stringify([{ state: "ga" }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({
+      supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl, ttlMs: 10_000, errorTtlMs: 100, now: () => t,
+    });
+    await lookup("bad.example");
+    await lookup("good.example");
+    t = 50;
+    await lookup("bad.example");
+    await lookup("good.example");
+    expect(calls).toEqual({ bad: 1, good: 1 });
+    t = 150;
+    await lookup("bad.example");
+    await lookup("good.example");
+    expect(calls).toEqual({ bad: 2, good: 1 });
+  });
+
+  it("shares one fetch between concurrent lookups of the same cold host", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      await new Promise((r) => setTimeout(r, 5));
+      return new Response(JSON.stringify([{ state: "ga" }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl });
+    const out = await Promise.all([lookup("a.example"), lookup("a.example")]);
+    expect(out).toEqual(["ga", "ga"]);
+    expect(calls).toBe(1);
+  });
+
+  it("returns null when the fetch hangs past timeoutMs", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchImpl = ((_url: string, init: RequestInit) =>
+      new Promise((_, rej) => {
+        init.signal!.addEventListener("abort", () => rej(new Error("aborted")));
+      })) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl, timeoutMs: 20 });
+    expect(await lookup("slow.example")).toBeNull();
   });
 });
