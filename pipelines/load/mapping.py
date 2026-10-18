@@ -221,7 +221,7 @@ class TxnIds:
 
 
 def to_cf(table, row, individual_types=None, category_field="category", unitemized=None,
-          loan_record=False, inkind_types=None, entity_words=None):
+          loan_record=False, inkind_types=None, entity_words=None, type_from_name_parts=False):
     """(cf_table, row) for one SLCF row, or None when it carries nothing the
     site shows. Ids, candidate and cycle are added by the caller.
 
@@ -238,6 +238,10 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
     lists don't move. {"form_type": ...}: unitemized rows that aren't in-kind
     get that source_form_type (AL: "NON-ITEMIZED").
 
+    type_from_name_parts (states.json): the state gives no contributor type
+    and the parser splits names the pilot's way, so a first name means a
+    person and a whole name in last an organisation (FL), the pilot's rule.
+
     loan_record: the row is a loans_debts record re-shaped by loan_record_as
     (states.json loan_records). Its record type stays its transaction type,
     so it is never sent back to cf_loans (a "Loan Forgiven" would otherwise
@@ -252,6 +256,9 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
         name = text(row.get("contributor_name"))
         ctype = contributor_type(row.get("contributor_type"), name,
                                  None if loan_record else individual_types, entity_words)
+        if (type_from_name_parts and not loan_record
+                and (text(row.get("contributor_first")) or text(row.get("contributor_last")))):
+            ctype = "INDIVIDUAL" if text(row.get("contributor_first")) else "ENTITY"
         if text(row.get("contributor_last")) or text(row.get("contributor_first")):
             last, first = text(row.get("contributor_last")), text(row.get("contributor_first"))
         else:

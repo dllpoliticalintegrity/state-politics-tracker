@@ -93,7 +93,27 @@ CMTE_TYPE_MAP = {
     "ECI": "Electioneering Communication Individual",
 }
 
+# Florida's transaction exports are tab-separated text, not CSV: a quote is a
+# literal character. csv's default quoting took an unbalanced one (an
+# occupation cut at 30 characters, '"BANKER, BUSINESS OWNER, INVES') for the
+# start of a quoted field and swallowed the next 363 lines into it
+# (fl_contributions_2025.txt, 2026-10-15; 79 of Byron Donalds's
+# contributions among them). Every line holds exactly its header's field
+# count, so QUOTE_NONE reads one row per line, and _unquote strips the quotes
+# a filer's software put around a whole field ('"TMA DIRECT, INC."'), as csv
+# did.
+TXN_QUOTING = csv.QUOTE_NONE
+
 # ========================== shared helpers ============================
+
+def _unquote(row: dict) -> dict:
+    """A transaction row with whole-field quotes removed (see TXN_QUOTING)."""
+    for k, v in row.items():
+        s = (v or "").strip()
+        if len(s) > 1 and s[0] == s[-1] == '"':
+            row[k] = s[1:-1].replace('""', '"')
+    return row
+
 
 def clean(val) -> str:
     """Strip whitespace, collapse internal runs, remove non-breaking spaces."""
@@ -205,6 +225,111 @@ def raw_files(pattern: str) -> list[Path]:
         (f for f in RAW_DIR.glob(pattern) if f.stat().st_size > 0),
         key=lambda p: p.name,
     )
+
+
+# ===================== committee accounts =============================
+
+def _name_keys(last: str, first: str, middle: str) -> list[str]:
+    """'LAST, FIRST' and 'LAST, FIRST MIDDLE' -- the forms a candidate
+    committee's name takes in the transaction files' Candidate/Committee
+    column (see parse_committees' pass 2)."""
+    keys = []
+    base = utils.clean_name(f"{last}, {first}" if last else first)
+    if base:
+        keys.append(base)
+    if last and middle:
+        keys.append(utils.clean_name(f"{last}, {first} {middle}"))
+    return keys
+
+
+def _candidate_accounts() -> tuple[dict, dict]:
+    """fl_candidates_*.txt -> ({(norm_name, office_code): (AcctNum, elec_year,
+    ElectionID)}, {norm_name: same}); the name-only map is the fallback when
+    a transaction row carries no usable office code. Newest ElectionID wins
+    in both (see parse_committees' pass 2 for why)."""
+    by_office: dict[tuple[str, str], tuple[str, str, str]] = {}
+    by_name: dict[str, tuple[str, str, str]] = {}
+
+    def _keep_newest(d, key, val):
+        cur = d.get(key)
+        if cur is None or val[2] > cur[2]:
+            d[key] = val
+
+    for cand_path in raw_files("fl_candidates_*.txt"):
+        with open(cand_path, newline="", encoding="utf-8", errors="replace") as f:
+            # QUOTE_NONE (see TXN_QUOTING): a nickname is NameMiddle
+            # '"Skeeter"' here and 'Abbott, Matthew "Skeeter"' in the
+            # transaction files, and csv's quoting stripped it, so the two
+            # never met (2026-10: 18 candidates' rows had no account). Keys
+            # come from the names both as written and unquoted.
+            for row in csv.DictReader(f, delimiter="\t", quoting=TXN_QUOTING):
+                acct    = clean(row.get("AcctNum", ""))
+                elec_id = clean(row.get("ElectionID", ""))
+                office  = clean(row.get("OfficeCode", "")).upper()
+                if not acct:
+                    continue
+                val = (acct, election_year_from_id(elec_id), elec_id)
+                keys = {}
+                for r in (row, _unquote(dict(row))):
+                    keys.update(dict.fromkeys(_name_keys(
+                        clean(r.get("NameLast", "")), clean(r.get("NameFirst", "")),
+                        clean(r.get("NameMiddle", "")))))
+                for norm in keys:
+                    if office:
+                        _keep_newest(by_office, (norm, office), val)
+                    _keep_newest(by_name, norm, val)
+    return by_office, by_name
+
+
+class _FilerIds:
+    """Candidate/Committee column -> the filing committee's account number,
+    the transaction rows' state_filer_id for state-politics-tracker's loader
+    (columns.py, TRANSACTION_IDS).
+
+    Florida's transaction exports carry no account number, only the
+    committee's name, so it is looked up the way the committees table gets
+    its ids: a candidate committee ("Donalds, Byron (REP)(GOV)") by name and
+    office code in the candidate bulk files (newest registration), any other
+    committee ("Florida Medical Assoc (PAC)") by name in
+    fl_committee_details.csv. Blank when the files don't resolve it (no
+    bulk files, an unregistered name, or a name two committees share) --
+    never the committees table's name-hash fallback, which no source knows.
+    """
+
+    def __init__(self):
+        self.by_office, self.by_name = _candidate_accounts()
+        self.committees: dict[str, str] = {}
+        ambiguous: set[str] = set()
+        path = RAW_DIR / "fl_committee_details.csv"
+        if path.exists():
+            with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                for row in csv.DictReader(f):
+                    acct = clean(row.get("account_id", ""))
+                    norm = utils.clean_name(row.get("name", ""))
+                    if not acct or not norm:
+                        continue
+                    if self.committees.get(norm, acct) != acct:
+                        ambiguous.add(norm)
+                    self.committees[norm] = acct
+        for norm in ambiguous:
+            del self.committees[norm]
+        self._cache: dict[str, str] = {}
+
+    def __call__(self, committee_raw: str) -> str:
+        if committee_raw in self._cache:
+            return self._cache[committee_raw]
+        cmte_name, cand_name = strip_committee_type(committee_raw)
+        norm = utils.clean_name(cmte_name)
+        if cand_name:
+            trailing = re.findall(r"\(([A-Z]{2,5})\)", committee_raw)
+            office = trailing[-1] if len(trailing) >= 2 else ""
+            hit = (self.by_office.get((norm, office)) if office else None) \
+                  or self.by_name.get(norm)
+            acct = hit[0] if hit else ""
+        else:
+            acct = self.committees.get(norm, "")
+        self._cache[committee_raw] = acct
+        return acct
 
 
 # ========================== committees ================================
@@ -367,42 +492,9 @@ def parse_committees(log) -> int:
         # ("Rodriguez, Jose Javier (DEM)(ATG)") while the bulk file splits
         # it into NameMiddle, which left Jose Javier Rodriguez's AG account
         # with a hashed fallback id and no link to his candidate row.
-        def _name_keys(last: str, first: str, middle: str) -> list[str]:
-            keys = []
-            base = utils.clean_name(f"{last}, {first}" if last else first)
-            if base:
-                keys.append(base)
-            if last and middle:
-                keys.append(utils.clean_name(f"{last}, {first} {middle}"))
-            return keys
-
-        # (norm_name, office_code) -> (AcctNum, elec_year, ElectionID);
-        # norm_name -> same, as a fallback when the transaction row carries
-        # no usable office code. Newest ElectionID wins in both.
-        cand_by_office: dict[tuple[str, str], tuple[str, str, str]] = {}
-        cand_by_name: dict[str, tuple[str, str, str]] = {}
-
-        def _keep_newest(d, key, val):
-            cur = d.get(key)
-            if cur is None or val[2] > cur[2]:
-                d[key] = val
-
-        for cand_path in raw_files("fl_candidates_*.txt"):
-            with open(cand_path, newline="", encoding="utf-8", errors="replace") as f:
-                for row in csv.DictReader(f, delimiter="\t"):
-                    acct    = clean(row.get("AcctNum", ""))
-                    last    = clean(row.get("NameLast",  ""))
-                    first   = clean(row.get("NameFirst", ""))
-                    middle  = clean(row.get("NameMiddle", ""))
-                    elec_id = clean(row.get("ElectionID", ""))
-                    office  = clean(row.get("OfficeCode", "")).upper()
-                    if not acct:
-                        continue
-                    val = (acct, election_year_from_id(elec_id), elec_id)
-                    for norm in _name_keys(last, first, middle):
-                        if office:
-                            _keep_newest(cand_by_office, (norm, office), val)
-                        _keep_newest(cand_by_name, norm, val)
+        # (2026-10: the lookup moved to _candidate_accounts(), shared with
+        # the transaction rows' state_filer_id -- see _FilerIds.)
+        cand_by_office, cand_by_name = _candidate_accounts()
 
         # (norm_name, office_code) -> (cand_name, acct, elec_year)
         synthetic: dict[tuple[str, str], tuple[str, str, str]] = {}
@@ -410,7 +502,7 @@ def parse_committees(log) -> int:
             for tx_path in raw_files(pattern):
                 with open(tx_path, newline="", encoding="utf-8",
                           errors="replace") as f:
-                    for row in csv.DictReader(f, delimiter="\t"):
+                    for row in csv.DictReader(f, delimiter="\t", quoting=TXN_QUOTING):
                         raw = clean(row.get("Candidate/Committee", ""))
                         if not raw:
                             continue
@@ -557,7 +649,35 @@ def _invert_name(name: str) -> str:
     return norm
 
 
-def _parse_contrib_row(row: dict, raw_file: str, row_num: int) -> tuple[dict | None, dict | None]:
+# The organisation test of state-politics-tracker's old Florida importer
+# (scripts/data-import/pilot/import_pilot_finance.py, ENTITY_PAT), verbatim.
+_PILOT_ENTITY = re.compile(
+    r"\b(INC|LLC|LLP|L\.L\.C|PAC|COMMITTEE|PARTY|CORP|CORPORATION|ASSN|"
+    r"ASSOCIATION|COMPANY|FUND|GROUP|TRUST|BANK|ENTERPRISES|PARTNERS|"
+    r"HOLDINGS|FLORIDA|AMERICA|USA|PA|PLLC|FARMS|SERVICES|CONSULTING|"
+    r"REALTY|PROPERTIES|CLUB|COALITION|ALLIANCE|FEDERATION|UNION|CHAMBER)\b",
+    re.I,
+)
+
+
+def contributor_name_parts(name: str) -> tuple[str, str]:
+    """(first, last) for the loader-only contributor_first / contributor_last
+    (columns.py, TRANSACTION_IDS), as state-politics-tracker has always
+    stored Florida donors. Florida writes a person "LAST FIRST MIDDLE" with
+    no separator, so the split is the old importer's: the first word is the
+    surname, the rest the first name, both title-cased ("BLOOM JOHN" ->
+    "John", "Bloom"). An organisation -- a name matching its entity words,
+    or a single word -- stays whole in last, as written, with no first.
+    The contributor_type column keeps SLCF's own classifier."""
+    name = clean(name)
+    if not name or _PILOT_ENTITY.search(name) or " " not in name:
+        return "", name
+    words = name.split()
+    return " ".join(words[1:]).title(), words[0].title()
+
+
+def _parse_contrib_row(row: dict, raw_file: str, row_num: int,
+                       filer_ids=None) -> tuple[dict | None, dict | None]:
     """Map a raw contribution row to (contrib_out, loan_out).
 
     Returns (contrib, None) for normal contributions,
@@ -598,6 +718,11 @@ def _parse_contrib_row(row: dict, raw_file: str, row_num: int) -> tuple[dict | N
         # format). Invert to "FIRST LAST" to match the candidates table, which
         # builds names from separate NameFirst/NameLast fields in the bulk files.
         "candidate_name":    _invert_name(candidate_name),
+        # Loader-only (columns.py, TRANSACTION_IDS): the committee's account
+        # number. Florida's export has no transaction id and no amendment
+        # flag, so txn_id and superseded stay blank and the loader hashes
+        # the row.
+        "state_filer_id":    filer_ids(committee_raw) if filer_ids else "",
         "raw_file":          raw_file,
         "row_num":           row_num,
     }
@@ -613,7 +738,9 @@ def _parse_contrib_row(row: dict, raw_file: str, row_num: int) -> tuple[dict | N
             "counterparty_zip":    zip_,
         }
 
-    return {**base, "transaction_type": txn_type}, None
+    first, last = contributor_name_parts(base["contributor_name"])
+    return {**base, "transaction_type": txn_type,
+            "contributor_first": first, "contributor_last": last}, None
 
 
 def parse_contributions(log) -> tuple[int, int]:
@@ -627,6 +754,7 @@ def parse_contributions(log) -> tuple[int, int]:
     loan_fh, loan_w = open_writer("loans_debts.csv.gz",   C.LOANS_DEBTS)
 
     total_cont = total_loan = 0
+    filer_ids  = _FilerIds()
 
     # Contribution files + transfer files (transfers = inter-committee contributions)
     file_groups = [
@@ -646,7 +774,7 @@ def parse_contributions(log) -> tuple[int, int]:
 
                 with open(path, newline="", encoding="utf-8",
                           errors="replace") as f:
-                    reader = csv.DictReader(f, delimiter="\t")
+                    reader = csv.DictReader(f, delimiter="\t", quoting=TXN_QUOTING)
 
                     with logging_redirect_tqdm(loggers=[log._log]):
                         for row_num, row in enumerate(
@@ -655,7 +783,7 @@ def parse_contributions(log) -> tuple[int, int]:
                             start=2,
                         ):
                             contrib, loan = _parse_contrib_row(
-                                row, path.name, row_num
+                                _unquote(row), path.name, row_num, filer_ids
                             )
                             if contrib:
                                 if kind == "transfers":
@@ -683,7 +811,8 @@ def parse_contributions(log) -> tuple[int, int]:
 # ========================= expenditures ==============================
 
 def _parse_expend_row(row: dict, raw_file: str,
-                      row_num: int, txn_type: str = "") -> dict | None:
+                      row_num: int, txn_type: str = "",
+                      filer_ids=None) -> dict | None:
     """Map a raw expenditure/other-distribution row to an expenditure output row."""
     amount = parse_amount(row.get("Amount", ""))
     if not amount:
@@ -694,10 +823,12 @@ def _parse_expend_row(row: dict, raw_file: str,
     committee_raw  = clean(row.get("Candidate/Committee", ""))
     committee, _   = strip_committee_type(committee_raw)
 
-    # Payee name: expenditures use "Payee Name", other distributions use "Recipient Name"
+    # Payee name: expenditures use "Payee Name", other distributions
+    # "Distributed To" (2026-10; "Recipient Name" never appears, so every
+    # other distribution's payee was blank)
     payee = clean(
-        row.get("Payee Name") or row.get("Recipient Name") or
-        row.get("Transferred To") or ""
+        row.get("Payee Name") or row.get("Distributed To") or
+        row.get("Recipient Name") or row.get("Transferred To") or ""
     )
 
     city, st, zip_ = split_city_state_zip(row.get("City State Zip", ""))
@@ -718,6 +849,8 @@ def _parse_expend_row(row: dict, raw_file: str,
         "payee_city":     city,
         "payee_state":    st,
         "payee_zip":      zip_,
+        # Loader-only, as on contributions (see _parse_contrib_row).
+        "state_filer_id": filer_ids(committee_raw) if filer_ids else "",
         "raw_file":       raw_file,
         "row_num":        row_num,
     }
@@ -731,6 +864,7 @@ def parse_expenditures(log) -> int:
     """
     expend_fh, expend_w = open_writer("expenditures.csv.gz", C.EXPENDITURES)
     total = 0
+    filer_ids = _FilerIds()
 
     file_groups = [
         ("fl_expenditures_*.txt", ""),                    # type from raw Typ field
@@ -749,7 +883,7 @@ def parse_expenditures(log) -> int:
 
                 with open(path, newline="", encoding="utf-8",
                           errors="replace") as f:
-                    reader = csv.DictReader(f, delimiter="\t")
+                    reader = csv.DictReader(f, delimiter="\t", quoting=TXN_QUOTING)
 
                     with logging_redirect_tqdm(loggers=[log._log]):
                         for row_num, row in enumerate(
@@ -758,7 +892,7 @@ def parse_expenditures(log) -> int:
                             start=2,
                         ):
                             out = _parse_expend_row(
-                                row, path.name, row_num, forced_type
+                                _unquote(row), path.name, row_num, forced_type, filer_ids
                             )
                             if out:
                                 expend_w.writerow(out)
