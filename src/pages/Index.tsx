@@ -122,9 +122,9 @@ export default function Index() {
           href="https://politicalintegrity.us"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="inline-flex flex-col items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          <img src={pipLogo} alt="" width={24} height={24} className="h-6 w-6" />
+          <img src={pipLogo} alt="" width={56} height={56} className="h-14 w-14" />
           Powered by the Political Integrity Project
         </a>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
