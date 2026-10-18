@@ -11,11 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { useActiveState, useStateBase } from "@/states/StateContext";
 import { STATES } from "@/states/registry";
-import { ALL_STATES_URL, SITE_NAME, isSingleStateSite } from "@/states/site";
+import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
+import { useSiteConfig } from "@/hooks/useSiteConfig";
+import type { RaceConfig } from "@/states/registry";
 import star from "@/assets/star.svg";
 
 /** The org's hosted donation page; the Donate button links straight to it. */
@@ -86,7 +88,7 @@ function StateSwitcher() {
  * race — Overview / Candidates / Polling / Money — lives in RaceSubnav on
  * the race pages, so this bar never changes shape as you move around.
  */
-function useSiteMenu() {
+function useSiteMenu(navRaces: RaceConfig[]) {
   const activeState = useActiveState();
   const stateBase = useStateBase();
   const { pathname } = useLocation();
@@ -94,7 +96,7 @@ function useSiteMenu() {
   const officeIdx = stateBase ? 2 : 1;
   const currentOffice = pathname.split("/")[officeIdx];
   const items = [
-    ...(activeState.races ?? []).map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
+    ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
     ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
     { to: `${stateBase}/committees`, label: "Committees", key: "committees" },
     { to: `${stateBase}/about`, label: "About", key: "about" },
@@ -105,10 +107,25 @@ function useSiteMenu() {
 export function Header() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const menu = useSiteMenu();
+  const activeState = useActiveState();
+  const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
+  const navRaces = isSingleStateSite ? chrome.races : activeState?.races ?? [];
+  const menu = useSiteMenu(navRaces);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (chrome.accentColor) root.style.setProperty("--site-accent", chrome.accentColor);
+    else root.style.removeProperty("--site-accent");
+    return () => {
+      root.style.removeProperty("--site-accent");
+    };
+  }, [chrome.accentColor]);
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+    <header
+      className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85"
+      style={{ borderTop: "3px solid var(--site-accent, hsl(var(--primary)))" }}
+    >
       <div className="container flex h-14 items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <Link to="/" className="flex items-center gap-2 min-w-0">
@@ -128,7 +145,8 @@ export function Header() {
               }}
             />
             <span className="font-display text-lg font-bold tracking-tight truncate">
-              {SITE_NAME}
+              {chrome.logoUrl && <img src={chrome.logoUrl} alt="" className="h-6 w-auto mr-2 inline-block align-middle" />}
+              {chrome.siteName}
             </span>
           </Link>
           {!isSingleStateSite && <StateSwitcher />}

@@ -1,0 +1,74 @@
+name: Deploy site
+
+# Publishes one state's dedicated site as its own Cloudflare Worker, named
+# after the state's `state_sites` row in the tracker project. Dispatched from
+# the data-diamine admin's Site tab (through github-actions-proxy) or by hand.
+# The build is state-agnostic; the Worker's SITE_STATE var pins the state.
+
+on:
+  workflow_dispatch:
+    inputs:
+      state:
+        description: "Two-letter state code (must have a state_sites row)"
+        required: true
+
+run-name: Deploy site ${{ inputs.state }}
+
+concurrency:
+  group: deploy-site-${{ inputs.state }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+      SUPABASE_ANON_KEY: sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX
+    steps:
+      - name: Read the site's row
+        id: site
+        env:
+          STATE: ${{ inputs.state }}
+        run: |
+          st=$(printf '%s' "$STATE" | tr 'A-Z' 'a-z')
+          if ! printf '%s' "$st" | grep -Eq '^[a-z]{2}$'; then
+            echo "::error::state must be a two-letter code"; exit 1
+          fi
+          row=$(curl -fsS "$SUPABASE_URL/rest/v1/state_sites?select=worker_name,hostname&state=eq.$st&limit=1" \
+                -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          worker=$(printf '%s' "$row" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["worker_name"] if r else "")')
+          host=$(printf '%s' "$row" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["hostname"] if r else "")')
+          if [ -z "$worker" ]; then
+            echo "::error::No state_sites row for '$st' — save the site in the admin first"; exit 1
+          fi
+          if [ "$worker" = "state-politics-tracker" ] || ! printf '%s' "$worker" | grep -Eq -- '-politics-tracker$'; then
+            echo "::error::worker_name '$worker' is reserved or does not end in -politics-tracker"; exit 1
+          fi
+          echo "state=$st" >> "$GITHUB_OUTPUT"
+          echo "worker=$worker" >> "$GITHUB_OUTPUT"
+          echo "hostname=$host" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Test and build
+        run: |
+          npx vitest run
+          npm run build
+
+      - name: Deploy the state's Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --name ${{ steps.site.outputs.worker }} --var SITE_STATE:${{ steps.site.outputs.state }}
+
+      - name: What's next
+        run: |
+          echo "::notice::Deployed ${{ steps.site.outputs.worker }} for ${{ steps.site.outputs.state }}. One-time: attach ${{ steps.site.outputs.hostname }} and www.${{ steps.site.outputs.hostname }} to that Worker in Cloudflare (Workers → ${{ steps.site.outputs.worker }} → Settings → Domains & Routes)."

@@ -81,3 +81,25 @@ jobs:
           # Wrangler warns that no --env was given and deploys the top level;
           # the action cannot pass an empty --env "" argument.
           command: deploy
+
+      - name: Deploy every published state site
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_ANON_KEY: sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX
+        run: |
+          rows=$(curl -fsS "$SUPABASE_URL/rest/v1/state_sites?select=state,worker_name&published=eq.true&order=state" \
+                 -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          failed=0
+          pairs=$(printf '%s' "$rows" | python3 -c 'import json,sys; [print(r["state"]+":"+r["worker_name"]) for r in json.load(sys.stdin)]')
+          for pair in $pairs; do
+            st=${pair%%:*}; worker=${pair#*:}
+            if [ "$worker" = "state-politics-tracker" ] || ! printf '%s' "$worker" | grep -Eq -- '-politics-tracker$'; then
+              echo "::error::skipping $st: worker_name '$worker' is reserved or does not end in -politics-tracker"; failed=1; continue
+            fi
+            echo "== $st → $worker"
+            npx wrangler deploy --name "$worker" --var "SITE_STATE:$st" || { echo "::error::$worker failed"; failed=1; }
+          done
+          exit $failed

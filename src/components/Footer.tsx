@@ -1,16 +1,19 @@
 import { Link } from "react-router-dom";
 import { useActiveState, useStateBase } from "@/states/StateContext";
-import { ALL_STATES_URL, SITE_NAME, SITE_STATE, isSingleStateSite } from "@/states/site";
+import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
+import { useSiteConfig } from "@/hooks/useSiteConfig";
 import { statePollingLabel } from "@/states/registry";
 
 export function Footer() {
   const activeState = useActiveState();
   const stateBase = useStateBase();
+  const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
+  const navRaces = isSingleStateSite ? chrome.races : activeState?.races ?? [];
 
   // Same fixed site menu as the header: the state's races, then About.
   const links = activeState
     ? [
-        ...(activeState.races ?? []).map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title })),
+        ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title })),
         ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title })),
         { to: `${stateBase}/about`, label: "About & methodology" },
       ]
@@ -21,11 +24,12 @@ export function Footer() {
       <div className="container py-10 space-y-8">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
           <div className="max-w-sm space-y-2">
-            <div className="font-display text-lg font-bold">{SITE_NAME}</div>
+            <div className="font-display text-lg font-bold">{chrome.siteName}</div>
             <p className="text-sm text-muted-foreground">
-              {SITE_STATE
+              {chrome.tagline ??
+                (SITE_STATE
                 ? `A public-interest dashboard following the money and polling in ${SITE_STATE.name}'s 2026 statewide races, from the Political Integrity Project.`
-                : "A public-interest dashboard following the money and polling in 2026 statewide races across the country, from the Political Integrity Project."}
+                : "A public-interest dashboard following the money and polling in 2026 statewide races across the country, from the Political Integrity Project.")}
             </p>
             <p className="text-sm text-muted-foreground">
               <a
@@ -71,6 +75,7 @@ export function Footer() {
               : "Updated nightly from each state's disclosure agency and FiftyPlusOne. "}
             Data is presented as filed; corrections and amendments appear after the next sync.
           </p>
+          {chrome.creditsText && <p className="mt-1">{chrome.creditsText}</p>}
           <p>© 2026 Political Integrity Project</p>
         </div>
       </div>
