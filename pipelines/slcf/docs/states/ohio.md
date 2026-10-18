@@ -14,6 +14,20 @@
 
 **Status: validated end-to-end against real downloaded data for the Candidate Committee group.** A full sync (scrape → parse → validate → tabulate → spot-check queries) was run against real `ACT_CAN_LIST.CSV`, `CAC_CON_2026.CSV`, and `CAC_EXP_2026.CSV` files: 411,757 contributions and 17,292 expenditures parsed, tier-1 validation passed, and `queries.py` returned real, recognizable names and plausible totals (e.g. $10.5M raised by Amy Acton's 2026 gubernatorial campaign). **The PAC and Party groups were not sampled** — their files are assumed to share the Candidate group's column layout (see Parser section) and the scraper/parser were only smoke-tested for graceful failure (a garbage header is skipped with a loud `file_parse_error`, not silently mismapped), not against real PAC/Party data. Confirm those before trusting PAC/Party output.
 
+### Running it from GitHub Actions (the nightly sync)
+
+ohiosos.gov also blocks GitHub's hosted-runner IP ranges outright: every request
+gets a 403 there, impersonated handshake or not (dry run 2026-10-15). Cloudflare's
+network is not blocked (plain `fetch` from a Worker returned the file list,
+2026-10-18), so `finance-sync.yml` routes the scraper through
+`workers/ohio-fetch-proxy`, a Worker that fetches `https://www6.ohiosos.gov/`
+URLs only, GET only, behind a shared secret, and streams the body back with
+`x-proxy-final-url` set to the upstream's final URL. The scraper switches to it
+when `OHIO_FETCH_PROXY` (the Worker URL, a repository variable) and
+`OHIO_FETCH_PROXY_TOKEN` (a repository secret) are set; unset, it talks to
+ohiosos.gov directly with curl_cffi as described below, which works from a
+residential connection.
+
 ### How this was found (useful context if something breaks)
 
 Three iterations preceded this design, each ruled out by an actual run:

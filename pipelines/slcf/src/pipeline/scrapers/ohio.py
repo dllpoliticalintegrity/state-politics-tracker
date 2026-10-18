@@ -84,6 +84,7 @@ underlying export, different committee-type filter) and unverified.
 """
 
 import csv
+import os
 import re
 import sys
 import time
@@ -171,6 +172,51 @@ SESSION_HEADERS = {
 # Passed to curl_cffi's Session(impersonate=...). Keep this in step with
 # config.py's USER_AGENT (currently Chrome/136) if that's ever bumped.
 IMPERSONATE = "chrome136"
+
+# ========================= fetch proxy (GitHub runners) ==================
+#
+# ohiosos.gov also blocks GitHub's hosted-runner IP ranges outright — the
+# impersonated handshake makes no difference there (403 on every request,
+# dry run 2026-10-15). Cloudflare's network is not blocked, so the nightly
+# sync routes every GET through workers/ohio-fetch-proxy (a Worker that
+# fetches only www6.ohiosos.gov URLs, with a shared secret). Set
+# OHIO_FETCH_PROXY to the Worker's URL and OHIO_FETCH_PROXY_TOKEN to its
+# secret; unset, the scraper talks to ohiosos.gov directly as before.
+
+class _ProxySession:
+    """Duck-types the slice of curl_cffi's Session this module uses
+    (`.headers`, `.get(url, timeout)` → response with `.status_code`,
+    `.text`, `.content`, `.url`, `.raise_for_status()`), fetching through
+    the proxy Worker. The Worker sends the browser headers itself; the
+    `.headers` dict here is accepted and ignored."""
+
+    def __init__(self, base: str, token: str):
+        import requests as plain_requests  # plain TLS is fine towards the Worker
+        self._http = plain_requests.Session()
+        self._http.headers["Authorization"] = f"Bearer {token}"
+        self._base = base.rstrip("/") + "/"
+        self.headers: dict[str, str] = {}
+
+    def get(self, url: str, timeout: int = 60):
+        r = self._http.get(self._base, params={"url": url}, timeout=timeout)
+        # The Worker reports the upstream's final URL so relative download
+        # links resolve the same way they would against a direct response.
+        r.url = r.headers.get("x-proxy-final-url", url)
+        return r
+
+
+def _make_session(log):
+    base = os.environ.get("OHIO_FETCH_PROXY", "").strip()
+    if base:
+        token = os.environ.get("OHIO_FETCH_PROXY_TOKEN", "")
+        if not token:
+            raise RuntimeError("OHIO_FETCH_PROXY is set but OHIO_FETCH_PROXY_TOKEN is empty")
+        log.info(f"  Fetching ohiosos.gov through the proxy Worker at {base}")
+        return _ProxySession(base, token)
+    session = requests.Session(impersonate=IMPERSONATE)
+    session.headers.update(SESSION_HEADERS)
+    return session
+
 
 # ========================= label classification =========================
 #
@@ -464,8 +510,7 @@ def run(
     files_ok = files_err = files_skip = 0
 
     try:
-        session = requests.Session(impersonate=IMPERSONATE)
-        session.headers.update(SESSION_HEADERS)
+        session = _make_session(log)
 
         done = {} if force else load_manifest()
         if force:
