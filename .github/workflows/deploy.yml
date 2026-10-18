@@ -1,0 +1,81 @@
+name: Deploy
+
+# Publishes main to the state-politics-tracker Worker, which serves the hub
+# (state-politics-tracker.daniel-1b1.workers.dev) and the state domains
+# attached to it as custom domains (michiganpoliticstracker.com,
+# texaspoliticstracker.com, cagovtracker.com once its DNS moves).
+#
+# Nothing else deploys this site: Cloudflare has no Git integration for it,
+# and until 2026-10-18 every deployment was a `npx wrangler deploy` run by
+# hand. Needs two repository secrets:
+#   CLOUDFLARE_API_TOKEN   — a token from the "Edit Cloudflare Workers"
+#                            template (Workers Scripts: Edit, Account
+#                            Settings: Read) scoped to the account
+#   CLOUDFLARE_ACCOUNT_ID  — 1b1b2acc0a157c01c9b3006085515db1
+# Without the token the job exits early with a notice rather than failing.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "pipelines/**"
+      - "scripts/**"
+      - "supabase/**"
+      - ".github/workflows/*-sync.yml"
+      - ".github/workflows/lpt-publish.yml"
+      - ".github/workflows/pipelines-ci.yml"
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the Cloudflare token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN secret not set — skipping deploy. Run npx wrangler deploy by hand."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ok == 'true'
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install
+        if: steps.gate.outputs.ok == 'true'
+        run: npm ci
+
+      - name: Test and build
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          npx vitest run
+          npm run build
+
+      - name: Deploy the Worker
+        if: steps.gate.outputs.ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The top-level environment is the hub + custom domains; the
+          # `michigan` env in wrangler.jsonc is unused (no such Worker exists).
+          command: deploy --env ""
