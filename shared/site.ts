@@ -34,10 +34,10 @@ export const SINGLE_STATE_SITES: Record<string, string> = Object.fromEntries(
 
 /**
  * The multi-state hub's public URL, for "All states" links on a dedicated
- * site. Null until the hub has a domain (docs/bootstrap-checklist.md, Phase 3);
- * chrome hides those links while it is null.
+ * site (chrome hides those links when it is null). The hub has served
+ * statepoliticstracker.com since Oct 2026.
  */
-export const HUB_URL: string | null = null;
+export const HUB_URL: string | null = "https://statepoliticstracker.com";
 
 /** Name of the <meta> tag the Worker injects to pin the SPA's state. */
 export const SITE_STATE_META = "site-state";
