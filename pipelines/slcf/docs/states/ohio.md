@@ -17,16 +17,18 @@
 ### Running it from GitHub Actions (the nightly sync)
 
 ohiosos.gov also blocks GitHub's hosted-runner IP ranges outright: every request
-gets a 403 there, impersonated handshake or not (dry run 2026-10-15). Cloudflare's
-network is not blocked (plain `fetch` from a Worker returned the file list,
-2026-10-18), so `finance-sync.yml` routes the scraper through
-`workers/ohio-fetch-proxy`, a Worker that fetches `https://www6.ohiosos.gov/`
-URLs only, GET only, behind a shared secret, and streams the body back with
-`x-proxy-final-url` set to the upstream's final URL. The scraper switches to it
-when `OHIO_FETCH_PROXY` (the Worker URL, a repository variable) and
-`OHIO_FETCH_PROXY_TOKEN` (a repository secret) are set; unset, it talks to
-ohiosos.gov directly with curl_cffi as described below, which works from a
-residential connection.
+gets a 403 there, impersonated handshake or not (dry run 2026-10-15). A Cloudflare
+Worker was tried next (`workers/ohio-fetch-proxy`: fetches `https://www6.ohiosos.gov/`
+URLs only, GET only, behind a shared secret): a `wrangler dev --remote` preview
+pulled all 33 bulk files, but the *deployed* Worker gets 403 from ohiosos.gov
+(2026-10-18). The site is itself on Cloudflare, and Cloudflare lets a zone block
+subrequests from other zones' Workers (`cf.worker.upstream_zone`), which deployed
+Workers carry and previews do not. So the state is `nightly: false` in
+`pipelines/states.json` and loads by hand (`python pipelines/run_state.py oh`)
+from a residential connection until a self-hosted runner exists. The scraper
+still honours `OHIO_FETCH_PROXY` / `OHIO_FETCH_PROXY_TOKEN` if another egress is
+ever found; unset, it talks to ohiosos.gov directly with curl_cffi as described
+below.
 
 ### How this was found (useful context if something breaks)
 
