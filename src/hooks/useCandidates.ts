@@ -932,6 +932,32 @@ export function useCandidateTotals() {
   });
 }
 
+/**
+ * Funding sources for the active race's candidates (cf_funding_sources, one
+ * row per candidate and category). Null for a state read from the Local
+ * Politics Tracker, which has no such breakdown.
+ */
+export function useFundingSources() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  return useQuery({
+    queryKey: ["cf_funding_sources", stateCfg.source, stateCfg.code, race.office, race.district ?? null],
+    queryFn: async (): Promise<{ candidate_id: string; category: string; amount: number }[] | null> => {
+      if (stateCfg.source === "lpt") return null;
+      return fetchAll<{ candidate_id: string; category: string; amount: number }>(() => {
+        let q = (supabase as any)
+          .from("cf_funding_sources")
+          .select("candidate_id,category,amount")
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office);
+        if (race.district) q = q.eq("district", race.district);
+        return q.order("candidate_id").order("category");
+      });
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useExpenditureTotals(candidateId: string | undefined) {
   const stateCfg = useStateConfig();
   return useQuery({

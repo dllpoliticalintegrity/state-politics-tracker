@@ -3,6 +3,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   useCandidates,
   useCandidateTotals,
+  useFundingSources,
 } from "@/hooks/useCandidates";
 import { isGeneralMatchup, pollRowIsCandidate, readCandidatePct, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import PollingChart from "@/components/PollingChart";
@@ -11,6 +12,7 @@ import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCa
 import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
 import CandidateSearch from "@/components/CandidateSearch";
+import RaceSummary from "@/components/RaceSummary";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
@@ -23,9 +25,9 @@ export default function Index() {
   const race = useRaceConfig();
   const hasPollingSource = !!race.pollingSourceUrl;
   const isHome = !race.district && race.office === stateCfg.races?.[0]?.office;
-  const GENERAL_DATE = new Date(`${race.generalDate}T00:00:00`);
   const { data: candidates, isLoading } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
+  const { data: funding } = useFundingSources();
   const { data: polling } = useRacePolling();
   const { data: racePollsAll } = useRacePolls();
   const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
@@ -105,16 +107,6 @@ export default function Index() {
           : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)),
     );
 
-  // ---------- Summary strip ----------
-  const daysToGeneral = Math.max(
-    0,
-    Math.ceil((GENERAL_DATE.getTime() - today.getTime()) / DAY_MS),
-  );
-  // Scope to this race's candidates — totalsMap spans every tracked race.
-  const totalRaised = (candidates ?? []).reduce(
-    (sum, c) => sum + (totalsMap?.get(c.id)?.raised ?? 0),
-    0,
-  );
   const leader = ranked[0] ?? null;
 
   return (
@@ -145,33 +137,27 @@ export default function Index() {
         )}
       </section>
 
-      {/* Summary strip */}
+      {/* Summary: leader, raised & spent, funding sources, money by party */}
       <section className="container pb-10">
-        <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
-          <SummaryStat
-            label="Days to the general"
-            value={String(daysToGeneral)}
-            sub={GENERAL_DATE.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
-          />
-          <SummaryStat
-            label={hasPollingSource ? "Polling leader" : "Money leader"}
-            value={leader ? surnameOf(leader.c.name) : "—"}
-            sub={
-              hasPollingSource
-                ? leader?.stats.pollPct != null
-                  ? `${leader.stats.pollPct}% average`
-                  : "No average yet"
-                : leader
-                  ? `${formatCurrency(leader.stats.raised)} raised`
-                  : "No filings yet"
-            }
-          />
-          <SummaryStat
-            label="Raised this cycle"
-            value={formatCurrency(totalRaised)}
-            sub="Across all committees"
-          />
-        </div>
+        <RaceSummary
+          leaderLabel={hasPollingSource ? "Polling leader" : "Money leader"}
+          leader={
+            leader
+              ? {
+                  name: leader.c.name,
+                  party: leader.c.party,
+                  detail: hasPollingSource
+                    ? leader.stats.pollPct != null
+                      ? `${leader.stats.pollPct}% average`
+                      : "No average yet"
+                    : `${formatCurrency(leader.stats.raised)} raised`,
+                }
+              : null
+          }
+          candidates={candidates ?? []}
+          totals={totalsMap}
+          funding={funding}
+        />
       </section>
 
       {/* Polling chart (polled races only) */}
@@ -241,28 +227,3 @@ export default function Index() {
   );
 }
 
-function surnameOf(name: string): string {
-  return name.trim().split(/\s+/).pop() ?? name;
-}
-
-function SummaryStat({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="px-4 py-4 md:px-6 text-center md:text-left">
-      <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground mb-1.5">
-        {label}
-      </div>
-      <div className="font-display text-2xl md:text-3xl font-semibold leading-none mb-1 truncate">
-        {value}
-      </div>
-      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
-    </div>
-  );
-}
