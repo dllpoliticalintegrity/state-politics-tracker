@@ -15,13 +15,40 @@ When a committee amends a filing, Iowa generates a new PDF with a new
 filename (timestamp in name). The index always returns the latest version.
 Old amendment files persist on disk as orphans but are never re-parsed,
 since the parser reads only files listed in the manifest.
+
+--search (transactions): contributions and expenditures also come from the
+IECDB Searchable Database, the JSON behind the site's contribution and
+expenditure search —
+  https://webapp.iecdb.iowa.gov/api/search/table
+— which carries a stable per-transaction id (transactionId) and the kind of
+the other party (committee / organisation / individual), neither of which the
+PDFs have, and is current to the latest filed report (the Iowa Data Hub's
+bulk exports, datasets 917 / 918, stopped taking new filings in July 2026).
+Queried statewide, one calendar quarter at a time:
+  • every row: one query per committee type (lookups/committee/types) —
+    option 7 "to a committee type" for contributions, 8 "from a committee
+    type" for expenditures. A query is capped at 300,000 rows, so a capped
+    window is split; each window is padded by a day on either side (some
+    rows are stamped 06:00 UTC and fall outside an exact window) and rows
+    are kept by their own date, deduplicated by transactionId.
+  • the organisations: option 4 "from an organization" / 6 "to an
+    organization", which the API answers statewide (a committee-type code
+    must be present but is not applied). Committees carry their own code;
+    nameless lump sums are named "Un-itemized"; everyone else is a person.
+Rows go to search_{contributions|expenditures}_{year}.csv, written as .part
+and renamed only once every window succeeded; a failure raises, so the
+scraper exits non-zero before a partial year can be parsed. The PDFs are
+still downloaded in this mode: loans (Sch-F1/F2) and committee details exist
+only there. A run without --search deletes the search files, so the parser
+goes back to the PDFs' own schedules.
 """
 
+import calendar
 import csv
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -61,6 +88,24 @@ REQUEST_HEADERS = {
     "sec-fetch-mode": "cors",
     "sec-fetch-dest": "empty",
 }
+
+# --search: the Searchable Database. Per output table: (transactionType,
+# per-committee-type option, organisation option) — the site's own codes.
+SEARCH_URL   = "https://webapp.iecdb.iowa.gov/api/search/table"
+SEARCH_TYPES = "https://webapp.iecdb.iowa.gov/api/lookups/committee/types"
+SEARCH = {
+    "contributions": ("CON", 7, 4),   # returns CON and INK rows
+    "expenditures":  ("EXP", 8, 6),
+}
+SEARCH_CAP        = 300_000           # the API's row limit per query
+SEARCH_TRIES      = 4
+SEARCH_START_YEAR = 2008              # earliest rows in the database
+SEARCH_COLS = [
+    "transactionId", "date", "transactionType", "kind", "amount", "checkNumber",
+    "committeeType", "primaryCommitteeCode", "primaryName",
+    "secondaryCommitteeCode", "secondaryName", "secondaryAddress1",
+    "secondaryAddress2", "secondaryCity", "secondaryState", "secondaryZip",
+]
 
 # ========================= manifest helpers ==========================
 
@@ -124,6 +169,151 @@ def download_pdf(session: requests.Session, file_url: str,
         return False
 
 
+# ==================== transactions: --search mode ====================
+
+def _search_post(session: requests.Session, body: dict) -> list[dict]:
+    """One Searchable Database query, retried. HTTP 204 is an empty result."""
+    last = None
+    for attempt in range(SEARCH_TRIES):
+        if attempt:
+            time.sleep(15 * attempt)
+        try:
+            resp = session.post(SEARCH_URL, json=body, timeout=900)
+            if resp.status_code == 204:
+                return []
+            resp.raise_for_status()
+            rows = resp.json()
+            if isinstance(rows, list):
+                return rows
+            last = f"unexpected response: {str(rows)[:200]}"
+        except (requests.RequestException, ValueError) as e:
+            last = e
+    raise RuntimeError(f"search {body}: failed after {SEARCH_TRIES} tries: {last}")
+
+
+def _search_window(session: requests.Session, tx_type: str, option: int, type_cd: str,
+                   start: date, end: date) -> list[dict]:
+    """Rows dated start..end (inclusive) for one query, splitting the window
+    when the API's row cap is hit or a long window keeps failing (the
+    server's own SQL timeout). The query is padded by a day on each side;
+    rows are kept by their own date."""
+    body = {"transactionType": tx_type, "transactionOption": option,
+            "primaryCommitteeTypeCd": type_cd, "primaryCommitteeId": None,
+            "secondaryCommitteeId": None,
+            "DateFrom": f"{start - timedelta(days=1)}T00:00:00Z",
+            "DateTo":   f"{end + timedelta(days=1)}T23:59:59Z"}
+    try:
+        rows = _search_post(session, body)
+    except RuntimeError:
+        if (end - start).days < 7:
+            raise
+        rows = None
+    if rows is None or len(rows) >= SEARCH_CAP:
+        if start == end:
+            raise RuntimeError(f"search {tx_type}/{option}/{type_cd} {start}: "
+                               f"{SEARCH_CAP:,}-row cap on a single day")
+        mid = start + (end - start) // 2
+        return (_search_window(session, tx_type, option, type_cd, start, mid)
+                + _search_window(session, tx_type, option, type_cd, mid + timedelta(days=1), end))
+    lo, hi = start.isoformat(), end.isoformat()
+    return [r for r in rows if lo <= (r.get("date") or "")[:10] <= hi]
+
+
+def _search_quarters(start_year: int, end_year: int) -> list[tuple[date, date]]:
+    """Calendar quarters from start_year through end_year (the current year's
+    last quarter runs to 31 December, so a row dated ahead by a filer's typo
+    is still fetched)."""
+    return [(date(y, m, 1), date(y, m + 2, calendar.monthrange(y, m + 2)[1]))
+            for y in range(start_year, end_year + 1) for m in (1, 4, 7, 10)]
+
+
+def _search_kind(row: dict, organisations: set[str]) -> str:
+    if row.get("secondaryCommitteeCode"):
+        return "Committee"
+    if row.get("transactionId") in organisations:
+        return "Organization"
+    if (row.get("secondaryName") or "").strip().lower() == "un-itemized":
+        return "Unitemized"
+    return "Individual"
+
+
+def run_search(log, start_year: int | None, end_year: int | None) -> int:
+    """--search: fetch both tables from the Searchable Database into
+    search_{label}_{year}.csv (see the module docstring). Returns the number
+    of year files written; raises on any failure."""
+    session = requests.Session()
+    session.headers.update({**REQUEST_HEADERS,
+                            "Referer": "https://webapp.iecdb.iowa.gov/searchable-database"})
+    types = None
+    for attempt in range(SEARCH_TRIES):
+        try:
+            r = session.get(SEARCH_TYPES, timeout=120)
+            r.raise_for_status()
+            types = {t["code"]: (t.get("name") or "").strip() for t in r.json()}
+            break
+        except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+            log.warning(f"  committee types: try {attempt + 1}/{SEARCH_TRIES} failed: {e}")
+            time.sleep(15 * (attempt + 1))
+    if not types:
+        raise RuntimeError("search: no committee types from lookups/committee/types")
+
+    first = start_year or SEARCH_START_YEAR
+    last  = end_year or datetime.today().year
+    files = 0
+    for label, (tx_type, type_option, org_option) in SEARCH.items():
+        filename = f"search_{label}_{first}-{last}"
+        log.file_download_start(filename=filename)
+        t0 = time.perf_counter()
+        handles: dict[str, tuple] = {}
+        counts:  dict[str, int]   = {}
+        seen:    set[str]         = set()
+        try:
+            for q_start, q_end in _search_quarters(first, last):
+                organisations = {r.get("transactionId") for r in _search_window(
+                    session, tx_type, org_option, next(iter(types)), q_start, q_end)}
+                for type_cd, type_name in types.items():
+                    for row in _search_window(session, tx_type, type_option, type_cd,
+                                              q_start, q_end):
+                        tid = row.get("transactionId")
+                        if not tid or tid in seen:
+                            continue
+                        seen.add(tid)
+                        year = row["date"][:4]
+                        if year not in handles:
+                            fh = open(RAW_DIR / f"search_{label}_{year}.csv.part", "w",
+                                      encoding="utf-8", newline="")
+                            w = csv.DictWriter(fh, fieldnames=SEARCH_COLS, extrasaction="ignore")
+                            w.writeheader()
+                            handles[year] = (fh, w)
+                            counts[year] = 0
+                        handles[year][1].writerow({**row, "kind": _search_kind(row, organisations),
+                                                   "committeeType": type_name})
+                        counts[year] += 1
+                log.info(f"    {label} {q_start}..{q_end}: {len(seen):,} rows so far")
+        except BaseException as e:
+            for year, (fh, _) in handles.items():
+                fh.close()
+                (RAW_DIR / f"search_{label}_{year}.csv.part").unlink(missing_ok=True)
+            log.file_download_error(filename=filename, error=str(e))
+            raise
+        for year, (fh, _) in handles.items():
+            fh.close()
+            (RAW_DIR / f"search_{label}_{year}.csv.part").replace(
+                RAW_DIR / f"search_{label}_{year}.csv")
+        # An in-range year file from an earlier run that got no rows now.
+        for old in RAW_DIR.glob(f"search_{label}_*.csv"):
+            year = old.stem.rsplit("_", 1)[-1]
+            if year.isdigit() and first <= int(year) <= last and year not in counts:
+                old.unlink()
+        log.file_download_ok(filename=filename,
+                             bytes=sum((RAW_DIR / f"search_{label}_{y}.csv").stat().st_size
+                                       for y in counts),
+                             rows=sum(counts.values()),
+                             duration_s=round(time.perf_counter() - t0, 2))
+        files += len(counts)
+    return files
+
+
 # ============================== run ==================================
 
 def run(
@@ -136,6 +326,7 @@ def run(
     expenditures: bool = False,
     candidates: bool = False,
     committees: bool = False,
+    search: bool = False,
 ):
     """
     Download Iowa DR-2 filing PDFs from the IECDB public reports API.
@@ -150,11 +341,34 @@ def run(
         --start-year     re-download all PDFs with period_year >= YYYY
         --end-year       re-download all PDFs with period_year <= YYYY
         --force          wipe manifest and re-download everything
+
+    search=True: contributions and expenditures are first fetched from the
+    Searchable Database (search_*_{year}.csv, with transaction ids) — see the
+    module docstring; a failure there raises (exit 1). The PDFs follow as
+    usual, for loans and committee details.
     """
     log = get_logger("iowa", "scrape")
     t0  = time.perf_counter()
     log._emit("scrape_started", force=force, entities=entities,
-              transactions=transactions, start_year=start_year, end_year=end_year)
+              transactions=transactions, start_year=start_year, end_year=end_year,
+              search=search)
+
+    if search:
+        try:
+            n = run_search(log, start_year, end_year)
+        except BaseException as e:
+            log._emit("scrape_completed", status="error",
+                      duration_s=round(time.perf_counter() - t0, 1),
+                      files_ok=0, files_err=1,
+                      error_type=type(e).__name__, error=str(e))
+            raise
+        log.info(f"  Searchable Database: {n} year files "
+                 f"({round(time.perf_counter() - t0, 1)}s)")
+    else:
+        # Search files left by an earlier --search run would replace the
+        # PDFs' own schedules in the parser.
+        for old in RAW_DIR.glob("search_*.csv"):
+            old.unlink()
 
     current_year     = datetime.today().year
     current_year_str = str(current_year)
@@ -342,6 +556,9 @@ if __name__ == "__main__":
     ap.add_argument("--expenditures",  action="store_true")
     ap.add_argument("--candidates",    action="store_true")
     ap.add_argument("--committees",    action="store_true")
+    ap.add_argument("--search",        action="store_true",
+                    help="contributions and expenditures from the IECDB Searchable "
+                         "Database (with transaction ids); PDFs still give loans")
 
     args, _ = ap.parse_known_args()
 
@@ -365,6 +582,7 @@ if __name__ == "__main__":
             expenditures=args.expenditures,
             candidates=args.candidates,
             committees=args.committees,
+            search=args.search,
         )
     except KeyboardInterrupt:
         sys.exit(130)
