@@ -133,6 +133,16 @@ class Settle(unittest.TestCase):
         self.assertIsNone(roster.settle("withdrawn", "won_primary"))
 
 
+class BallotStatus(unittest.TestCase):
+    def test_only_a_ballot_sourced_race_settles_and_blank_is_not_off_ballot(self):
+        self.assertEqual(roster.ballot_status(None, False, False, "Republican"), "active")   # no source
+        self.assertEqual(roster.ballot_status(None, None, True, "Republican"), "active")     # blank
+        self.assertEqual(roster.ballot_status(None, False, True, "Republican"), "not_on_ballot")
+        self.assertEqual(roster.ballot_status(None, True, True, "Democrat"), "won_primary")
+        self.assertEqual(roster.ballot_status(None, True, True, "Green"), "nominee")
+        self.assertEqual(roster.ballot_status("eliminated", None, True, None), "lost_primary")
+
+
 class Statewide(unittest.TestCase):
     """Arizona Secretary of State, 2026-10-18: Collier missing, Kolodin's
     committee unlinked, Swoboda off the ballot."""
