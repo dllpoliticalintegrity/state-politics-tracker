@@ -119,8 +119,29 @@ export type LptPoll = {
   sample_size: number | null;
   sample_type: string | null;
   margin_of_error: number | string | null;
-  race_poll_results: LptPollResult[] | null;
+  /** Set for the hub's own states (bridged FiftyPlusOne rows); null in Henry's data. */
+  matchup?: string | null;
+  source_url?: string | null;
+  results?: LptPollResult[] | null;
+  /** Older shape (PostgREST embed); hub_race_polls returns `results`. */
+  race_poll_results?: LptPollResult[] | null;
 };
+
+/** A race's published average (hub_poll_averages), when a source carries one. */
+export type LptPollAverage = {
+  source: string;
+  source_url: string | null;
+  as_of: string | null;
+  spread: string | null;
+  last_updated: string | null;
+  averages: LptPollResult[];
+};
+
+export type LptRacePolls = { polls: LptPoll[]; average: LptPollAverage | null };
+
+function resultsOf(p: LptPoll): LptPollResult[] {
+  return p.results ?? p.race_poll_results ?? [];
+}
 
 function isUndecided(label: string): boolean {
   return /^(undecided|other|someone else|none|refused|don'?t know|unsure)/i.test(label.trim());
@@ -137,15 +158,39 @@ export function sortPollsNewestFirst<T extends { poll_date: string | null }>(pol
  * keyed by surname like the FiftyPlusOne bundle the pages were written for.
  * Null when the race has no polls.
  */
-export function buildPollingBundle(polls: LptPoll[], race: Pick<RaceConfig, "pollingSourceUrl">, sourceLabel: string): PollingBundle | null {
-  const sorted = sortPollsNewestFirst(polls).filter((p) => (p.race_poll_results ?? []).length > 0);
+export function buildPollingBundle(
+  polls: LptPoll[],
+  race: Pick<RaceConfig, "pollingSourceUrl">,
+  sourceLabel: string,
+  published: LptPollAverage | null = null,
+): PollingBundle | null {
+  // A source that publishes its own average (FiftyPlusOne, for the hub's
+  // own states) wins over the site's rolling mean.
+  if (published && published.averages.length) {
+    const average: PollRow = { Poll: `${published.source} Average`, Date: published.as_of ?? "", Sample: "", MoE: "" };
+    for (const r of published.averages) {
+      const pct = Number(r.pct);
+      if (!Number.isFinite(pct) || isUndecided(r.label)) continue;
+      const surname = surnameOf(r.label);
+      if (r.candidate_id) average[pollIdKey(r.candidate_id)] = String(pct);
+      if (surname) average[surname] = average[surname] ?? String(pct);
+    }
+    return {
+      rcp_url: published.source_url ?? race.pollingSourceUrl ?? null,
+      last_updated: published.last_updated ?? published.as_of,
+      spread: published.spread,
+      average,
+      polls: [],
+    };
+  }
+  const sorted = sortPollsNewestFirst(polls).filter((p) => resultsOf(p).length > 0);
   if (sorted.length === 0) return null;
   const window = sorted.slice(0, POLL_AVERAGE_WINDOW);
   // One entry per candidate (by id when the result names one, else by
   // surname), each also written under its surname for the surname-keyed pages.
   const sums = new Map<string, { total: number; n: number; surname: string; id: string | null }>();
   for (const p of window) {
-    for (const r of p.race_poll_results ?? []) {
+    for (const r of resultsOf(p)) {
       if (isUndecided(r.label)) continue;
       const pct = Number(r.pct);
       if (!Number.isFinite(pct)) continue;
@@ -186,7 +231,7 @@ export function toRacePollRows(polls: LptPoll[]): RacePollRow[] {
   const rows: RacePollRow[] = [];
   for (const p of sortPollsNewestFirst(polls)) {
     if (!p.poll_date) continue;
-    for (const r of p.race_poll_results ?? []) {
+    for (const r of resultsOf(p)) {
       if (isUndecided(r.label)) continue;
       const pct = Number(r.pct);
       if (!Number.isFinite(pct)) continue;
@@ -199,8 +244,8 @@ export function toRacePollRows(polls: LptPoll[]): RacePollRow[] {
         field_end: p.poll_date,
         sample_size: p.sample_size,
         sample_kind: p.sample_type,
-        source_url: null,
-        matchup: "general",
+        source_url: p.source_url ?? null,
+        matchup: p.matchup ?? "general",
       });
     }
   }

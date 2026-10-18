@@ -115,7 +115,8 @@ export function useRacePolling() {
       // LPT stores one row per poll and no aggregate; the average is the
       // site's own, over the most recent polls (src/lib/lpt.ts).
       if (stateCfg.source === "lpt") {
-        return buildPollingBundle(await fetchRacePolls(stateCfg.code, race), race, pollingSourceLabel(race));
+        const { polls, average } = await fetchRacePolls(stateCfg.code, race);
+        return buildPollingBundle(polls, race, pollingSourceLabel(race), average);
       }
       return fetchRacePolling(race);
     },
@@ -153,7 +154,7 @@ export function useRacePolls() {
   return useQuery({
     queryKey: ["race_polls", stateCfg.source, stateCfg.code, raceCfg.raceSlug, pollingSourceKey(raceCfg)],
     queryFn: async (): Promise<RacePollRow[]> => {
-      if (stateCfg.source === "lpt") return toRacePollRows(await fetchRacePolls(stateCfg.code, raceCfg));
+      if (stateCfg.source === "lpt") return toRacePollRows((await fetchRacePolls(stateCfg.code, raceCfg)).polls);
       const { data: race } = await (supabase as any)
         .from("races")
         .select("race_id")

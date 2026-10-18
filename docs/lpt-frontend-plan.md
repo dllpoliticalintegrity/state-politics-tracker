@@ -208,11 +208,26 @@ unless the disposition says withdrew or lost, or an override says otherwise.
      carries an $86.4M "interest_investment" line for Texans for Greg
      Abbott that needs a look.
    Michigan's chambers map to `state-senate` and `state-representative`.
-3. **California into LPT.** The CAL-ACCESS importer (`ca-finance-sync.yml`)
-   writes LPT's tables: candidates, committees, contributions, expenditures,
-   races and participants. Needs an LPT service key as a GitHub secret, and
-   Henry's push must leave `CA` rows alone. Until then California reads from
-   tracker.
+3. **Michigan, Texas and California into LPT — the bridge** (decided
+   2026-10-18: "bridge first"). Their importers keep writing the tracker;
+   `pipelines/lpt/publish_state.py` copies each state's settled `cf_*` rows
+   (plus its FiftyPlusOne polls and average) into LPT's `mi_*`, `tx_*`,
+   `ca_*` tables nightly (`lpt-publish.yml`, 16:00 UTC, after the three
+   importers), idempotent by the tracker's ids, pruning what the tracker
+   dropped, then refreshing the hub caches for the state.
+   - `003_hub_state_tables.sql`: `hub_state_source` (which states read
+     prefixed tables), `hub_poll_averages`, and the eight `<st>_*` tables
+     per state in Henry's column shape. Applied 2026-10-18.
+   - `004_hub_routing.sql`: every `hub_*` read function and the refresh
+     routed by state through `hub_src()` — his shared tables and matviews
+     for his states, our prefixed tables for ours. plpgsql with EXECUTE, so
+     each call is planned with the actual state. Applied 2026-10-18.
+   - Needs the `LPT_SERVICE_ROLE_KEY` GitHub secret (the workflow skips with
+     a warning without it). First run: dispatch with `limit` as a smoke
+     test, then a full run per state, then compare `hub_race_totals` with
+     the tracker's summaries before flipping the state's `source`.
+   - The tracker is retired later by repointing the three importers at the
+     prefixed tables (phase 5).
 4. **Curated content.** Move `cf_candidates` photos, bios and featured flags
    into `hub_candidate_overrides`, and point the admin console
    (data-diamine's `spt-tracker-admin`) at it.

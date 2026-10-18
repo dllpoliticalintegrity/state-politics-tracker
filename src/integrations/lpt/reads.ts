@@ -20,7 +20,16 @@ import type {
 import type { LatestContribution } from "@/hooks/useLatestContributions";
 import type { RiverFilters, RiverRow } from "@/lib/moneyRiver";
 import type { RaceConfig, StateConfig } from "@/states/registry";
-import { fromLptOffice, lptDistrict, lptRaceSlug, normalizeParty, toLptOffice, type LptPoll } from "@/lib/lpt";
+import {
+  fromLptOffice,
+  lptDistrict,
+  lptRaceSlug,
+  normalizeParty,
+  toLptOffice,
+  type LptPoll,
+  type LptPollAverage,
+  type LptRacePolls,
+} from "@/lib/lpt";
 
 /** A race in LPT's terms: upper-cased later by the functions; office in LPT's spelling; office_num or null. */
 export type RaceScope = { state: string; office: string; district: number | null };
@@ -223,15 +232,15 @@ export async function fetchRaceTopDonors(scope: RaceScope, kind: string, perCand
   return rows.map((r) => ({ ...r, contribution_count: num(r.contribution_count), total_amount: num(r.total_amount) }));
 }
 
-export async function fetchTopEmployers(candidateId: string, limit: number): Promise<{ name: string; amount: number }[]> {
-  const rows = await run<{ employer: string; amount: number; rnk: number }>(
-    lpt.from("candidate_top_employers").select("employer,amount,rnk").eq("candidate_id", candidateId).order("rnk").limit(limit),
+export async function fetchTopEmployers(state: string, candidateId: string, limit: number): Promise<{ name: string; amount: number }[]> {
+  const rows = await run<{ name: string; amount: number; donors: number }>(
+    lpt.rpc("hub_candidate_top_employers", { p_state: state, p_candidate_id: candidateId, p_limit: limit }),
   );
-  return rows.map((r) => ({ name: r.employer, amount: num(r.amount) }));
+  return rows.map((r) => ({ name: r.name, amount: num(r.amount) }));
 }
 
-export async function fetchLoans(candidateId: string, limit: number): Promise<TxLoan[]> {
-  const rows = await run<TxLoan>(lpt.rpc("hub_candidate_loans", { p_candidate_id: candidateId }));
+export async function fetchLoans(state: string, candidateId: string, limit: number): Promise<TxLoan[]> {
+  const rows = await run<TxLoan>(lpt.rpc("hub_candidate_loans", { p_state: state, p_candidate_id: candidateId }));
   return rows
     .map((r) => ({ ...r, total_amount: num(r.total_amount), contribution_count: num(r.contribution_count) }))
     .slice(0, limit);
@@ -255,29 +264,22 @@ export async function fetchIeByCandidate(scope: RaceScope): Promise<TxIeByCandid
 
 type IeActivityRow = {
   committee: string | null;
+  filer_id: string | null;
   payee: string | null;
   purpose: string | null;
   amount: number;
   expenditure_date: string | null;
   support_oppose: string | null;
-  rnk_by_date: number;
 };
 
 /** Most recent independent expenditures for or against one candidate. */
-export async function fetchIeForCandidate(candidateId: string, limit: number): Promise<TxIeRow[]> {
+export async function fetchIeForCandidate(state: string, candidateId: string, limit: number): Promise<TxIeRow[]> {
   const rows = await run<IeActivityRow>(
-    lpt
-      .from("candidate_ie_activity")
-      .select("committee,payee,purpose,amount,expenditure_date,support_oppose,rnk_by_date")
-      .eq("candidate_id", candidateId)
-      .in("support_oppose", ["S", "O"])
-      .lte("rnk_by_date", limit)
-      .order("expenditure_date", { ascending: false, nullsFirst: false })
-      .order("amount", { ascending: false }),
+    lpt.rpc("hub_candidate_ie_activity", { p_state: state, p_candidate_id: candidateId, p_limit: limit }),
   );
   return rows.slice(0, limit).map((r, i) => ({
-    id: `${candidateId}-${r.support_oppose}-${r.rnk_by_date}-${i}`,
-    ie_filer_ident: r.committee,
+    id: `${candidateId}-${r.support_oppose}-${i}`,
+    ie_filer_ident: r.filer_id,
     target_candidate_id: candidateId,
     support_oppose: r.support_oppose,
     amount: num(r.amount),
@@ -386,17 +388,10 @@ export async function fetchMoneyRiver(
 // Polling
 // ---------------------------------------------------------------------------
 
-/** Every poll of a race with its per-candidate results, newest first. */
-export async function fetchRacePolls(state: string, race: RaceConfig): Promise<LptPoll[]> {
-  const races = await run<{ race_id: string }>(
-    lpt.from("races").select("race_id").eq("state_id", state.toUpperCase()).eq("slug", lptRaceSlug(race)).limit(1),
-  );
-  if (!races.length) return [];
-  return run<LptPoll>(
-    lpt
-      .from("race_polls")
-      .select("poll_id,source,poll_date,sample_size,sample_type,margin_of_error,race_poll_results(label,party,pct,candidate_id)")
-      .eq("race_id", races[0].race_id)
-      .order("poll_date", { ascending: false, nullsFirst: false }),
-  );
+/** Every poll of a race with its per-candidate results, newest first, plus the race's published average when one exists. */
+export async function fetchRacePolls(state: string, race: RaceConfig): Promise<LptRacePolls> {
+  const { data, error } = await lpt.rpc("hub_race_polls", { p_state: state, p_slug: lptRaceSlug(race) });
+  if (error) throw error;
+  const d = (data ?? {}) as { polls?: LptPoll[]; average?: LptPollAverage | null };
+  return { polls: d.polls ?? [], average: d.average ?? null };
 }
