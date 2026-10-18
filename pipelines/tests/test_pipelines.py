@@ -5,12 +5,15 @@
 No network: the Supabase calls the loader makes are replaced with fakes.
 """
 
+import contextlib
 import csv
 import gzip
+import io
 import json
 import sys
 import tempfile
 import unittest
+from collections import defaultdict
 from pathlib import Path
 from unittest import mock
 
@@ -368,6 +371,45 @@ class LoaderTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             list(load_cf.rows_for_state("co", dict(entry, loan_records={"Loan Forgiven": "loans"}),
                                         self.clean, self.REFS))
+
+    def test_hashed_cutover_prunes_against_the_rows_live_before_the_load(self):
+        # A hashed-id state's first run: none of SLCF's ids are live yet, the
+        # pilot's three rows are. Judged after the upsert, live would be six
+        # rows (50%) and the guard would refuse, leaving both copies live.
+        write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
+            {"state_filer_id": "1", "date": "2026-02-0%d" % d, "amount": "10",
+             "contributor_name": "JANE DOE %d" % d} for d in (1, 2, 3)])
+        write_gz(self.clean / "expenditures.csv.gz", C.EXPENDITURES, [])
+        db = {("cf_contributions", "co:%032x" % i): (10.0, "2026-02-01") for i in range(3)}
+        deleted = []
+
+        def live_stats(st, refs):
+            stats = defaultdict(load_cf.new_stat)
+            for (t, txn), (amt, d) in db.items():
+                load_cf.add(stats[("phil-weiser", t)], amt, d, txn)
+            return stats
+
+        def upsert(table, rows, **kw):
+            db.update({(table, r["source_txn_id"]): (r["amount"], r["contribution_date"])
+                       for r in rows})
+
+        def delete(path):
+            deleted.append(path)
+            for txn in path.split("source_txn_id=in.(")[1].rstrip(")").split(","):
+                db.pop(("cf_contributions", txn.strip('"')), None)
+
+        with mock.patch.object(load_cf, "manifest_entry", return_value=dict(self.ENTRY, prune=True)), \
+             mock.patch.object(load_cf, "candidate_refs", return_value=self.REFS), \
+             mock.patch.object(load_cf, "live_stats", side_effect=live_stats), \
+             mock.patch.object(load_cf.rest, "SUPABASE_URL", "http://db"), \
+             mock.patch.object(load_cf.rest, "KEY", "k"), \
+             mock.patch.object(load_cf.rest, "upsert", side_effect=upsert), \
+             mock.patch.object(load_cf.rest, "delete", side_effect=delete), \
+             contextlib.redirect_stdout(io.StringIO()):
+            load_cf.main(["--state", "co", "--data-dir", self.tmp.name])
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(db), 3)
+        self.assertTrue(all(txn.startswith("co:h:") for _, txn in db))
 
     def test_missing_loader_columns_is_an_error(self):
         write_gz(self.clean / "contributions.csv.gz", ["state", "amount"], [{"amount": "1"}])
