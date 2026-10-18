@@ -6,6 +6,7 @@ import MoneyTabs from "@/components/MoneyTabs";
 import { useCandidates, useIEByCandidate, useTopIECommittees } from "@/hooks/useCandidates";
 import { formatCurrency, formatCurrencyFull, partyColor } from "@/lib/finance";
 import { isOffBallot } from "@/lib/candidateStatus";
+import { mergeIeCycles } from "@/lib/outsideSpending";
 
 const CYCLE_OPTIONS = [
   { value: "all", label: "All cycles" },
@@ -24,8 +25,11 @@ export default function IndependentExpenditures() {
 
   const candidateById = new Map((candidates ?? []).map((c) => [c.id, c]));
 
-  const perCandidate = (ieByCand ?? [])
-    .filter((r) => cycleFilter === "all" || r.cycle === cycleFilter)
+  const perCandidate = (
+    cycleFilter === "all"
+      ? mergeIeCycles(ieByCand ?? [])
+      : (ieByCand ?? []).filter((r) => r.cycle === cycleFilter)
+  )
     .map((r) => {
       const cand = candidateById.get(r.candidate_id);
       return {
