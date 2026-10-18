@@ -121,6 +121,28 @@ export function Header() {
     };
   }, [chrome.accentColor]);
 
+  // Browser-tab icon: a published row's uploaded icon replaces the build's
+  // favicon.ico; removing it (or the hub) restores the default.
+  useEffect(() => {
+    const head = document.head;
+    let link = head.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (chrome.faviconUrl) {
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        head.appendChild(link);
+      }
+      link.href = chrome.faviconUrl;
+    } else if (link && link.dataset.siteIcon === "1") {
+      link.remove();
+    }
+    if (link && chrome.faviconUrl) link.dataset.siteIcon = "1";
+    return () => {
+      const l = head.querySelector<HTMLLinkElement>('link[rel="icon"][data-site-icon="1"]');
+      if (l) l.remove();
+    };
+  }, [chrome.faviconUrl]);
+
   return (
     <header
       className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85"
