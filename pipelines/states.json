@@ -94,7 +94,7 @@
 
     "or": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "playwright": true, "prune": true,
             "individual_types": ["individual"],
-            "note": "ORESTAR needs a visible Chromium (F5 bot defense fingerprints headless and plain HTTP), so it runs from a desktop, not GitHub's runners; nightly off. First local run 2026-10-18 failed: early windows got blank pages, and the export now returns .xlsx, which the scraper's xlrd reader rejects (Excel xlsx file; not supported), so the scraper needs an openpyxl path before Oregon can load. Book Type Individual = person. state_filer_id = ORESTAR Committee Id (filer_refs or:<id>, seeded 2026-10-18 from LPT's roster for the governor race)" },
+            "note": "ORESTAR needs a visible Chromium (F5 bot defense fingerprints headless and plain HTTP), so it runs from a desktop, not GitHub's runners; nightly off. Henry's 2026-10-18 scraper reads the .xlsx exports (merged); a local run then downloaded 140 of 159 windows (19 blank-page failures from the bot defense in Apr/Aug–Oct 2026) but loaded nothing: the parser carries no state_filer_id / txn_id on transaction rows (ORESTAR's Filer Id / Tran Id), so the loader cannot match rows to the seeded filer_refs. Next: emit those two columns in parsers/oregon.py and retry the failed windows; nightly stays off. Book Type Individual = person. state_filer_id = ORESTAR Committee Id (filer_refs or:<id>, seeded 2026-10-18 from LPT's roster for the governor race)" },
     "me": { "pipeline": "none", "note": "Maine's disclosure system blocks datacenter IPs (Cloudflare WAF)" },
     "nv": { "pipeline": "none", "note": "SLCF has a Nevada scraper but no parser yet" }
   }

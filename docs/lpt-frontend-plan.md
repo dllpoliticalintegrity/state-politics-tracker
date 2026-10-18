@@ -74,10 +74,12 @@ aggregates. So:
   only from a desktop. The tracker has no Oregon roster yet; LPT's `candidates`
   rows for OR governor carry the ORESTAR committee ids (`state_filer_id`);
   the 24 candidates are seeded in `cf_candidates` (2026-10-18) and `or` is in
-  `pipelines/states.json`. The first local scrape failed: ORESTAR's export is
-  now .xlsx and the scraper reads .xls with xlrd, and the first windows came
-  back as blank pages. The scraper needs that fix before Oregon loads; OR
-  stays on LPT until then.
+  `pipelines/states.json`. Henry's 2026-10-18 scraper reads the .xlsx
+  exports (merged in PR #42); a local run downloaded 140 of 159 windows (19
+  blank-page failures from ORESTAR's bot defense) but the parser puts no
+  Filer Id / Tran Id on transaction rows, so the loader matched nothing.
+  Next: emit `state_filer_id` / `txn_id` in `parsers/oregon.py`, retry the
+  failed windows, reconcile. OR stays on LPT until then.
 - The `lpt-publish` workflow no longer bridges anything on its schedule; it
   only refreshes LPT's hub caches for the states still read from Henry's
   tables (`LPT_HIS_STATES`, default `OR`). The bridge still runs on manual
