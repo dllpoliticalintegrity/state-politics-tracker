@@ -73,7 +73,7 @@ export default {
     }
 
     if (url.pathname === "/sitemap.xml") return sitemapResponse(url.origin, siteState);
-    if (url.pathname === "/robots.txt") return robotsResponse(url.origin);
+    if (url.pathname === "/robots.txt") return robotsResponse(url.origin, siteState);
     if (url.pathname === "/llms.txt") {
       const generated = llmsResponse(siteState);
       if (generated) return generated;

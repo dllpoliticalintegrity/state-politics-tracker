@@ -7,6 +7,7 @@ import {
   legacyRedirectResponse,
   llmsResponse,
   rewriteHtml,
+  robotsResponse,
   routeMeta,
   singleStateRoutes,
   sitemapEntries,
@@ -19,17 +20,17 @@ const INDEX_HTML = `<!doctype html><html><head><title>State Politics Tracker —
 <meta property="og:title" content="hub">
 </head><body><div id="root"></div></body></html>`;
 
-describe("hub metadata (unchanged behaviour)", () => {
-  it("serves the landing page only", () => {
+describe("hub metadata", () => {
+  it("serves the landing page, and nothing for states that keep their own canonical", () => {
     expect(routeMeta("/", null)).toBe(STATIC_ROUTES["/"]);
-    expect(routeMeta("/mi", null)).toBeNull();
-    expect(routeMeta("/mi/governor", null)).toBeNull();
-    expect(sitemapEntries(null).map((e) => e.path)).toEqual(["/"]);
+    expect(routeMeta("/oh", null)).toBeNull();
+    expect(routeMeta("/oh/governor", null)).toBeNull();
+    expect(routeMeta("/ca/governor", null)).toBeNull();
     expect(llmsResponse(null)).toBeNull();
   });
 
   it("passes hub HTML through untouched when the route has no metadata", async () => {
-    const req = new Request("https://hub.example/mi/governor");
+    const req = new Request("https://hub.example/oh/governor");
     const res = new Response(INDEX_HTML, { headers: { "content-type": "text/html" } });
     expect(await applySeoRewrite(req, res, null)).toBe(res);
   });
@@ -106,11 +107,12 @@ describe("single-state metadata", () => {
   });
 
   it("emits absolute sitemap URLs for the requesting origin", async () => {
-    const xml = await sitemapResponse("https://michiganpoliticstracker.com", "mi").text();
-    expect(xml).toContain("<loc>https://michiganpoliticstracker.com/governor</loc>");
-    expect(xml).not.toContain("/mi/governor");
+    const xml = await sitemapResponse("https://ohiopoliticstracker.com", "oh").text();
+    expect(xml).toContain("<loc>https://ohiopoliticstracker.com/governor</loc>");
+    expect(xml).not.toContain("/oh/governor");
     const hub = await sitemapResponse("https://hub.example", null).text();
-    expect(hub.match(/<loc>/g)).toHaveLength(1);
+    expect(hub).toContain("<loc>https://hub.example/</loc>");
+    expect(hub).not.toContain("hub.example/oh");
   });
 
   it("generates a Michigan llms.txt", async () => {
@@ -175,5 +177,60 @@ describe("Texas on the hub", () => {
     expect(legacyRedirectResponse(new URL("https://texaspoliticstracker.com/governor"), "tx")).toBeNull();
     expect(legacyRedirectResponse(new URL("https://hub.example/polling"), null)).toBeNull();
     expect(legacyRedirectResponse(new URL("https://michiganpoliticstracker.com/polling"), "mi")).toBeNull();
+  });
+});
+
+describe("Michigan and Texas canonical on the hub", () => {
+  it("titles the hub's copy for the hub, with links under the state", () => {
+    const home = routeMeta("/mi", null)!;
+    expect(home.title).toBe("State Politics Tracker — Money & Polling in Michigan's 2026 Statewide Races");
+    expect(home.body).toContain('href="/mi/governor"');
+    const gov = routeMeta("/mi/governor", null)!;
+    expect(gov.title).toBe("Michigan Governor 2026 Race — Polls & Campaign Finance | State Politics Tracker");
+    expect(gov.body).toContain('href="/mi/governor/candidates"');
+    expect(routeMeta("/tx/governor/", null)!.title).toContain("| State Politics Tracker");
+    expect(routeMeta("/mi/state-senate/11", null)!.body).toContain('href="/mi/state-senate/11/candidates"');
+    expect(routeMeta("/mi/governor/candidates/jocelyn-benson", null)!.title)
+      .toBe("Jocelyn Benson — Michigan Governor 2026 Candidate | State Politics Tracker");
+    expect(routeMeta("/mi/no-such-page", null)).toBeNull();
+    // The dedicated site keeps its own titles and unprefixed links.
+    expect(routeMeta("/governor", "mi")!.title).toContain("| Michigan Politics Tracker");
+    expect(routeMeta("/", "mi")!.body).toContain('href="/governor"');
+  });
+
+  it("points the dedicated site's canonical at the hub's copy", async () => {
+    const res = () => new Response(INDEX_HTML, { headers: { "content-type": "text/html" } });
+    const mi = await (await applySeoRewrite(new Request("https://michiganpoliticstracker.com/governor/polling"), res(), "mi")).text();
+    expect(mi).toContain('<link rel="canonical" href="https://statepoliticstracker.com/mi/governor/polling">');
+    expect(mi).toContain('<meta property="og:url" content="https://statepoliticstracker.com/mi/governor/polling">');
+    const txHome = await (await applySeoRewrite(new Request("https://texaspoliticstracker.com/"), res(), "tx")).text();
+    expect(txHome).toContain('<link rel="canonical" href="https://statepoliticstracker.com/tx">');
+    const hub = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/mi/governor"), res(), null)).text();
+    expect(hub).toContain('<link rel="canonical" href="https://statepoliticstracker.com/mi/governor">');
+    expect(hub).not.toContain('name="site-state"');
+    // Other dedicated sites stay self-canonical.
+    const oh = await (await applySeoRewrite(new Request("https://ohiopoliticstracker.com/governor"), res(), "oh")).text();
+    expect(oh).toContain('<link rel="canonical" href="https://ohiopoliticstracker.com/governor">');
+  });
+
+  it("lists the hub's Michigan and Texas pages in the hub sitemap", () => {
+    const paths = sitemapEntries(null).map((e) => e.path);
+    expect(paths[0]).toBe("/");
+    expect(paths).toContain("/mi");
+    expect(paths).toContain("/mi/governor/polling");
+    expect(paths).toContain("/tx/governor");
+    expect(paths).toContain("/mi/state-senate/11");
+    expect(paths.some((p) => p.startsWith("/oh"))).toBe(false);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it("sends the dedicated sites' sitemap and robots to the hub", async () => {
+    const sm = sitemapResponse("https://michiganpoliticstracker.com", "mi");
+    expect(sm.status).toBe(301);
+    expect(sm.headers.get("location")).toBe("https://statepoliticstracker.com/sitemap.xml");
+    const robots = await robotsResponse("https://texaspoliticstracker.com", "tx").text();
+    expect(robots).toContain("Sitemap: https://statepoliticstracker.com/sitemap.xml");
+    const oh = await robotsResponse("https://ohiopoliticstracker.com", "oh").text();
+    expect(oh).toContain("Sitemap: https://ohiopoliticstracker.com/sitemap.xml");
   });
 });

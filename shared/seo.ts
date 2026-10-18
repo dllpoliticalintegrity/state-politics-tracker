@@ -4,12 +4,14 @@
 // and by the SPA (src/App.tsx keeps document.title in step via routeMeta).
 //
 // Two route tables:
-//  - the multi-state hub covers the landing page only (per-state hub routes
-//    are Phase 3 — see docs/plan.md);
+//  - the multi-state hub covers the landing page, plus the full state table
+//    under /<code> for states whose dedicated site points its canonical at
+//    the hub (HUB_CANONICAL_STATES in shared/site.ts);
 //  - a dedicated single-state site (shared/site.ts) gets registry-driven
 //    metadata for its home, every statewide race page, each legislative
 //    chamber's overview and district pages, and the About page.
-// Canonical URLs derive from the request origin, so no domain is hardcoded.
+// Canonical URLs derive from the request origin, except on a hub-canonical
+// dedicated site, whose pages name the hub's copy (shared/site.ts).
 
 import {
   chamberDistricts,
@@ -25,7 +27,7 @@ import {
   type RaceConfig,
   type StateConfig,
 } from "../src/states/registry";
-import { SITE_STATE_META, siteNameFor } from "./site";
+import { HUB_CANONICAL_STATES, HUB_URL, SITE_STATE_META, hubCanonicalUrl, siteNameFor } from "./site";
 
 export type RouteMeta = {
   title: string;
@@ -100,9 +102,26 @@ export function legacyRedirectResponse(url: URL, siteState: string | null): Resp
   return Response.redirect(new URL(`${target}${url.search}`, url.origin).toString(), 301);
 }
 
+/**
+ * Who a state route table is for: the brand in its titles, and the path
+ * prefix its links carry ("" on a dedicated site, "/mi" on the hub).
+ */
+type TableCtx = { site: string; prefix: string };
+
+const HUB_SITE = siteNameFor(null);
+
+function dedicatedCtx(state: StateConfig): TableCtx {
+  return { site: siteNameFor(state.name), prefix: "" };
+}
+
+function hubCtx(code: string): TableCtx {
+  return { site: HUB_SITE, prefix: `/${code}` };
+}
+
 /** Metadata for one race's pages (statewide or district), keyed by path under `base`. */
-function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<string, RouteMeta> {
-  const site = siteNameFor(state.name);
+function raceRoutes(state: StateConfig, race: RaceConfig, base: string, ctx: TableCtx = dedicatedCtx(state)): Record<string, RouteMeta> {
+  const site = ctx.site;
+  const link = `${ctx.prefix}${base}`;
   const agency = agencyName(state);
   const label = raceLabel(state, race);
   const year = race.generalDate.slice(0, 4);
@@ -118,11 +137,11 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
     body: `
       <p>Track the ${escapeHtml(label)} race: the candidate field, ${polled ? "a polling average built from public general-election polls, " : ""}money raised and spent by each campaign, top donors, and outside spending — updated nightly from the ${escapeHtml(agency)}.</p>
       <ul>
-        <li><a href="${base}/candidates">Candidates</a></li>
-        ${polled ? `<li><a href="${base}/polling">Polling</a></li>` : ""}
-        <li><a href="${base}/money/donors">Top donors</a></li>
-        <li><a href="${base}/money/outside-spending">Outside spending</a></li>
-        <li><a href="${base}/money/river">Money river</a></li>
+        <li><a href="${link}/candidates">Candidates</a></li>
+        ${polled ? `<li><a href="${link}/polling">Polling</a></li>` : ""}
+        <li><a href="${link}/money/donors">Top donors</a></li>
+        <li><a href="${link}/money/outside-spending">Outside spending</a></li>
+        <li><a href="${link}/money/river">Money river</a></li>
       </ul>
     `,
   };
@@ -161,10 +180,9 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string): Record<
   return routes;
 }
 
-function candidateMeta(state: StateConfig, race: RaceConfig, slug: string): RouteMeta {
+function candidateMeta(state: StateConfig, race: RaceConfig, slug: string, site = siteNameFor(state.name)): RouteMeta {
   const name = humanizeSlug(slug);
   const label = raceLabel(state, race);
-  const site = siteNameFor(state.name);
   return {
     title: `${name} — ${label} Candidate | ${site}`,
     description: `${name}'s campaign for ${state.name} ${race.title}: money raised, top donors, spending${race.pollingSourceUrl ? ", polling" : ""} and outside spending, from ${state.agency?.name ?? "state"} filings.`,
@@ -173,8 +191,8 @@ function candidateMeta(state: StateConfig, race: RaceConfig, slug: string): Rout
   };
 }
 
-function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string): RouteMeta {
-  const site = siteNameFor(state.name);
+function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string, ctx: TableCtx = dedicatedCtx(state)): RouteMeta {
+  const site = ctx.site;
   const agency = agencyName(state);
   const year = chamber.generalDate.slice(0, 4);
   return {
@@ -185,7 +203,7 @@ function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string): 
       <p>Campaign finance for ${escapeHtml(state.name)}'s ${escapeHtml(chamberScope(chamber).replace(/^all /, "").replace(/^the /, ""))}, synced nightly from the ${escapeHtml(agency)}. Each district page lists its candidates, what they have raised and spent, their top donors and any outside spending.</p>
       <ul>
         ${chamberDistricts(chamber)
-          .map((d) => `<li><a href="${base}/${d}">${escapeHtml(chamber.title)} District ${d}</a></li>`)
+          .map((d) => `<li><a href="${ctx.prefix}${base}/${d}">${escapeHtml(chamber.title)} District ${d}</a></li>`)
           .join("\n        ")}
       </ul>
     `,
@@ -199,15 +217,18 @@ const singleStateCache = new Map<string, Record<string, RouteMeta>>();
  * every statewide race page, each chamber overview, and About. District
  * pages are resolved on demand by routeMeta (148 Michigan districts × five
  * pages is too many to pre-build). Built from the registry so adding a race
- * to LIVE_CONFIG is all it takes.
+ * to LIVE_CONFIG is all it takes. With `hub`, the same table titled for the
+ * hub and with links under /<code>; keys stay unprefixed either way.
  */
-export function singleStateRoutes(code: string): Record<string, RouteMeta> | null {
-  const cached = singleStateCache.get(code);
+export function singleStateRoutes(code: string, hub = false): Record<string, RouteMeta> | null {
+  const key = `${code}${hub ? "@hub" : ""}`;
+  const cached = singleStateCache.get(key);
   if (cached) return cached;
   const state = liveState(code);
   if (!state) return null;
 
-  const site = siteNameFor(state.name);
+  const ctx = hub ? hubCtx(code) : dedicatedCtx(state);
+  const site = ctx.site;
   const agency = agencyName(state);
   const routes: Record<string, RouteMeta> = {};
 
@@ -219,17 +240,17 @@ export function singleStateRoutes(code: string): Record<string, RouteMeta> | nul
       <p>${escapeHtml(site)} is a public-interest dashboard for ${escapeHtml(state.name)}'s 2026 statewide races, from the Political Integrity Project. We pull primary-source campaign-finance filings from the ${escapeHtml(agency)}, surface outside spending, and aggregate public polling so you can see how money and momentum are moving in each race.</p>
       <ul>
         ${(state.races ?? [])
-          .map((r) => `<li><a href="/${r.office}">${escapeHtml(raceLabel(state, r))}: polls, candidates and money</a></li>`)
+          .map((r) => `<li><a href="${ctx.prefix}/${r.office}">${escapeHtml(raceLabel(state, r))}: polls, candidates and money</a></li>`)
           .join("\n        ")}
         ${(state.chambers ?? [])
-          .map((c) => `<li><a href="/${c.office}">${escapeHtml(`${state.name} ${c.title} ${c.generalDate.slice(0, 4)}`)}: campaign finance by district</a></li>`)
+          .map((c) => `<li><a href="${ctx.prefix}/${c.office}">${escapeHtml(`${state.name} ${c.title} ${c.generalDate.slice(0, 4)}`)}: campaign finance by district</a></li>`)
           .join("\n        ")}
       </ul>
     `,
   };
 
-  for (const race of state.races ?? []) Object.assign(routes, raceRoutes(state, race, `/${race.office}`));
-  for (const chamber of state.chambers ?? []) routes[`/${chamber.office}`] = chamberMeta(state, chamber, `/${chamber.office}`);
+  for (const race of state.races ?? []) Object.assign(routes, raceRoutes(state, race, `/${race.office}`, ctx));
+  for (const chamber of state.chambers ?? []) routes[`/${chamber.office}`] = chamberMeta(state, chamber, `/${chamber.office}`, ctx);
 
   routes["/committees"] = {
     title: `Committees & PACs Giving in ${state.name} | ${site}`,
@@ -245,12 +266,13 @@ export function singleStateRoutes(code: string): Record<string, RouteMeta> | nul
     body: `<p>${escapeHtml(site)} is a project of the Political Integrity Project. Campaign finance comes from the ${escapeHtml(agency)}'s public filings${statePollingLabel(state) ? `; polling comes from ${escapeHtml(statePollingLabel(state)!)}` : ""}. Data is presented as filed.</p>`,
   };
 
-  singleStateCache.set(code, routes);
+  singleStateCache.set(key, routes);
   return routes;
 }
 
 const CANDIDATE_DETAIL_RE = /^\/([a-z0-9-]+)\/candidates\/([a-z0-9-]+)$/;
 const DISTRICT_RE = /^\/([a-z0-9-]+)\/(\d+)(\/.*)?$/;
+const HUB_STATE_RE = /^\/([a-z]{2})(\/.*)?$/;
 
 /**
  * Metadata for a pathname on this site — the hub table when `siteState` is
@@ -260,11 +282,22 @@ const DISTRICT_RE = /^\/([a-z0-9-]+)\/(\d+)(\/.*)?$/;
  */
 export function routeMeta(pathname: string, siteState: string | null): RouteMeta | null {
   const path = pathname.replace(/\/+$/, "") || "/";
-  if (!siteState) return STATIC_ROUTES[path] ?? null;
+  if (!siteState) {
+    if (STATIC_ROUTES[path]) return STATIC_ROUTES[path];
+    // The hub's copy of a hub-canonical state: /mi/governor → Michigan's table.
+    const hm = HUB_STATE_RE.exec(path);
+    if (hm && HUB_CANONICAL_STATES.has(hm[1])) return stateRouteMeta(hm[2] ?? "/", hm[1], true);
+    return null;
+  }
+  return stateRouteMeta(path, siteState, false) ?? STATIC_ROUTES[path] ?? null;
+}
 
-  const routes = singleStateRoutes(siteState);
-  const state = liveState(siteState);
-  if (!routes || !state) return STATIC_ROUTES[path] ?? null;
+/** Metadata for an unprefixed path in one state's table (see routeMeta). */
+function stateRouteMeta(path: string, code: string, hub: boolean): RouteMeta | null {
+  const routes = singleStateRoutes(code, hub);
+  const state = liveState(code);
+  if (!routes || !state) return null;
+  const ctx = hub ? hubCtx(code) : dedicatedCtx(state);
   const exact = routes[path];
   if (exact) return exact;
 
@@ -275,10 +308,10 @@ export function routeMeta(pathname: string, siteState: string | null): RouteMeta
     if (chamber && isValidDistrict(chamber, dm[2])) {
       const race = districtRace(state, chamber, dm[2]);
       const base = `/${chamber.office}/${dm[2]}`;
-      const table = raceRoutes(state, race, base);
+      const table = raceRoutes(state, race, base, ctx);
       if (table[path]) return table[path];
       const cm = /^\/candidates\/([a-z0-9-]+)$/.exec(dm[3] ?? "");
-      if (cm) return candidateMeta(state, race, cm[1]);
+      if (cm) return candidateMeta(state, race, cm[1], ctx.site);
     }
     return null;
   }
@@ -286,7 +319,7 @@ export function routeMeta(pathname: string, siteState: string | null): RouteMeta
   const m = CANDIDATE_DETAIL_RE.exec(path);
   if (m) {
     const race = state.races!.find((r) => r.office === m[1]);
-    if (race) return candidateMeta(state, race, m[2]);
+    if (race) return candidateMeta(state, race, m[2], ctx.site);
   }
   return null;
 }
@@ -390,7 +423,8 @@ export async function applySeoRewrite(
   if (!meta && !siteState) return response;
 
   let html = await response.text();
-  if (meta) html = rewriteHtml(html, meta, `${url.origin}${pathname}`);
+  const canonical = hubCanonicalUrl(siteState, pathname) ?? `${url.origin}${pathname}`;
+  if (meta) html = rewriteHtml(html, meta, canonical);
   if (siteState) html = injectSiteState(html, siteState);
 
   const headers = new Headers(response.headers);
@@ -412,7 +446,18 @@ const HUB_SITEMAP: SitemapEntry[] = [{ path: "/", priority: "1.0", changefreq: "
  * reachable from there and stay out of the sitemap to keep it readable).
  */
 export function sitemapEntries(siteState: string | null): SitemapEntry[] {
-  const routes = siteState ? singleStateRoutes(siteState) : null;
+  if (!siteState) {
+    // The hub lists its copy of each hub-canonical state under /<code>.
+    const entries = [...HUB_SITEMAP];
+    for (const code of HUB_CANONICAL_STATES) {
+      if (!liveState(code)) continue;
+      for (const e of sitemapEntries(code)) {
+        entries.push({ ...e, path: `/${code}${e.path === "/" ? "" : e.path}` });
+      }
+    }
+    return entries;
+  }
+  const routes = singleStateRoutes(siteState);
   const state = liveState(siteState);
   if (!routes || !state) return HUB_SITEMAP;
   const entries = Object.keys(routes).map((path) => {
@@ -431,6 +476,8 @@ export function sitemapEntries(siteState: string | null): SitemapEntry[] {
 }
 
 export function sitemapResponse(origin: string, siteState: string | null = null): Response {
+  // A hub-canonical site's pages are indexed on the hub: send crawlers there.
+  if (hubCanonicalUrl(siteState, "/")) return Response.redirect(`${HUB_URL}/sitemap.xml`, 301);
   const today = new Date().toISOString().slice(0, 10);
   const urls = sitemapEntries(siteState).map(
     ({ path, priority, changefreq }) =>
@@ -447,8 +494,12 @@ export function sitemapResponse(origin: string, siteState: string | null = null)
   });
 }
 
-/** robots.txt with the Sitemap line pointed at the requesting origin. */
-export function robotsResponse(origin: string): Response {
+/**
+ * robots.txt with the Sitemap line pointed at the requesting origin, or at
+ * the hub's sitemap on a hub-canonical dedicated site.
+ */
+export function robotsResponse(origin: string, siteState: string | null = null): Response {
+  const sitemap = hubCanonicalUrl(siteState, "/") ? `${HUB_URL}/sitemap.xml` : `${origin}/sitemap.xml`;
   const body = [
     "User-agent: Googlebot",
     "Allow: /",
@@ -465,7 +516,7 @@ export function robotsResponse(origin: string): Response {
     "User-agent: *",
     "Allow: /",
     "",
-    `Sitemap: ${origin}/sitemap.xml`,
+    `Sitemap: ${sitemap}`,
     "",
   ].join("\n");
   return new Response(body, {
