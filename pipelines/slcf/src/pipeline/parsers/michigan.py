@@ -408,6 +408,12 @@ def run():
                         "office":            e.get("office_sought", ""),
                         "election_year":     doc_year,
                         "filing_id":         clean(row.get("contribution_id", "")),
+                        # state-politics-tracker's loader keys rows on this
+                        # (columns.py, TRANSACTION_IDS): the pilot importer's
+                        # mi:<contribution_id>-<cont_detail_id>, so a cutover
+                        # lands on its rows (loans too: same id, same row).
+                        "txn_id":            f"{clean(row.get('contribution_id', ''))}-"
+                                             f"{clean(row.get('cont_detail_id', ''))}",
                         "raw_file":          path.name,
                         "row_num":           row_num,
                     }
@@ -593,6 +599,8 @@ def run():
                         "support_oppose":   support_oppose,
                         "election_year":    doc_year,
                         "filing_id":        clean(row.get("expense_id", "")),
+                        "txn_id":           f"{clean(row.get('expense_id', ''))}-"
+                                            f"{clean(row.get('detail_id', ''))}",
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     }
