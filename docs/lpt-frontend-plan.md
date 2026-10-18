@@ -57,11 +57,21 @@ aggregates. So:
   and $25.9M as of Aug 31. Load it with `python pipelines/run_state.py oh`
   from a Mac with the tracker's service role key; nightly needs a
   non-datacenter runner (a self-hosted GitHub runner on a Mac is the simplest).
-  OH flips to the tracker once loaded.
+  **Loaded 2026-10-18** from a Mac (service key via `supabase projects
+  api-keys`): 1,180,950 contributions and 13,300 expenditures for 22 tracked
+  committees, data through Sep 30; the 17 downballot candidates (AG, SoS,
+  auditor, treasurer) were seeded into `cf_candidates` from LPT's roster with
+  their Ohio filer ids first, so those races keep their pages. OH reads the
+  tracker; its governor polling is the FiftyPlusOne import (112 polls); its
+  chambers come off the registry like Georgia's.
 - **Oregon:** ORESTAR needs headed Chromium (F5 bot defense), so it also runs
   only from a desktop. The tracker has no Oregon roster yet; LPT's `candidates`
-  rows for OR governor carry the ORESTAR committee ids (`state_filer_id`) to
-  seed `cf_candidates.filer_refs`. OR stays on LPT until then.
+  rows for OR governor carry the ORESTAR committee ids (`state_filer_id`);
+  the 24 candidates are seeded in `cf_candidates` (2026-10-18) and `or` is in
+  `pipelines/states.json`. The first local scrape failed: ORESTAR's export is
+  now .xlsx and the scraper reads .xls with xlrd, and the first windows came
+  back as blank pages. The scraper needs that fix before Oregon loads; OR
+  stays on LPT until then.
 - The `lpt-publish` bridge and the `hub_*` objects in LPT stay as they are
   (harmless, and the cache refresh still serves OH and OR) until both states
   are on the tracker; then the workflow can be retired.
