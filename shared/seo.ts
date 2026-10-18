@@ -13,6 +13,7 @@
 
 import {
   chamberDistricts,
+  chamberScope,
   districtRace,
   getChamber,
   getState,
@@ -181,7 +182,7 @@ function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string): 
     description: `Who is running for the ${state.name} ${chamber.title} in ${year} and who is funding them, district by district: candidate committees, money raised and top donors from ${agency} filings.`,
     h1: `${state.name} ${chamber.title} ${year}: Money in Every District`,
     body: `
-      <p>Campaign finance for all ${chamber.districts} ${escapeHtml(state.name)} ${escapeHtml(chamber.title)} districts, synced nightly from the ${escapeHtml(agency)}. Each district page lists its candidates, what they have raised and spent, their top donors and any outside spending.</p>
+      <p>Campaign finance for ${escapeHtml(state.name)}'s ${escapeHtml(chamberScope(chamber).replace(/^all /, "").replace(/^the /, ""))}, synced nightly from the ${escapeHtml(agency)}. Each district page lists its candidates, what they have raised and spent, their top donors and any outside spending.</p>
       <ul>
         ${chamberDistricts(chamber)
           .map((d) => `<li><a href="${base}/${d}">${escapeHtml(chamber.title)} District ${d}</a></li>`)
@@ -503,7 +504,7 @@ export function llmsResponse(siteState: string | null): Response | null {
     lines.push(`- [${label} money river](/${r.office}/money/river): every itemized contribution, expenditure, loan and outside expenditure, newest first.`);
   }
   for (const c of state.chambers ?? []) {
-    lines.push(`- [${state.name} ${c.title} ${c.generalDate.slice(0, 4)}](/${c.office}): campaign finance for all ${c.districts} districts; each district's race dashboard is at /${c.office}/{district} (candidates, top donors, outside spending — no polling).`);
+    lines.push(`- [${state.name} ${c.title} ${c.generalDate.slice(0, 4)}](/${c.office}): campaign finance for ${chamberScope(c).replace(` ${c.title}`, "")}; each district's race dashboard is at /${c.office}/{district} (candidates, top donors, outside spending — no polling).`);
   }
   lines.push(`- [${state.name} committees & PACs](/committees): every organizational donor to a tracked candidate, searchable by name, with a per-candidate breakdown.`);
   lines.push("- [About & methodology](/about): sources, sync cadence, and how the numbers are computed.", "");

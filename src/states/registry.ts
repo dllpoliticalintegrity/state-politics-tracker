@@ -86,6 +86,12 @@ export interface ChamberConfig {
    * chamber overview renders a map when set.
    */
   map?: string;
+  /**
+   * Districts on this cycle's ballot, when only some are (staggered senates:
+   * TX, FL, OH, OR, WI, AK). Unset = every district 1..districts. Overviews,
+   * sitemaps and district lists use these; the map greys the rest.
+   */
+  seatsUp?: number[];
 }
 
 /**
@@ -216,6 +222,13 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         raceSlug: "florida-agriculture-commissioner-2026",
       },
     ],
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 40, generalDate: "2026-11-03", map: "/maps/fl-state-senate.json", seatsUp: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40] },
+      { office: "state-house", title: "State House", districts: 120, generalDate: "2026-11-03", map: "/maps/fl-state-house.json" },
+    ],
   },
   mi: {
     agency: {
@@ -284,14 +297,17 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         raceSlug: "georgia-secretary-of-state-2026",
       },
     ],
-    // Legislature: the tracker has no Georgia legislative roster yet (the
-    // SLCF load tracks the statewide committees only), so no chambers until
-    // one is derived the way Michigan's is. All 56 Senate and 180 House seats
-    // are on the 2026 ballot.
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 56, generalDate: "2026-11-03", map: "/maps/ga-state-senate.json" },
+      { office: "state-house", title: "State House", districts: 180, generalDate: "2026-11-03", map: "/maps/ga-state-house.json" },
+    ],
   },
 };
 
-const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
+const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   az: {
     agency: {
       name: "Arizona Secretary of State — See The Money",
@@ -317,6 +333,13 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
         generalDate: "2026-11-03",
         raceSlug: "arizona-secretary-of-state-2026",
       },
+    ],
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 30, generalDate: "2026-11-03", map: "/maps/az-state-senate.json" },
+      { office: "state-house", title: "State House", districts: 30, generalDate: "2026-11-03", map: "/maps/az-state-house.json" },
     ],
   },
   // Kentucky elects statewide officers in odd years — its 2026 statewide race
@@ -486,12 +509,17 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
       { office: "auditor", title: "Auditor", generalDate: "2026-11-03", raceSlug: "ohio-auditor-2026" },
       { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "ohio-treasurer-2026" },
     ],
-    // Legislature: no chambers until the tracker has an Ohio legislative
-    // roster (17 Senate and all 100 House seats are on the 2026 ballot).
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 33, generalDate: "2026-11-03", map: "/maps/oh-state-senate.json", seatsUp: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33] },
+      { office: "state-house", title: "State House", districts: 99, generalDate: "2026-11-03", map: "/maps/oh-state-house.json" },
+    ],
   },
   // Oregon (Oct 2026): new on the site, from the Local Politics Tracker
-  // data. Half the Senate (15 odd-numbered seats) and the whole House are
-  // on the 2026 ballot; LPT numbers the Senate races 1..15 as it lists them.
+  // data. Half the Senate (15 of 30 seats) and the whole House are on the
+  // 2026 ballot.
   or: {
     agency: {
       name: "Oregon Secretary of State — ORESTAR",
@@ -508,8 +536,8 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
       },
     ],
     chambers: [
-      { office: "state-senate", title: "State Senate", districts: 15, generalDate: "2026-11-03" },
-      { office: "state-house", title: "State House", districts: 60, generalDate: "2026-11-03" },
+      { office: "state-senate", title: "State Senate", districts: 30, generalDate: "2026-11-03", map: "/maps/or-state-senate.json", seatsUp: [3, 4, 6, 7, 8, 10, 11, 13, 15, 16, 17, 19, 20, 24, 26] },
+      { office: "state-house", title: "State House", districts: 60, generalDate: "2026-11-03", map: "/maps/or-state-house.json" },
     ],
   },
   wi: {
@@ -525,6 +553,13 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
         raceSlug: "wisconsin-governor-2026",
         pollingSourceUrl: fpoGovernor("Wisconsin"),
       },
+    ],
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 33, generalDate: "2026-11-03", map: "/maps/wi-state-senate.json", seatsUp: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33] },
+      { office: "state-house", title: "State Assembly", districts: 99, generalDate: "2026-11-03", map: "/maps/wi-state-house.json" },
     ],
   },
   nv: {
@@ -546,7 +581,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
 // Wave 5 (Aug 2026): the last seven SLCF-ready states, all with 2026
 // governor races. Polling URLs only where FiftyPlusOne has general-election
 // polls (all seven as of Oct 2026).
-const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
+const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   al: {
     agency: {
       name: "Alabama Secretary of State — FCPA",
@@ -575,6 +610,13 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         raceSlug: "alaska-governor-2026",
         pollingSourceUrl: fpoGovernor("Alaska"),
       },
+    ],
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census TIGER 2024 districts simplified with mapshaper.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 20, generalDate: "2026-11-03", map: "/maps/ak-state-senate.json", seatsUp: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19] },
+      { office: "state-house", title: "State House", districts: 40, generalDate: "2026-11-03", map: "/maps/ak-state-house.json" },
     ],
   },
   ar: {
@@ -818,5 +860,14 @@ export function districtRace(state: StateConfig, chamber: ChamberConfig, distric
 
 /** Every district of a chamber, 1..n as strings. */
 export function chamberDistricts(chamber: ChamberConfig): string[] {
+  if (chamber.seatsUp?.length) return [...chamber.seatsUp].sort((a, b) => a - b).map(String);
   return Array.from({ length: chamber.districts }, (_, i) => String(i + 1));
+}
+
+/** "all 56 State Senate districts" or "the 17 of 33 State Senate seats on the 2026 ballot". */
+export function chamberScope(chamber: ChamberConfig): string {
+  const n = chamberDistricts(chamber).length;
+  return n === chamber.districts
+    ? `all ${chamber.districts} ${chamber.title} districts`
+    : `the ${n} of ${chamber.districts} ${chamber.title} seats on the ${chamber.generalDate.slice(0, 4)} ballot`;
 }

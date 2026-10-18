@@ -25,7 +25,7 @@ describe("state registry", () => {
       expect(s.races?.length).toBeGreaterThan(0);
     }
     // Georgia's legislature comes with the LPT data.
-    expect(getState("ga")!.chambers).toBeUndefined();
+    expect(getState("ga")!.chambers!.map((c) => [c.office, c.districts])).toEqual([["state-senate", 56], ["state-house", 180]]);
   });
 
   it("contains all 50 states with unique codes", () => {
