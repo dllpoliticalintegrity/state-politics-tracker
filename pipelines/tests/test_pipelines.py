@@ -225,6 +225,11 @@ class PlanTest(unittest.TestCase):
     def test_schedule_runs_every_nightly_state(self):
         self.assertEqual(self.plan([]), (["mi", "co"], ["ga"]))
 
+    def test_pilot_rosters_state_is_in_both_jobs(self):
+        states = {"mi": {"pipeline": "slcf", "pilot_rosters": True}, "ga": {"pipeline": "slcf"}}
+        self.assertEqual(plan_matrix.plan([], states=states), (["mi"], ["mi", "ga"]))
+        self.assertEqual(plan_matrix.plan(["mi"], dry_run=True, states=states), ([], ["mi"]))
+
     def test_named_states_ignore_nightly(self):
         self.assertEqual(self.plan(["OH", "mi"]), (["mi"], ["oh"]))
 
@@ -239,7 +244,7 @@ class PlanTest(unittest.TestCase):
     def test_refusals(self):
         for codes, dry in ((["tx"], False), (["ca"], False), (["ca"], True),
                            (["me"], False), (["zz"], False),
-                           (["mi"], True), ([], True)):
+                           ([], True)):
             with self.assertRaises(ValueError):
                 self.plan(codes, dry)
 
@@ -261,22 +266,28 @@ class RunStateTest(unittest.TestCase):
 
 
 class ManifestTest(unittest.TestCase):
-    def test_texas_and_michigan_keep_their_infrastructure(self):
+    def test_texas_keeps_its_infrastructure_and_michigan_keeps_its_rosters(self):
         states = json.loads((PIPELINES / "states.json").read_text())["states"]
         self.assertEqual(states["tx"]["pipeline"], "tec")
-        self.assertEqual(states["mi"]["pipeline"], "pilot")
+        # Michigan's finance is on SLCF (2026-10-18); the pilot importer still
+        # derives its legislature roster and ballot status every night.
+        self.assertEqual(states["mi"]["pipeline"], "slcf")
+        self.assertTrue(states["mi"].get("pilot_rosters"))
         for st, e in states.items():
             self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "calaccess", "none"), st)
         self.assertEqual(states["ca"]["pipeline"], "calaccess")
 
     def test_schedule_covers_every_pilot_state_once(self):
-        # Every state the pilot imported before the merge is still scheduled,
-        # by exactly one pipeline; Texas never is; Michigan stays on the pilot.
+        # Every state the pilot imported before the merge is still scheduled
+        # by one finance pipeline; Texas never is. Michigan is in both lists:
+        # SLCF for finance, the pilot job for its rosters (pilot_rosters).
         pilot, slcf = plan_matrix.plan([])
         before = "mi al ak ar az co ct fl ga hi ia id il ks ky ma md mn pa wi".split()
-        self.assertEqual(sorted(pilot + slcf), sorted(set(pilot + slcf)))
+        finance = [c for c in pilot if c != "mi"] + slcf
+        self.assertEqual(sorted(finance), sorted(set(finance)))
         self.assertTrue(set(before) <= set(pilot + slcf))
         self.assertIn("mi", pilot)
+        self.assertIn("mi", slcf)
         self.assertNotIn("tx", pilot + slcf)
         self.assertNotIn("ca", pilot + slcf)
 

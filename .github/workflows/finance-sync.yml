@@ -105,6 +105,9 @@ jobs:
           # fetches through workers/ohio-fetch-proxy (repo variable + secret).
           OHIO_FETCH_PROXY: ${{ vars.OHIO_FETCH_PROXY }}
           OHIO_FETCH_PROXY_TOKEN: ${{ secrets.OHIO_FETCH_PROXY_TOKEN }}
+          # SLCF's FEC nonfederal-IE enrichment (states.json fec_ie); DEMO_KEY
+          # without it, which is rate-limited.
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
         run: |
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."

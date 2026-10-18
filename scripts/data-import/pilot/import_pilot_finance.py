@@ -2826,8 +2826,18 @@ def main():
                  "ak": import_alaska, "ar": import_arkansas,
                  "ct": import_connecticut, "id": import_idaho,
                  "il": import_illinois, "ks": import_kansas}
+    # A state whose finance moved to SLCF (pipelines/states.json pipeline
+    # "slcf") is here only for its rosters (Michigan, above): skip its import.
+    manifest = Path(__file__).resolve().parents[3] / "pipelines" / "states.json"
+    pipelines_by_state = {}
+    if manifest.exists():
+        pipelines_by_state = {k: v.get("pipeline") for k, v in
+                              json.loads(manifest.read_text())["states"].items()}
     failed, soft_failed = [], []
     for st in args.states:
+        if pipelines_by_state.get(st) == "slcf":
+            print(f"== {st}: finance on SLCF, rosters only ==", flush=True)
+            continue
         print(f"== importing {st} ==", flush=True)
         try:
             importers[st](sink, cand_ids)

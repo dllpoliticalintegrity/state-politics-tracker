@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import DistrictMap from "@/components/DistrictMap";
 import { useCandidateTotals, useChamberCandidates, type TxCandidate } from "@/hooks/useCandidates";
 import { formatCurrency, partyColor } from "@/lib/finance";
-import { chamberDistricts, type ChamberConfig } from "@/states/registry";
+import { chamberDistricts, chamberScope, type ChamberConfig } from "@/states/registry";
 import { useStateConfig } from "@/states/StateContext";
 import { statePath } from "@/states/site";
 import { onBallot } from "@/lib/candidateStatus";
@@ -48,13 +48,13 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
           {`Who's paying for the ${stateCfg.name} ${chamber.title}`}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          {`Campaign finance for all ${chamber.districts} ${chamber.title} districts, synced nightly from the ${stateCfg.agency?.name ?? "state disclosure agency"}. Pick a district to see its candidates, donors and spending.`}
+          {`Campaign finance for ${chamberScope(chamber)}, synced nightly from the ${stateCfg.agency?.name ?? "state disclosure agency"}. Pick a district to see its candidates, donors and spending.`}
         </p>
       </section>
 
       <section className="container pb-10">
         <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
-          <Stat label="Districts with candidates" value={`${contested} / ${chamber.districts}`} />
+          <Stat label="Districts with candidates" value={`${contested} / ${rows.length}`} />
           <Stat label="Candidates with committees" value={String(candidateCount)} />
           <Stat label="Raised this cycle" value={formatCurrency(totalRaised)} sub="Across all committees" />
         </div>
@@ -76,6 +76,7 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
                 rows={rows}
                 raised={raised}
                 base={base}
+                upDistricts={chamber.seatsUp ? new Set(rows.map((r) => r.district)) : undefined}
               />
             </div>
           </Card>

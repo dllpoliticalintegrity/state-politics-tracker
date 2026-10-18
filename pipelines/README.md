@@ -12,13 +12,21 @@ it's shaped this way, is in [`docs/slcf-merge-plan.md`](../docs/slcf-merge-plan.
 | `plan_matrix.py` | Splits `finance-sync.yml`'s `states` input into its pilot job and SLCF matrix. |
 | `tests/` | Offline tests (`python3 -m unittest discover -s pipelines/tests`). |
 
-**Texas and Michigan keep their own infrastructure:**
-- **Texas** uses `scripts/data-import/tec/` and `tx-finance-sync.yml`, staging into
-  `tx_*`. A nightly `publish_texas_to_cf()` copies it into `cf_*`.
-- **Michigan** uses `scripts/data-import/pilot/import_pilot_finance.py`, with its
-  legislature-roster and ballot-status syncs.
+**Texas keeps its own infrastructure:** `scripts/data-import/tec/` and
+`tx-finance-sync.yml`, staging into `tx_*`; a nightly `publish_texas_to_cf()`
+copies it into `cf_*`. California likewise (`scripts/data-import/cal-access/`).
 
-Every other state moves from that pilot importer to SLCF at its cutover.
+**Michigan's finance moved to SLCF on 2026-10-18.** The pilot importer
+(`scripts/data-import/pilot/import_pilot_finance.py`) still runs for it every
+night, rosters only (`pilot_rosters` in `states.json`): the legislature roster
+and ballot-status syncs. Every other pilot state moves to SLCF at its cutover.
+
+**Outside spending** (`"ie": true` in `states.json`): the loader also reads
+SLCF's committees table and loads independent expenditures that target a
+tracked candidate into `cf_independent_expenditures`, their spenders into
+`cf_ie_committees` and the spenders' receipts into `cf_ie_contributions`
+(`load/ie.py`). The run log lists the largest unmatched targets. `"fec_ie":
+true` keeps SLCF's FEC nonfederal-IE enrichment on (Ohio; `FEC_API_KEY`).
 
 ## Setup
 

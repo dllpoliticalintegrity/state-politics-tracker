@@ -17,7 +17,7 @@ export interface DistrictRow {
  * into "other" (a fixed, validated third hue) and districts with no money
  * yet are a neutral surface — never confused with a party.
  */
-export type LeadClass = "dem" | "rep" | "other" | "none";
+export type LeadClass = "dem" | "rep" | "other" | "none" | "off";
 
 export function leadClass(row: DistrictRow | undefined, raised: (c: TxCandidate) => number): LeadClass {
   const top = row?.cands[0];
@@ -33,6 +33,7 @@ const FILL: Record<LeadClass, string> = {
   rep: "hsl(var(--rep))",
   other: "hsl(var(--map-other))",
   none: "hsl(var(--muted))",
+  off: "hsl(var(--muted))",
 };
 
 const LEGEND: { cls: LeadClass; label: string }[] = [
@@ -54,6 +55,7 @@ export default function DistrictMap({
   rows,
   raised,
   base,
+  upDistricts,
 }: {
   geoUrl: string;
   title: string;
@@ -61,6 +63,8 @@ export default function DistrictMap({
   raised: (c: TxCandidate) => number;
   /** URL prefix of the chamber, e.g. "/state-senate" */
   base: string;
+  /** Staggered chambers: the districts on this ballot; the rest are greyed and not linked. */
+  upDistricts?: Set<string>;
 }) {
   const { data: fc, isLoading, error } = useQuery({
     queryKey: ["district-map", geoUrl],
@@ -118,6 +122,21 @@ export default function DistrictMap({
       >
         {shapes.items.map(({ district, d, anchor }) => {
           const row = byDistrict.get(district);
+          if (upDistricts && !upDistricts.has(district)) {
+            return (
+              <path
+                key={district}
+                d={d}
+                fill={FILL.off}
+                fillOpacity={0.35}
+                stroke="hsl(var(--card))"
+                strokeWidth={1}
+                strokeLinejoin="round"
+              >
+                <title>{`District ${district}: not on the ballot this cycle`}</title>
+              </path>
+            );
+          }
           const cls = leadClass(row, raised);
           const active = hover?.district === district;
           return (
@@ -192,11 +211,15 @@ export default function DistrictMap({
       )}
 
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground" aria-label="Legend">
-        {LEGEND.map(({ cls, label }) => (
+        {[...LEGEND, ...(upDistricts ? [{ cls: "off" as LeadClass, label: "Not on the ballot this cycle" }] : [])].map(({ cls, label }) => (
           <li key={cls} className="inline-flex items-center gap-1.5">
             <span
               className="inline-block h-2.5 w-2.5 rounded-[3px] border"
-              style={{ backgroundColor: FILL[cls], borderColor: cls === "none" ? "hsl(var(--border))" : FILL[cls] }}
+              style={{
+                backgroundColor: FILL[cls],
+                opacity: cls === "off" ? 0.35 : 1,
+                borderColor: cls === "none" || cls === "off" ? "hsl(var(--border))" : FILL[cls],
+              }}
               aria-hidden
             />
             {label}

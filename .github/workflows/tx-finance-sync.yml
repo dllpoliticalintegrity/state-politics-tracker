@@ -38,6 +38,18 @@ jobs:
       - name: Install deps
         run: pip install -r scripts/data-import/tec/requirements.txt
 
+      # Texas legislature: seed / refresh state-senate and state-house
+      # candidates in tx_candidates from the Local Politics Tracker before the
+      # import, so their money loads on this run (standard library only).
+      - name: Seed legislative candidates
+        continue-on-error: true       # a roster problem must never skip the import
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then exit 0; fi
+          python pipelines/load/roster.py --texas
+
       # Same SUPABASE_SERVICE_ROLE_KEY repository secret as finance-sync.yml.
       - name: Run import
         env:

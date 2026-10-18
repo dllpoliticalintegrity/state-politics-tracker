@@ -148,12 +148,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-import xlrd
 from playwright.sync_api import sync_playwright
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 from src.reporting.logger import get_logger
+from src.pipeline import utils
 
 # =============================== paths ================================
 RAW_DIR  = PROJECT_ROOT / "data" / "Oregon" / "raw"
@@ -162,7 +162,7 @@ MANIFEST = PROJECT_ROOT / "data" / "Oregon" / "manifest.csv"
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 MANIFEST_COLS = [
-    "relation_type",   # "transactions" or "entities"
+    "relation_type",   # "transactions", "entities" or "filings"
     "year",            # transactions: year of window_from. entities: yearActive
                        # when a bucket was year-split, blank otherwise
     "window_from",     # transactions only — inclusive start (YYYY-MM-DD)
@@ -180,10 +180,24 @@ MANIFEST_COLS = [
 ]
 
 # ========================= source constants ===========================
+SOURCES = [
+    {"name": "Oregon Secretary of State — ORESTAR campaign finance",
+     "url": "https://secure.sos.state.or.us/orestar/"},
+    {"name": "Oregon Secretary of State — ORESTAR candidate filings",
+     "url": "https://secure.sos.state.or.us/orestar/cfFilings.do"},
+]
+
 BASE_URL            = "https://secure.sos.state.or.us/orestar"
 SEARCH_PAGE         = f"{BASE_URL}/gotoPublicTransactionSearch.do"
 SEARCH_ACTION       = f"{BASE_URL}/cneSearch.do"
 ENTITY_SEARCH_PAGE  = f"{BASE_URL}/GotoSearchByElection.do"
+FILINGS_PAGE        = f"{BASE_URL}/cfFilings.do"
+
+# Candidate filings (the Secretary of State's record of who filed for which
+# office, with party and how they got on the ballot) are swept for even
+# years from here on. Past years are final and fetched once; the current
+# cycle's election year is fetched on every run.
+FILINGS_START_YEAR = 2018
 
 # Server-side cap confirmed empirically: a query matching 14,886 rows
 # exported exactly 5,000 with no error or truncation warning in the response.
@@ -276,6 +290,8 @@ def _row_key(r: dict) -> str | None:
                              r.get("amount_from", ""), r.get("amount_to", ""))
     if rel == "entities":
         return _manifest_key("entities", r.get("bucket", ""), r.get("year", ""))
+    if rel == "filings":
+        return _manifest_key("filings", r.get("year", ""))
     return None
 
 
@@ -430,11 +446,12 @@ def _run_search(page, date_from: date, date_to: date,
     raise RuntimeError(f"search failed after {max_retries} attempts: {last_exc}") from last_exc
 
 
-def _click_export(page, out_path: Path, max_retries: int = 3) -> int:
+def _click_export(page, out_path: Path, max_retries: int = 3,
+                  link_selector: str = 'a:has-text("Export To Excel Format")') -> int:
     """
     Click "Export To Excel Format" for whatever search is currently active on
     the page and save the download. Returns the row count (excluding header)
-    read back from the saved file via xlrd — the ground truth, independent of
+    read back from the saved file — the ground truth, independent of
     whatever the search step parsed from the HTML.
 
     Shared by both transactions (XcelCNESearch) and entities (XcelSooSearch)
@@ -453,7 +470,7 @@ def _click_export(page, out_path: Path, max_retries: int = 3) -> int:
             # actually executes — i.e. exactly the difference between this
             # Playwright-driven page and the raw-HTML fetches used to
             # originally locate this link during exploration.
-            link = page.locator('a:has-text("Export To Excel Format")').first
+            link = page.locator(link_selector).first
             link.wait_for(state="visible", timeout=10_000)
 
             with page.expect_download(timeout=60_000) as dl_info:
@@ -466,8 +483,7 @@ def _click_export(page, out_path: Path, max_retries: int = 3) -> int:
             if not tmp.exists() or tmp.stat().st_size == 0:
                 raise RuntimeError("empty download")
 
-            wb = xlrd.open_workbook(str(tmp))
-            rows = max(0, wb.sheet_by_index(0).nrows - 1)   # exclude header
+            rows = max(0, sum(1 for _ in utils.read_excel_rows(tmp)) - 1)
 
             tmp.replace(out_path)
             return rows
@@ -948,6 +964,140 @@ def download_entities(log, p, done: dict[str, dict], end_year: int) -> tuple[int
     return ok, err
 
 
+# ============================== filings ================================
+
+def filing_years(today: date | None = None) -> list[int]:
+    """Even years from FILINGS_START_YEAR through the current cycle's
+    election year (in an odd year, the coming one)."""
+    today = today or date.today()
+    last = today.year + (today.year % 2)
+    return list(range(FILINGS_START_YEAR, last + 1, 2))
+
+
+def _filing_filename(year: int) -> str:
+    return f"or_filings_{year}.xlsx"
+
+
+def _run_filing_search(page, year: int, max_retries: int = 3) -> int:
+    """Submit the candidate filing search (cfFilings.do) for one election
+    year and return its "N found for the above search criteria" count.
+
+    The year field is filled whether it is a select or a text box. The
+    form is submitted with its own Search control when there is one,
+    otherwise directly: CSRFGuard adds its token to the form on page load,
+    so a direct submit carries it.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        if attempt > 0:
+            time.sleep(2 + attempt * 3)
+        try:
+            page.goto(FILINGS_PAGE, timeout=45_000)
+            page.wait_for_load_state("networkidle", timeout=30_000)
+
+            field = page.locator('[name="cfyearActive"]').first
+            field.wait_for(state="attached", timeout=15_000)
+            if field.evaluate("e => e.tagName") == "SELECT":
+                field.select_option(value=str(year))
+            else:
+                field.fill(str(year))
+
+            form = page.locator('form:has([name="cfyearActive"])').first
+            button = form.locator(
+                'input[type="submit"], button[type="submit"], '
+                'input[type="button"][value*="Search" i], button:has-text("Search")'
+            )
+            with page.expect_navigation(timeout=45_000):
+                if button.count() > 0 and button.first.is_visible():
+                    button.first.click()
+                else:
+                    form.evaluate("f => f.submit()")
+            page.wait_for_load_state("networkidle", timeout=30_000)
+
+            text = page.inner_text("body")
+            if re.search(r"no\s+(records|results|filings)\s+found", text, re.I):
+                return 0
+            m = _ENTITY_FOUND_RE.search(text)
+            if not m:
+                raise RuntimeError(
+                    f"could not find result count on page "
+                    f"(title={page.title()!r}, {len(text)} chars of body text)"
+                )
+            return int(m.group(1).replace(",", ""))
+        except Exception as e:
+            last_exc = e
+            if _is_nav_error(e):
+                raise
+            continue
+    raise RuntimeError(f"filing search failed after {max_retries} attempts: {last_exc}") from last_exc
+
+
+def download_filings(log, p, done: dict[str, dict], force: bool = False) -> tuple[int, int]:
+    """Save the candidate filing export for each year in filing_years().
+
+    A past year already in the manifest is skipped unless force; the
+    current cycle's year is always fetched again. A file with fewer rows
+    than the page's count is kept but logged and marked truncated.
+    """
+    years = filing_years()
+    current = years[-1]
+    ok = err = 0
+    browser, page = _new_page(p)
+    try:
+        for year in years:
+            filename = _filing_filename(year)
+            if (not force and year != current
+                    and _manifest_key("filings", str(year)) in done
+                    and (RAW_DIR / filename).exists()):
+                continue
+            try:
+                try:
+                    count = _run_filing_search(page, year)
+                except Exception as e:
+                    if not _is_nav_error(e):
+                        raise
+                    browser.close()
+                    browser, page = _new_page(p)
+                    count = _run_filing_search(page, year)
+                if count == 0:
+                    log.warning(f"filings {year}: no filings found")
+                    continue
+                out_path = RAW_DIR / filename
+                rows = _click_export(page, out_path,
+                                     link_selector='a:text-is("Export")')
+                truncated = rows < count
+                if truncated:
+                    log.warning(f"filings {year}: export has {rows} rows, "
+                                f"page found {count}")
+                upsert_manifest({
+                    "relation_type": "filings",
+                    "year":          str(year),
+                    "window_from":   "",
+                    "window_to":     "",
+                    "amount_from":   "",
+                    "amount_to":     "",
+                    "bucket":        "",
+                    "filename":      filename,
+                    "downloaded_at": date.today().isoformat(),
+                    "row_count":     str(rows),
+                    "truncated":     "1" if truncated else "",
+                })
+                log.file_download_ok(filename=filename,
+                                     bytes=out_path.stat().st_size,
+                                     rows=rows, duration_s=0)
+                ok += 1
+            except Exception as e:
+                log.file_download_error(filename, str(e),
+                                        error_type=type(e).__name__)
+                err += 1
+    finally:
+        try:
+            browser.close()
+        except Exception:
+            pass
+    return ok, err
+
+
 # ============================== run =================================
 
 def run(
@@ -960,6 +1110,7 @@ def run(
     expenditures: bool = False,
     candidates: bool = False,
     committees: bool = False,
+    filings: bool = False,
 ):
     """
     Download Oregon transactions and entities from ORESTAR.
@@ -974,6 +1125,9 @@ def run(
                                       and committees come back interleaved
                                       too, so --candidates / --committees
                                       both just mean "entities")
+        filings                       the candidate filing search (party,
+                                      office, ballot route); runs with
+                                      entities, or alone with --filings
 
     Vertical scope: --start-year / --end-year / --force bound the windowed
     transaction sweep. --end-year also bounds how far back the entities
@@ -989,9 +1143,10 @@ def run(
               transactions=transactions, start_year=start_year, end_year=end_year)
 
     no_h = not (entities or transactions or contributions or expenditures
-               or candidates or committees)
+               or candidates or committees or filings)
     do_transactions = no_h or transactions or contributions or expenditures
     do_entities     = no_h or entities or candidates or committees
+    do_filings      = do_entities or filings
 
     today = date.today()
     start = date(start_year or DEFAULT_START_YEAR, 1, 1)
@@ -1012,6 +1167,14 @@ def run(
             log.info(f"Entities: filerType × special buckets, year fallback through {entities_end_year}")
             with sync_playwright() as p:
                 ok, err = download_entities(log, p, done, entities_end_year)
+            files_ok  += ok
+            files_err += err
+
+        if do_filings:
+            done = load_manifest()
+            log.info(f"Filings: even years {FILINGS_START_YEAR}-{filing_years()[-1]}")
+            with sync_playwright() as p:
+                ok, err = download_filings(log, p, done, force=force)
             files_ok  += ok
             files_err += err
 
@@ -1103,6 +1266,8 @@ if __name__ == "__main__":
                     help="candidates only (same feed as --entities)")
     ap.add_argument("--committees",    action="store_true",
                     help="committees only (same feed as --entities)")
+    ap.add_argument("--filings",       action="store_true",
+                    help="candidate filings only (party and ballot route, even years from 2018)")
 
     args, _ = ap.parse_known_args()
 
@@ -1126,6 +1291,7 @@ if __name__ == "__main__":
             expenditures=args.expenditures,
             candidates=args.candidates,
             committees=args.committees,
+            filings=args.filings,
         )
     except KeyboardInterrupt:
         sys.exit(130)

@@ -231,6 +231,35 @@ def year_of(iso_date: str) -> str:
     return iso_date[:4] if iso_date else ""
 
 
+# A report's electionDt is typed by the filer, and typos are common: a
+# March 2027 primary, a 2036 general on a report filed in 2026. A cover
+# sheet's election date is ignored (treated as blank) when it cannot be
+# right:
+#   - more than 30 months after the report was filed. The furthest a real
+#     report looks ahead is a sitting senator's January semiannual naming
+#     the primary two years out (about 26 months);
+#   - a primary in an odd year. Texas holds party primaries only in March
+#     of even years.
+# Without this, latest_cover (which ranks by election date first) let one
+# mistyped future date outrank every later report, moving the filer to a
+# cycle they are not running in.
+ELECTION_LOOKAHEAD_DAYS = 913
+
+
+def plausible_election_date(elect: str, received: str, election_type: str) -> str:
+    """elect ('YYYY-MM-DD' or '') if it is a believable election date for a
+    report received on `received`, otherwise ''."""
+    if not elect:
+        return ""
+    if (election_type or "").strip().upper() == "PRIMARY" and int(elect[:4]) % 2:
+        return ""
+    if received:
+        gap = (date.fromisoformat(elect) - date.fromisoformat(received)).days
+        if gap > ELECTION_LOOKAHEAD_DAYS:
+            return ""
+    return elect
+
+
 def undisplay(name: str) -> str:
     """Un-invert a TEC display name: 'Lucero, Homero R. (Mr.)' -> 'HOMERO R. LUCERO'.
 
@@ -1019,8 +1048,10 @@ def run():
                         continue
                     cover_rows += 1
 
-                    elect = parse_date(row.get("electionDt"))
-                    rank  = (elect, parse_date(row.get("receivedDt")), row_num)
+                    received = parse_date(row.get("receivedDt"))
+                    elect = plausible_election_date(parse_date(row.get("electionDt")),
+                                                    received, row.get("electionTypeCd"))
+                    rank  = (elect, received, row_num)
 
                     if fid in suspect_fids:
                         prev = cover_latest_type.get(fid)

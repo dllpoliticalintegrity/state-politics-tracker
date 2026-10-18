@@ -26,9 +26,10 @@ describe("chamber registry", () => {
     expect(senate.districts).toBe(38);
     expect(getChamber(mi, "state-house")!.districts).toBe(110);
     expect(getChamber(mi, "governor")).toBeUndefined();
-    // Georgia's chambers wait for a legislative roster in the tracker.
-    expect(getChamber(getState("ga")!, "state-senate")).toBeUndefined();
-    expect(getChamber(getState("fl")!, "state-senate")).toBeUndefined();
+    expect(getChamber(getState("ga")!, "state-senate")!.districts).toBe(56);
+    expect(getChamber(getState("ga")!, "state-house")!.districts).toBe(180);
+    expect(getChamber(getState("fl")!, "state-senate")!.seatsUp).toHaveLength(20);
+    expect(getChamber(getState("tx")!, "state-senate")!.seatsUp).toHaveLength(16);
   });
 
   it("keeps chamber offices distinct from statewide offices in every live state", () => {
@@ -123,5 +124,23 @@ describe("chamber SEO", () => {
     expect(paths).not.toContain("/state-senate/39");
     expect(paths).not.toContain("/state-senate/1/candidates");
     expect(new Set(paths).size).toBe(paths.length);
+  });
+});
+
+describe("staggered chambers", () => {
+  it("lists only the seats on the ballot and keeps every map district numbered", async () => {
+    const { chamberDistricts, chamberScope } = await import("@/states/registry");
+    const tx = getChamber(getState("oh")!, "state-senate")!;
+    expect(chamberDistricts(tx)).toEqual(["1", "3", "5", "7", "9", "11", "13", "15", "17", "19", "21", "23", "25", "27", "29", "31", "33"]);
+    expect(chamberScope(tx)).toBe("the 17 of 33 State Senate seats on the 2026 ballot");
+    const ga = getChamber(getState("ga")!, "state-house")!;
+    expect(chamberDistricts(ga)).toHaveLength(180);
+    expect(chamberScope(ga)).toBe("all 180 State House districts");
+    for (const code of ["ak", "az", "fl", "ga", "oh", "or", "wi", "mi", "tx"]) {
+      for (const c of getState(code)!.chambers!) {
+        expect(c.map, `${code} ${c.office}`).toMatch(new RegExp(`^/maps/${code}-${c.office}\\.json$`));
+        for (const d of c.seatsUp ?? []) expect(d).toBeLessThanOrEqual(c.districts);
+      }
+    }
   });
 });

@@ -7,7 +7,7 @@ Run one SLCF state end to end — what each finance-sync.yml matrix job does:
 1. SLCF scrape + parse for the state, transactions only, from the year of the
    state's `since` (states.json), without the FEC outside-spending pull:
        pipelines/slcf/src/main.py --no-report sync OH --start-year 2025
-           --no-aggregate --no-fec-ie --transactions [slcf_args...]
+           --no-aggregate [--no-fec-ie] --transactions [--entities] [slcf_args...]
    (not --daemon: that silences the scrapers' own messages, and a blocked
    source's "HTTP Error 403" then shows only in the log.jsonl artifact)
    The loader needs only the transaction tables; the committee and candidate
@@ -80,9 +80,14 @@ def sync(st, entry):
     run_id = f"run_state_{st}_{time.strftime('%Y%m%d_%H%M%S')}"
     env = dict(os.environ, CF_RUN_ID=run_id)
     env.pop("CF_DAEMON", None)
+    # "ie": entities too, so committees.csv (and SLCF's registry enrichment)
+    # exist for the outside-spending stage; "fec_ie": keep SLCF's FEC
+    # nonfederal-IE enrichment on (Ohio), which reads FEC_API_KEY from the env.
+    scope = ["--transactions", "--entities"] if entry.get("ie") else ["--transactions"]
+    fec = [] if entry.get("fec_ie") else ["--no-fec-ie"]
     run([sys.executable, str(PIPELINES / "slcf" / "src" / "main.py"), "--no-report",
-         "sync", st.upper(), "--start-year", start_year, "--no-aggregate", "--no-fec-ie",
-         "--transactions", *entry.get("slcf_args", [])], cwd=PIPELINES / "slcf", env=env)
+         "sync", st.upper(), "--start-year", start_year, "--no-aggregate", *fec,
+         *scope, *entry.get("slcf_args", [])], cwd=PIPELINES / "slcf", env=env)
     clean_dir = load_cf.cleaned_dir(st, load_cf.SLCF_DATA)
     n = cleaned_rows(clean_dir, "contributions")
     if not n:

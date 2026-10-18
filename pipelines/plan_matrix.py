@@ -3,8 +3,9 @@
 Turn finance-sync.yml's `states` input into the run's two job lists, from
 pipelines/states.json:
 
-    pilot=<space-separated codes>   one job: scripts/data-import/pilot (Michigan, and
-                                    the states not yet cut over to SLCF)
+    pilot=<space-separated codes>   one job: scripts/data-import/pilot (the states not
+                                    yet cut over to SLCF, plus "pilot_rosters" states
+                                    whose rosters it still derives)
     slcf=["oh", ...]                a matrix: SLCF scrape + parse + loader, one job each
 
     python3 pipelines/plan_matrix.py [codes...] [--dry-run] >> "$GITHUB_OUTPUT"
@@ -41,8 +42,6 @@ def plan(codes, dry_run=False, states=None):
             errors.append(f"{c}: California runs in ca-finance-sync.yml")
         elif e["pipeline"] not in RUNNABLE:
             errors.append(f"{c}: pipeline is '{e['pipeline']}' ({e.get('note', 'no source')})")
-        elif dry_run and c == "mi":
-            errors.append("mi: Michigan stays on its own importer; there is no SLCF dry run")
         elif not dry_run and e.get("dry_run_only"):
             errors.append(f"{c}: dry runs only until its SLCF output has reconciled "
                           f"(states.json dry_run_only) — dispatch with dry_run on")
@@ -56,7 +55,11 @@ def plan(codes, dry_run=False, states=None):
                  and not e.get("dry_run_only")]
     if dry_run:
         return [], codes
-    pilot = [c for c in codes if states[c]["pipeline"] == "pilot"]
+    # pilot_rosters: the pilot importer still derives the state's rosters
+    # (Michigan's legislature and ballot status) after its finance moved to
+    # SLCF; the importer skips finance for a state whose pipeline is "slcf".
+    pilot = [c for c in codes
+             if states[c]["pipeline"] == "pilot" or states[c].get("pilot_rosters")]
     slcf = [c for c in codes if states[c]["pipeline"] == "slcf"]
     return pilot, slcf
 

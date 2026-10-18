@@ -37,7 +37,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+import ie
 import mapping
+import roster
 import rest
 
 PIPELINES = Path(__file__).resolve().parents[1]
@@ -89,6 +91,9 @@ def candidate_refs(st):
     for c in rows:
         for ref in c.get("filer_refs") or []:
             if isinstance(ref, str) and ref.startswith(f"{st}:"):
+                if ref in refs and refs[ref][1] != c["slug"]:
+                    print(f"   warning: {ref} is on both {refs[ref][1]} and {c['slug']}; "
+                          f"its money loads to {refs[ref][1]}", flush=True)
                 refs.setdefault(ref, (c["id"], c["slug"]))
     return refs
 
@@ -311,6 +316,16 @@ def main(argv=None):
         sys.exit(f"{st}: no SLCF cleaned data under {args.data_dir} — run "
                  f"`python3 pipelines/slcf/src/main.py sync {st.upper()}` first")
 
+    # Legislative roster from LPT (states.json "lpt_roster"), before the refs
+    # are read so new candidates' money loads on this same run (roster.py).
+    if entry.get("lpt_roster"):
+        def scrape_rows():
+            for table in ("contributions", "expenditures"):
+                for row in open_table(clean_dir, table) or []:
+                    yield row
+        roster.sync_state(st, scrape_rows(), dry_run=args.dry_run,
+                          committees=list(open_table(clean_dir, "committees") or []))
+
     refs = candidate_refs(st)
     print(f"== loading {st} from {clean_dir} ({len(refs)} tracked committees, "
           f"since {since}{', dry run' if args.dry_run else ''}"
@@ -347,6 +362,16 @@ def main(argv=None):
         if do_prune and not args.dry_run:
             prune(st, refs, stats, live, since,
                   entry.get("prune_min_share", PRUNE_MIN_SHARE))
+
+    # Outside spending (states.json "ie": true): independent expenditures
+    # targeting the tracked candidates, their spenders and the spenders'
+    # receipts -> cf_ie_* (pipelines/load/ie.py). Needs committees.csv, so
+    # run_state scrapes entities as well for these states.
+    if entry.get("ie"):
+        cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name&order=id")
+        ie.load_ie(st, entry, clean_dir, cands, args.dry_run, since, entry.get("cycle", "2026"),
+                   mapping.TxnIds(st, entry.get("id_format")), open_table,
+                   do_prune=do_prune, min_share=entry.get("prune_min_share", PRUNE_MIN_SHARE))
     return 0
 
 
