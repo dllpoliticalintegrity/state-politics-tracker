@@ -13,7 +13,9 @@ import {
 describe("state registry", () => {
   it("covers the statemoney.us states plus Michigan and California, reading Georgia from LPT", () => {
     expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "or", "tx", "wi"]);
-    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ga", "oh", "or"]);
+    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ca", "ga", "mi", "oh", "or", "tx"]);
+    // The states still on the tracker: Henry's loads lag the scraper fixes (plan doc, phase 2).
+    expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "fl", "wi"]);
     for (const s of STATES) expect(["lpt", "tracker"]).toContain(s.source);
     // Hidden states keep their dashboards and pipelines; the hub just does not list them as live.
     const hidden = hiddenStates().map((s) => s.code).sort();
@@ -73,8 +75,9 @@ describe("state registry", () => {
     const polled = liveStates().flatMap((s) => (s.races ?? []).filter((r) => r.pollingSourceUrl).map((r) => [s, r] as const));
     expect(polled.length).toBeGreaterThanOrEqual(9);
     for (const [s, r] of polled) {
-      if (s.source === "lpt") {
-        expect(pollingSourceKey(r)).toBe("lpt");
+      // Henry's states on LPT poll through statemoney.us; the hub's own
+      // bridged states (MI, TX, CA) keep their FiftyPlusOne polls.
+      if (s.source === "lpt" && pollingSourceKey(r) === "lpt") {
         expect(pollingSourceLabel(r)).toBe("Local Politics Tracker");
         expect(r.pollingSourceUrl).toMatch(new RegExp(`^https://statemoney\\.us/${s.code}/races/[a-z0-9-]+$`));
         continue;

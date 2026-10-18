@@ -66,3 +66,18 @@ jobs:
               $( [ "$FORCE_PRUNE" = "true" ] && echo --force-prune ) || status=1
           done
           exit $status
+
+      # Henry's states on LPT read his matviews; the hub's caches over them
+      # are refilled here, after his weekday 15:00 UTC refresh.
+      - name: Refresh hub caches for the LPT-native states
+        env:
+          LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
+          LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
+          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'GA OH OR' }}
+        run: |
+          if [ -z "$LPT_SERVICE_ROLE_KEY" ]; then exit 0; fi
+          arr=$(printf '"%s",' $HIS_STATES); arr="[${arr%,}]"
+          curl -fsS -X POST "${LPT_SUPABASE_URL}/rest/v1/rpc/hub_refresh_cache" \
+            -H "apikey: ${LPT_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${LPT_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" -m 3600 \
+            -d "{\"p_states\": ${arr}}"

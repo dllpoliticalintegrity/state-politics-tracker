@@ -140,6 +140,8 @@ language sql immutable
 as $$
   select coalesce(
     nullif(btrim(override), ''),
+    -- A display-form name as filed ("Betty T. Yee": no comma, not shouting) is kept whole.
+    case when raw !~ ',' and raw <> upper(raw) then btrim(raw) end,
     public.hub_title_case(nullif(btrim(concat_ws(' ', nullif(btrim(first_name), ''), nullif(btrim(last_name), ''))), '')),
     public.hub_title_case(public.hub_flip_name(raw))
   )
@@ -218,6 +220,10 @@ language sql immutable
 as $$
   select coalesce(nullif(btrim(override), ''),
     case
+      -- The hub's own vocabulary, as the bridged states carry it.
+      when lower(disposition) in ('active', 'won_primary', 'nominee', 'lost_primary', 'withdrawn', 'disqualified', 'not_on_ballot') then lower(disposition)
+      when lower(disposition) = 'eliminated' then 'lost_primary'
+      when lower(disposition) = 'dropped_out' then 'withdrawn'
       when on_ballot is false then
         case
           when disposition ~* 'withdr' then 'withdrawn'
