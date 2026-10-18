@@ -11,6 +11,7 @@ export interface StateSiteRow {
   display_name: string;
   tagline: string | null;
   logo_url: string | null;
+  favicon_url: string | null;
   accent_color: string | null;
   about_text: string | null;
   credits_text: string | null;
@@ -22,6 +23,8 @@ export interface SiteChrome {
   siteName: string;
   tagline: string | null;
   logoUrl: string | null;
+  /** Browser-tab icon; null = the build's favicon.ico. */
+  faviconUrl: string | null;
   accentColor: string | null;
   aboutText: string | null;
   creditsText: string | null;
@@ -37,6 +40,7 @@ export function applySiteConfig(cfg: StateConfig | null, row: StateSiteRow | nul
     siteName: siteNameFor(cfg?.name),
     tagline: null,
     logoUrl: null,
+    faviconUrl: null,
     accentColor: null,
     aboutText: null,
     creditsText: null,
@@ -49,6 +53,7 @@ export function applySiteConfig(cfg: StateConfig | null, row: StateSiteRow | nul
     siteName: blank(row.display_name) ?? base.siteName,
     tagline: blank(row.tagline),
     logoUrl: blank(row.logo_url),
+    faviconUrl: blank(row.favicon_url),
     accentColor: blank(row.accent_color),
     aboutText: blank(row.about_text),
     creditsText: blank(row.credits_text),

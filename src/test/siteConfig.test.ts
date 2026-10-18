@@ -9,6 +9,7 @@ const row = (over: Partial<StateSiteRow> = {}): StateSiteRow => ({
   display_name: "Georgia Money Tracker",
   tagline: "Follow the money under the Gold Dome",
   logo_url: "https://example.com/logo.svg",
+  favicon_url: "https://example.com/icon.png",
   accent_color: "#1a7f5a",
   about_text: "About Georgia.",
   credits_text: "Data: Georgia Government Transparency & Campaign Finance Commission",
@@ -24,6 +25,7 @@ describe("applySiteConfig", () => {
     const c = applySiteConfig(ga, null);
     expect(c.siteName).toBe("Georgia Politics Tracker");
     expect(c.tagline).toBeNull();
+    expect(c.faviconUrl).toBeNull();
     expect(c.races.map((r) => r.raceSlug)).toEqual(ga.races!.map((r) => r.raceSlug));
   });
 
@@ -38,6 +40,7 @@ describe("applySiteConfig", () => {
     expect(c.siteName).toBe("Georgia Money Tracker");
     expect(c.tagline).toBe("Follow the money under the Gold Dome");
     expect(c.accentColor).toBe("#1a7f5a");
+    expect(c.faviconUrl).toBe("https://example.com/icon.png");
     expect(c.races.map((r) => r.raceSlug)).not.toContain("georgia-attorney-general-2026");
     expect(c.races.length).toBe(ga.races!.length - 1);
   });
