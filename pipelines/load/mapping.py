@@ -41,7 +41,10 @@ _LOAN = re.compile(r"\bloans?\b", re.I)
 # loans_debts record types that are not money lent to the committee: payments
 # on a loan, forgiveness, and debts (unpaid bills) owed by the committee.
 # "Outstanding Loan" (ID) is a balance carried forward, not money lent again.
-_NOT_A_LOAN = re.compile(r"^p$|pay|forgiv|debt|owed|obligation|outstanding", re.I)
+# MN's loans are "Loan Payable" (money owed back, still a loan received);
+# HI's "Unpaid Expenditure" is a bill and a "Durable Asset" an inventory line.
+_NOT_A_LOAN = re.compile(
+    r"^p$|pay(?!able)|forgiv|debt|owed|obligation|outstanding|unpaid|durable", re.I)
 _UNITEMIZED = re.compile(r"\bun-?itemi[sz]ed\b|\bnon-?itemi[sz]ed\b", re.I)
 _DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 _SUFFIXES = {"JR", "JR.", "SR", "SR.", "II", "III", "IV", "V"}
@@ -76,11 +79,19 @@ def iso_date(v):
     return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
 
 
-def is_entity_name(name):
-    return bool(name and _ENTITY_NAME.search(name))
+def is_entity_name(name, entity_words=None):
+    """The organisation-name heuristic. entity_words (states.json): extra
+    words that mark an organisation in that state ("PA" in "SEIU Healthcare
+    PA COPE", "FRIENDS OF")."""
+    if not name:
+        return False
+    if _ENTITY_NAME.search(name):
+        return True
+    return bool(entity_words) and bool(re.search(
+        r"\b(" + "|".join(re.escape(w) for w in entity_words) + r")\b", name, re.I))
 
 
-def contributor_type(raw, name, individual_types=None):
+def contributor_type(raw, name, individual_types=None, entity_words=None):
     """INDIVIDUAL / ENTITY from SLCF's per-state contributor_type, falling back
     to the name heuristic when the state gives none.
 
@@ -95,7 +106,7 @@ def contributor_type(raw, name, individual_types=None):
         return "INDIVIDUAL" if _INDIVIDUAL_TYPE.match(raw) else "ENTITY"
     if not name:
         return None
-    return "ENTITY" if is_entity_name(name) else "INDIVIDUAL"
+    return "ENTITY" if is_entity_name(name, entity_words) else "INDIVIDUAL"
 
 
 def split_name(name, individual):
@@ -119,8 +130,11 @@ def split_name(name, individual):
     return " ".join(parts[i:]), " ".join(parts[:i])
 
 
-def is_inkind(transaction_type):
-    return bool(_INKIND.search(transaction_type or ""))
+def is_inkind(transaction_type, inkind_types=None):
+    """inkind_types (states.json): raw transaction types, lower-cased, that
+    are in-kind gifts though their text doesn't say so (IL's code "5a")."""
+    t = transaction_type or ""
+    return bool(_INKIND.search(t)) or bool(inkind_types and t.strip().lower() in inkind_types)
 
 
 def is_loan_receipt(transaction_type):
@@ -207,14 +221,15 @@ class TxnIds:
 
 
 def to_cf(table, row, individual_types=None, category_field="category", unitemized=None,
-          loan_record=False):
+          loan_record=False, inkind_types=None, entity_words=None):
     """(cf_table, row) for one SLCF row, or None when it carries nothing the
     site shows. Ids, candidate and cycle are added by the caller.
 
     category_field (states.json): which SLCF column holds the spending
     category the site groups expenditures by. SLCF's `category` varies by
     state — Colorado's is the payment form ("Monetary (Itemized)") and its
-    spending type ("Fundraising Expenses") is in transaction_type.
+    spending type ("Fundraising Expenses") is in transaction_type. null = no
+    category, where the pilot stored none and SLCF's column is a raw code (IL).
 
     unitemized (states.json): how the pilot stored a state's lump sums of
     small gifts. {"label": ..., "type": ...}: nameless ones get
@@ -236,7 +251,7 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
     if table == "contributions":
         name = text(row.get("contributor_name"))
         ctype = contributor_type(row.get("contributor_type"), name,
-                                 None if loan_record else individual_types)
+                                 None if loan_record else individual_types, entity_words)
         if text(row.get("contributor_last")) or text(row.get("contributor_first")):
             last, first = text(row.get("contributor_last")), text(row.get("contributor_first"))
         else:
@@ -266,7 +281,7 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
             "state": text(row.get("contributor_state")),
             "zip": text(row.get("contributor_zip")),
             "source_form_type": (
-                "INKIND" if is_inkind(row.get("transaction_type"))
+                "INKIND" if is_inkind(row.get("transaction_type"), inkind_types)
                 else (unitemized or {}).get("form_type")
                 if is_unitemized(row.get("transaction_type")) else None),
         }
@@ -284,8 +299,9 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
             "payee_zip": text(row.get("payee_zip")),
             "amount": amount,
             "expenditure_date": date,
-            "category": (text(row.get(category_field)) or text(row.get("category"))
-                         or text(row.get("transaction_type"))),
+            "category": None if category_field is None else (
+                text(row.get(category_field)) or text(row.get("category"))
+                or text(row.get("transaction_type"))),
             "description": text(row.get("purpose")),
         }
 

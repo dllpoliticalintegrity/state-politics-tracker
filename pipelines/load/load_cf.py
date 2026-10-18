@@ -104,7 +104,9 @@ def rows_for_state(st, entry, clean_dir, refs):
     cycle = entry.get("cycle", "2026")
     ids = mapping.TxnIds(st, entry.get("id_format"))
     individual_types = entry.get("individual_types")
-    category_field = entry.get("category_field", "category")
+    category_field = entry.get("category_field", "category")     # null = no category
+    inkind_types = {v.lower() for v in entry.get("inkind_types", [])}
+    entity_words = entry.get("entity_words")
     unitemized = entry.get("unitemized")
     # skip_types: per SLCF table, transaction types the pilot never imported
     # (AL's Other Receipts extract: bank interest, vendor refunds).
@@ -153,7 +155,8 @@ def rows_for_state(st, entry, clean_dir, refs):
                 counts["before_since"] += 1
                 continue
             out = mapping.to_cf(t, row, individual_types, category_field, unitemized,
-                                loan_record=t != table)
+                                loan_record=t != table, inkind_types=inkind_types,
+                                entity_words=entity_words)
             if out is None:
                 counts["unmapped"] += 1
                 continue
@@ -257,19 +260,20 @@ def write_report(path, new, live, since):
     return out
 
 
-def prune(st, refs, new, live, since):
+def prune(st, refs, new, live, since, min_share=PRUNE_MIN_SHARE):
     """Delete the stale live rows (see stale_ids) after a complete load.
 
-    Refuses when the load looks truncated — fewer rows than PRUNE_MIN_SHARE of
-    what is live in the window for the state — since a cut-off download would
-    otherwise delete real money. Deletes filter on source = 'slcf' and the
+    Refuses when the load looks truncated — fewer rows than min_share
+    (PRUNE_MIN_SHARE, or the state's `prune_min_share` for a first run that
+    removes many duplicates) of what is live in the window — since a cut-off
+    download would otherwise delete real money. Deletes filter on source = 'slcf' and the
     candidate, so Texas's 'tec' rows and other states can never be touched."""
     live_in_window = sum(1 for lv in live.values() for _, d in lv["ids"].values()
                          if d and d >= since)
     loaded = sum(v["rows"] for v in new.values())
-    if live_in_window and loaded < PRUNE_MIN_SHARE * live_in_window:
+    if live_in_window and loaded < min_share * live_in_window:
         raise SystemExit(f"{st}: refusing to prune — loaded {loaded} rows, "
-                         f"{live_in_window} live in the window (< {PRUNE_MIN_SHARE:.0%})")
+                         f"{live_in_window} live in the window (< {min_share:.0%})")
     by_slug = {slug: cid for cid, slug in refs.values()}
     removed = defaultdict(int)
     for (slug, cf_table), ids in stale_ids(new, live, since).items():
@@ -334,7 +338,8 @@ def main(argv=None):
         live = live_stats(st, refs)
         write_report(args.report, stats, live, since)
         if do_prune and not args.dry_run:
-            prune(st, refs, stats, live, since)
+            prune(st, refs, stats, live, since,
+                  entry.get("prune_min_share", PRUNE_MIN_SHARE))
     return 0
 
 

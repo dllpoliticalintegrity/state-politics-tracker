@@ -143,6 +143,28 @@ class MappingTest(unittest.TestCase):
                              ["individual"], unitemized=ar)
         self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # a named row is a person
 
+    def test_category_none_inkind_types_entity_words_and_loan_types(self):
+        _, r = mapping.to_cf("expenditures", {"amount": "9", "category": "8B",
+                                              "transaction_type": "8B"}, category_field=None)
+        self.assertIsNone(r["category"])
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_name": "X",
+                                               "transaction_type": "5A"}, inkind_types={"5a"})
+        self.assertEqual(r["source_form_type"], "INKIND")
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_type": "",
+                                               "contributor_name": "SEIU HEALTHCARE PA COPE"},
+                             entity_words=["PA", "FRIENDS OF"])
+        self.assertEqual(r["contributor_type"], "ENTITY")
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_type": "",
+                                               "contributor_name": "PAT SMITH"},
+                             entity_words=["PA"])
+        self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # whole words only
+        t, _ = mapping.to_cf("loans_debts", {"original_amount": "500", "record_type": "Loan Payable",
+                                             "counterparty_name": "MIKE LINDELL"})
+        self.assertEqual(t, "cf_loans")
+        for rt in ("Unpaid Expenditure", "Durable Asset"):
+            self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "5",
+                                                            "record_type": rt}), rt)
+
     def test_unitemized_form_type(self):
         al = {"form_type": "NON-ITEMIZED"}
         _, r = mapping.to_cf("contributions", {"amount": "20", "contributor_type": "Individual",
@@ -354,6 +376,14 @@ class LoaderTest(unittest.TestCase):
                            (k, 187687.85, "2026-08-31", "co:1702268"),   # superseded
                            (k, 7, "2024-06-01", "co:1")])               # before since
         self.assertEqual(load_cf.stale_ids(new, live, "2025-01-01"), {k: {"co:1702268": 187687.85}})
+
+    def test_prune_min_share_override(self):
+        k = ("victor-marx", "cf_expenditures")
+        live = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(10)])
+        half = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(5)])
+        with mock.patch.object(rest, "delete") as delete:
+            load_cf.prune("co", self.REFS, half, live, "2025-01-01", min_share=0.45)
+        self.assertTrue(delete.called)
 
     def test_prune_deletes_stale_rows_and_refuses_a_truncated_load(self):
         k = ("victor-marx", "cf_expenditures")

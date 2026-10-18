@@ -106,7 +106,8 @@ SCRAPER_FLAGS     = {"--force", "--transactions", "--entities",
                      "--candidates", "--committees",
                      "--pacs", "--party-caucus", "--ballot-measure",
                      "--no-fec-ie",
-                     "--grid"}       # MD: PublicGrid export, which carries TransactionID
+                     "--grid"}       # MD: PublicGrid export, which carries TransactionID;
+                                     # AK: APOC's search export over plain HTTP, no browser
 YEAR_FLAGS        = {"--start-year", "--end-year"}
 
 

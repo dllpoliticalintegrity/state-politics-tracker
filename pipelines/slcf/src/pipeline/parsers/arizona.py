@@ -37,6 +37,18 @@ Schema notes:
   No loan/debt data — loans_debts.csv.gz written empty (header only).
   person_id model: "committee" — Arizona assigns IDs per committee registration.
 
+  Expenditure purpose is the filer's Memo (its own words: "SMS Services",
+  "Fundraiser - Parking"), blank when there is none; the spending type stays
+  in transaction_type.
+
+Loader ids (columns.py, TRANSACTION_IDS): state_filer_id = CommitteeID (the
+  receiving / spending committee; the site's filer_refs are az:<CommitteeID>).
+  AdvancedSearch publishes no transaction id, so txn_id stays blank and the
+  loader hashes those rows; IE rows carry the source's TransactionId.
+  superseded is never set: SeeTheMoney serves only the current version of each
+  report, with no replaced rows left in it. contributor_first/_last and
+  payee_last are the split the pilot importer stored (name_parts()).
+
 Independent expenditures: a separate raw source from Income/Expenditures (see
 scrapers/arizona.py's module docstring) — IndependentExpenditures_{cycle}.csv
 holds itemized IE transactions fetched via a per-candidate drill-down, not
@@ -225,6 +237,23 @@ def _split_last_first(last_first: str) -> tuple[str, str]:
         parts = [p.strip() for p in last_first.split(",", 1)]
         return parts[0], parts[1] if len(parts) > 1 else ""
     return last_first, ""
+
+
+def name_parts(row: dict) -> tuple[str, str]:
+    """(first, last) of a transaction's counterparty for the loader's
+    contributor_first / contributor_last: the source's FirstName / LastName.
+    With no LastName, a "Last, First" TransactionName splits on its comma
+    (title-cased) and anything else goes whole into last — the split the
+    pilot importer stored."""
+    first = clean(row.get("FirstName", ""))
+    last  = clean(row.get("LastName", ""))
+    name  = clean(row.get("TransactionName", ""))
+    if last or not name:
+        return first, last
+    if "," in name:
+        last, _, first = name.partition(",")
+        return first.strip().title(), last.strip().title()
+    return first, name
 
 
 def _is_ie_ghost_registration(row: dict) -> bool:
@@ -509,6 +538,8 @@ def run():
                         reg = lookup_filer(filer_name, filer_type, by_lastname, by_cmte_name)
                         committee_name = clean(reg["committee_name"]) if reg else ""
 
+                    contributor_first, contributor_last = name_parts(row)
+
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    committee_name,
@@ -522,10 +553,15 @@ def run():
                         "contributor_zip":   clean(row.get("ZipCode", "")),
                         "employer":          clean(row.get("Employer", "")),
                         "occupation":        clean(row.get("Occupation", "")),
+                        "contributor_first": contributor_first,
+                        "contributor_last":  contributor_last,
                         "candidate_name":    _format_name(filer_name, "") if filer_type == "Candidate" else "",
                         "office":            clean(reg.get("office_name") or reg.get("office", "")) if reg else "",
                         "election_year":     year,
                         "filing_id":         "",
+                        # CommitteeID for the state-politics-tracker loader
+                        # (columns.py, TRANSACTION_IDS); no transaction id.
+                        "state_filer_id":    clean(row.get("CommitteeID", "")),
                         "amended":           "",
                         "raw_file":          path.name,
                         "row_num":           row_num,
@@ -567,10 +603,13 @@ def run():
                         "state":            STATE,
                         "committee_name":   committee_name,
                         "payee_name":       clean(row.get("TransactionName", "")),
+                        # The whole name, as the pilot importer stored it.
+                        "payee_last":       (clean(row.get("TransactionName", ""))
+                                             or clean(row.get("LastName", ""))),
                         "amount":           amount,
                         "date":             parse_date(row.get("TransactionDate", "")),
                         "transaction_type": clean(row.get("TransactionType", "")),
-                        "purpose":          clean(row.get("TransactionType", "")),
+                        "purpose":          clean(row.get("Memo", "")),
                         "category":         filer_type,
                         "payee_city":       clean(row.get("City", "")),
                         "payee_state":      clean(row.get("State", "")),
@@ -579,6 +618,7 @@ def run():
                         "office":           clean(reg.get("office_name") or reg.get("office", "")) if reg else "",
                         "election_year":    year,
                         "filing_id":        "",
+                        "state_filer_id":   clean(row.get("CommitteeID", "")),
                         "amended":          "",
                         "raw_file":         path.name,
                         "row_num":          row_num,
@@ -675,6 +715,10 @@ def run():
                         "affiliated_candidate_name": utils.clean_name(affiliated_name) if affiliated_name else "",
                         "support_oppose":   support_oppose,
                         "filing_id":        "",
+                        # The spending committee and the source's own id
+                        # (columns.py, TRANSACTION_IDS).
+                        "state_filer_id":   clean(row.get("CommitteeId", "")),
+                        "txn_id":           tid,
                         "amended":          "",
                         "raw_file":         path.name,
                         "row_num":          row_num,

@@ -238,14 +238,16 @@ def download_year(session: requests.Session, year: int, url: str,
                         bytes_written += len(chunk)
     except requests.RequestException as e:
         tmp.unlink(missing_ok=True)
-        log.warning(f"  ✗ {year}: download failed: {e}")
+        # An error event, not just a warning: state-politics-tracker's
+        # run_state.py skips its prune when a scrape lost a file.
+        log.file_download_error(dest.name, f"download failed: {e}")
         return False, 0
 
     ok, msg = verify_zip_year(tmp, year)
     if not ok:
         tmp.unlink(missing_ok=True)
-        log.warning(f"  ✗ {year}: {msg} — not saving as {dest.name} "
-                    f"(source: {url})")
+        log.file_download_error(dest.name, f"{msg} — not saving as {dest.name} "
+                                           f"(source: {url})")
         return False, 0
 
     tmp.replace(dest)
@@ -316,6 +318,11 @@ def run(years: list[int] | None = None, start_year: int | None = None,
     if missing:
         log.warning(f"  No link found on the listing page for: {missing} "
                     f"(skipping)")
+        # A past year's export gone missing is an error event, as for a failed
+        # download; the current year's may just not be posted yet (January).
+        for y in missing:
+            if y < current_year:
+                log.file_download_error(f"{y}.zip", "no link on the listing page")
         wanted = [y for y in wanted if y in links]
 
     log.info(f"  Requested {len(wanted)} year(s): "

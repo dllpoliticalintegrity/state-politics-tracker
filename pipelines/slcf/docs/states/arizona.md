@@ -107,7 +107,7 @@ Named `IndependentExpenditures_{Cycle}.csv` — one file per cycle, itemized IE 
 
 **Request structure (critical detail):** The endpoint requires search criteria in the URL *query string* and pagination/column spec in the POST body as a DataTables payload (`draw`, `columns[N][data]`, `start`, `length`, `order`). Sending search params in the POST body returns an empty response. This structure was confirmed from a browser network capture.
 
-**Pagination:** offset-based via the `start` parameter (0, 3000, 6000, …). `TABLE_LENGTH = 3000` rows per page — the server's ASP.NET `maxJsonLength` rejects responses above roughly 5000 rows for large files.
+**Pagination:** offset paging (`start` = 0, 3000, …) is **not stable** on AdvancedSearch: multi-column ordering doesn't help, and a statewide pull repeated some rows and dropped others (23 repeated, 8 missing among the nine tracked governor committees' 8,025 expenditures, 2026-10-15). So the scraper fetches date windows small enough to come back as one page (`iter_window_rows`): a day with more than `TABLE_LENGTH = 3000` rows gets one `DAY_PAGE_LENGTH` page, else is split into bands of the amount (`LowAmount`/`HighAmount`, inclusive, compared on the absolute value, so refunds are covered), each halved until it fits. Dropped connections are retried, and a warning is logged when the fetched rows don't add up to the source's count. The only windows that still page are PAC payroll days with more than a page of rows at a single amount (e.g. 10,337 gifts of $9.00 on 2025-06-30). The server's ASP.NET `maxJsonLength` rejects responses above roughly 5000 rows.
 
 **Parallel downloads:** `PARALLEL_WORKERS = 4` concurrent threads via `ThreadPoolExecutor`. Each thread creates its own `build_session()` to avoid shared state. Manifest writes are serialized with a `threading.Lock`.
 
@@ -151,6 +151,8 @@ Arizona is a **registry-joined state**: transaction files contain `FilerName` as
 - `contributor_type` derived from `TransactionType` (e.g. `"Contribution from Individuals"` → `"Individual"`, `"CCEC $5 Qualifying Contribution"` → `"Individual"`, `"Contributions from PACs"` → `"PAC"`). Normalized to canonical values at aggregate time via `src/aliases/contributor_types.csv`.
 - `office_name` values like `"State Representative - District 20"` are split into `office = "State Representative"` and `district = "20"`. Handles both `"- District N"` and `"- District No. N"` variants.
 - `FilerName` join strategy: Candidate files use `entity_last_name` index (FilerName is "Last, First"); PAC/Party/Officeholder files try full committee name first, then last-name fallback.
+- Expenditure `purpose` is the row's `Memo`; `TransactionType` stays in `transaction_type` (before 2026-10, `purpose` held the TransactionType).
+- Loader columns: `state_filer_id` = `CommitteeID` (IE rows: the spender's `CommitteeId`); `txn_id` blank on Income/Expenditures rows (AdvancedSearch has no transaction id — `TransactionNameID` is always 0), `TransactionId` on IE rows; `contributor_first`/`contributor_last` split from `TransactionName`; never `superseded` (the source serves only the current version of each report).
 - Dates normalized from `.NET Date(ms)` timestamps to `YYYY-MM-DD`.
 - `committees.csv` and `candidates.csv` are derived from the registry, not from transaction rows.
 - Candidates filtered to `entity_type_name` values containing `"Candidate"` or `"$500 Threshold"`.

@@ -40,7 +40,11 @@ call to run() only downloads for up to `time_budget_s` seconds per file; if
 the budget is hit mid-file, progress (bytes + row count so far) is saved to
 `<name>.progress.json` and the next invocation resumes via an HTTP Range
 request starting at that byte offset. Re-run the scraper repeatedly until
-every file reports "ok" (no remaining `.part` files).
+every file reports "ok" (no remaining `.part` files). The default budget
+(DEFAULT_TIME_BUDGET_S) is long enough to finish both big files in one run,
+which state-politics-tracker's nightly job needs (it starts from an empty
+disk and passes no --time-budget); within a run, a dropped request resumes
+from its last byte (MAX_TRIES).
 
 Row counts are derived by counting newline bytes while streaming — exact for
 these files since IDS/quoting (QUOTE_NONE) means no embedded newlines within
@@ -52,6 +56,7 @@ import json
 import sys
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -73,6 +78,31 @@ MANIFEST_COLS = ["filename", "server_last_modified", "server_size",
 # ========================= state-specific constants ===================
 BASE_URL = "https://elections.il.gov/campaigndisclosuredatafiles/{table}.txt"
 CHUNK    = 8 * 1024 * 1024  # 8 MB per streamed read
+
+# ISBE serves the big dumps at ~1 MB/s and routinely drops a request: a
+# Cloudflare 524 / read timeout before the first byte, or a stream cut short
+# near the end (both seen on the pilot importer's nightly runs, 2026-10-15).
+# state-politics-tracker's nightly job starts from an empty disk, so it must
+# finish every file in ONE invocation. A failed attempt keeps its bytes and
+# resumes with a Range request; MAX_TRIES failures in a row without progress
+# gives up on the file.
+MAX_TRIES = 30
+# Default seconds per file: Receipts.txt takes ~18 min and Expenditures.txt
+# ~10 min on a GitHub runner; two files at this cap still fit, with the parse
+# and load, inside finance-sync.yml's 120-minute job limit.
+DEFAULT_TIME_BUDGET_S = 2400.0
+
+# elections.il.gov load-balances across backends that hold DIFFERENT days'
+# dumps (2026-10-15: Receipts.txt of Oct 11 and of Oct 14, Expenditures.txt
+# of Oct 12 and of Oct 15, a request landing on either at random). Bytes from
+# two versions must never be stitched together by a Range resume, and a
+# nightly run must not fall back to an older day than the night before (the
+# loader would prune the newer rows, then re-add them). So check_file() HEADs
+# VERSION_PROBES times and keeps the newest Last-Modified, and every GET must
+# be answered by a backend holding that version (WrongVersion otherwise,
+# retried up to MAX_VERSION_MISSES times).
+VERSION_PROBES     = 8
+MAX_VERSION_MISSES = 120
 
 # table name (no extension) -> local filename
 ENTITY_TABLES = {
@@ -119,14 +149,61 @@ def update_manifest(filename: str, record: dict):
 
 
 # ============================ Download helpers =============================
+def part_bytes(local_name: str) -> int:
+    """Bytes of `local_name` downloaded so far (its `.part`), 0 if none."""
+    p = RAW_DIR / f"{local_name}.part"
+    return p.stat().st_size if p.exists() else 0
+
+
+class WrongVersion(RuntimeError):
+    """The backend that answered holds another day's dump (see VERSION_PROBES)."""
+
+
+def _lm_key(lm: str) -> float:
+    try:
+        return parsedate_to_datetime(lm).timestamp()
+    except Exception:
+        return 0.0
+
+
+def new_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        # Cloudflare gzip-compresses the response by default, which omits
+        # Content-Length and can break Range-based resume. Request the
+        # identity encoding so HEAD gives a true size and GET honors Range.
+        "Accept-Encoding": "identity",
+    })
+    return session
+
+
 def check_file(session: requests.Session, table: str) -> tuple[int, str, str]:
-    """HEAD the table's URL. Returns (content_length, last_modified, url)."""
+    """HEAD the table's URL VERSION_PROBES times. Returns (content_length,
+    last_modified, url) of the newest version seen; content_length is 0 when
+    no HEAD for it carried one (download_file then takes it from the GET).
+    Each probe opens its own connection: a kept-alive one tends to stay on
+    one backend, which would make the probes agree whatever the others hold."""
     url  = BASE_URL.format(table=table)
-    resp = session.head(url, timeout=30, allow_redirects=True)
-    resp.raise_for_status()
-    size = int(resp.headers.get("Content-Length", 0))
-    lm   = resp.headers.get("Last-Modified", "")
-    return size, lm, url
+    best, err = None, None
+    for _ in range(VERSION_PROBES):
+        try:
+            with new_session() as probe:
+                resp = probe.head(url, timeout=30, allow_redirects=True)
+            resp.raise_for_status()
+        except Exception as e:      # one refused probe is not fatal
+            err = e
+            continue
+        lm   = resp.headers.get("Last-Modified", "")
+        size = int(resp.headers.get("Content-Length", 0))
+        if best is None or _lm_key(lm) > _lm_key(best[1]) or \
+           (lm == best[1] and size and not best[0]):
+            best = (size, lm)
+    if best is None:
+        raise err
+    return best[0], best[1], url
 
 
 def download_file(session: requests.Session, local_name: str, url: str,
@@ -178,6 +255,15 @@ def download_file(session: requests.Session, local_name: str, url: str,
 
     resp = session.get(url, headers=headers, stream=True, timeout=120)
     resp.raise_for_status()
+    served = resp.headers.get("Last-Modified", "")
+    if server_lm and served != server_lm:
+        resp.close()
+        raise WrongVersion(f"served the {served or 'undated'} dump, not {server_lm}")
+    if not server_size:             # HEAD gave no size: take it from the GET
+        total = resp.headers.get("Content-Range", "").rpartition("/")[2]
+        if resp.status_code == 200:
+            total = resp.headers.get("Content-Length", "")
+        server_size = int(total) if total.isdigit() else 0
 
     # Server ignored our Range header (returned 200 instead of 206) —
     # the existing partial bytes don't correspond to this response, restart.
@@ -186,22 +272,37 @@ def download_file(session: requests.Session, local_name: str, url: str,
         rows       = 0
         mode       = "wb"
 
+    def save_progress():
+        prog_path.write_text(json.dumps({
+            "bytes": start_byte, "rows": rows,
+            "last_modified": server_lm,
+        }))
+
     t0 = time.perf_counter()
     with open(part_path, mode) as f:
-        for chunk in resp.iter_content(chunk_size=CHUNK):
-            if not chunk:
-                continue
-            f.write(chunk)
-            start_byte += len(chunk)
-            rows       += chunk.count(b"\n")
+        try:
+            for chunk in resp.iter_content(chunk_size=CHUNK):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                start_byte += len(chunk)
+                rows       += chunk.count(b"\n")
 
-            if time.perf_counter() - t0 > time_budget_s:
-                f.flush()
-                prog_path.write_text(json.dumps({
-                    "bytes": start_byte, "rows": rows,
-                    "last_modified": server_lm,
-                }))
-                return "partial", rows, start_byte
+                if time.perf_counter() - t0 > time_budget_s:
+                    f.flush()
+                    save_progress()
+                    return "partial", rows, start_byte
+        except Exception:
+            # Keep what arrived so the caller's retry resumes from here.
+            f.flush()
+            save_progress()
+            raise
+        # A dropped connection can end the stream cleanly: only the byte
+        # count says whether the file is complete.
+        if server_size and start_byte < server_size:
+            f.flush()
+            save_progress()
+            raise RuntimeError(f"stream cut at byte {start_byte}/{server_size}")
 
     prog_path.unlink(missing_ok=True)
     part_path.replace(out_path)
@@ -210,7 +311,7 @@ def download_file(session: requests.Session, local_name: str, url: str,
 
 # ============================ Main runner ===============================
 def run(force: bool = False, entities: bool = False, transactions: bool = False,
-        time_budget_s: float = 35.0):
+        time_budget_s: float = DEFAULT_TIME_BUDGET_S):
     """Download Illinois ISBE campaign disclosure bulk data files.
 
     Horizontal scope:
@@ -241,16 +342,7 @@ def run(force: bool = False, entities: bool = False, transactions: bool = False,
     files_ok = files_err = files_partial = 0
 
     try:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/124.0.0.0 Safari/537.36",
-            # Cloudflare gzip-compresses the response by default, which omits
-            # Content-Length and can break Range-based resume. Request the
-            # identity encoding so HEAD gives a true size and GET honors Range.
-            "Accept-Encoding": "identity",
-        })
+        session = new_session()
 
         done = {} if force else load_manifest()
 
@@ -276,11 +368,32 @@ def run(force: bool = False, entities: bool = False, transactions: bool = False,
             log.file_download_start(filename=local_name)
             t_file = time.perf_counter()
 
-            try:
-                status, row_count, bytes_written = download_file(
-                    session, local_name, url, server_size, server_lm, time_budget_s)
-            except Exception as e:
-                log.file_download_error(filename=local_name, error=str(e))
+            # Retry a dropped request from where it stopped (see MAX_TRIES);
+            # a retry that moved the file forward resets the count.
+            status, tries, misses = None, 0, 0
+            while status is None:
+                before = part_bytes(local_name)
+                try:
+                    status, row_count, bytes_written = download_file(
+                        session, local_name, url, server_size, server_lm,
+                        max(1.0, time_budget_s - (time.perf_counter() - t_file)))
+                except WrongVersion as e:
+                    misses += 1
+                    if misses >= MAX_VERSION_MISSES:
+                        log.file_download_error(filename=local_name, error=str(e))
+                        break
+                    session.close()         # a new connection, another backend
+                    session = new_session()
+                    time.sleep(1)
+                except Exception as e:
+                    tries = 1 if part_bytes(local_name) > before else tries + 1
+                    if tries >= MAX_TRIES or time.perf_counter() - t_file > time_budget_s:
+                        log.file_download_error(filename=local_name, error=str(e))
+                        break
+                    log.info(f"  ... {local_name}: resuming at "
+                             f"{part_bytes(local_name)/1024/1024:,.1f} MB (try {tries}): {e}")
+                    time.sleep(min(60, 5 * tries))
+            if status is None:
                 files_err += 1
                 continue
 
@@ -291,7 +404,7 @@ def run(force: bool = False, entities: bool = False, transactions: bool = False,
                 update_manifest(local_name, {
                     "filename":             local_name,
                     "server_last_modified": server_lm,
-                    "server_size":          server_size,
+                    "server_size":          server_size or bytes_written,
                     "downloaded_at":        datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "row_count":            row_count,
                 })
@@ -332,10 +445,10 @@ if __name__ == "__main__":
                     help="entity tables only (Committees, Candidates, CmteCandidateLinks)")
     ap.add_argument("--transactions", action="store_true",
                     help="transaction tables only (Receipts, Expenditures)")
-    ap.add_argument("--time-budget",  type=float, default=35.0,
+    ap.add_argument("--time-budget",  type=float, default=DEFAULT_TIME_BUDGET_S,
                     help="seconds to spend downloading each file before saving "
-                         "progress and returning (default 35s); re-run to resume "
-                         "large files")
+                         f"progress and returning (default {DEFAULT_TIME_BUDGET_S:.0f}s); "
+                         "re-run to resume large files")
     args, _ = ap.parse_known_args()
     try:
         run(force=args.force, entities=args.entities, transactions=args.transactions,

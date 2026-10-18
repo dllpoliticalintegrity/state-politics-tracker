@@ -7,10 +7,40 @@ Raw files (all in data/Alaska/raw/):
   CDCandidates_all.csv   — candidate registry
   GRForms_YYYY.csv       — group/committee registrations (bulk export)
   CRForms_YYYY.csv       — candidate registrations (bulk export, added 2026-09-23)
+  grid_CDIncome_YYYY.csv / grid_CDExpense_YYYY.csv
+                         — the scraper's --grid mode (plain HTTP, no browser):
+                           the same search grids, status "Complete, Not
+                           Amended". When a table has grid files, they replace
+                           its CDIncome / CDExpense files (see "Grid mode").
 
 Output (data/Alaska/cleaned/):
   contributions.csv.gz, expenditures.csv.gz, committees.csv.gz,
   candidates.csv.gz, loans_debts.csv.gz
+
+Grid mode (scraper --grid)
+  The bulk files are "All Complete Forms": an amended report's rows arrive
+  once per version, hence the per-file dedup below. Grid files hold only the
+  current version of each report, so they are written as they come: two
+  identical rows there are two gifts (a donor's repeated $25 on one day), and
+  dropping one would undercount.
+
+Loader columns (columns.py, TRANSACTION_IDS), on CDIncome / CDExpense rows
+  • state_filer_id: APOC has no filer ids. state-politics-tracker's
+    cf_candidates.filer_refs name a governor candidate by surname
+    ("ak:Kreiss-Tomkins"), as its old pilot importer searched APOC — so a
+    governor candidate's rows carry the top-of-ticket surname
+    (tracker_filer_id: Office = Governor, or a blank Office in a state
+    election); every other filer's carry the filer name, the committees
+    table's id.
+  • txn_id stays blank (APOC publishes no transaction id; the loader hashes);
+    superseded stays blank (grid files hold no superseded rows, and the bulk
+    files don't say which rows an amendment replaced).
+  • contributor_first / contributor_last, payee_first / payee_last: the raw
+    First Name and Last/Business Name, as the pilot stored them.
+  • States are two-letter codes ("Alaska" -> "AK"), as the pilot stored them.
+  • A loan receipt's transaction_type is "Loan" and a non-monetary gift's
+    "Non-Monetary" (the pilot's rules), so the loader files them as loans and
+    in-kind gifts; every other receipt keeps APOC's "Income".
 """
 
 import csv
@@ -96,6 +126,96 @@ def build_name(last: str, first: str) -> str:
     if first and last:
         return f"{first} {last}"
     return first or last
+
+
+def first_name(first: str) -> str:
+    """The raw First Name, '' for Alaska's org placeholder (N/A) -- the
+    contributor_first / payee_first the loader stores."""
+    first = (first or "").strip()
+    return "" if first.upper() in ("N/A", "NA", "N.A.") else first
+
+
+def _load_state_abbrs() -> dict[str, str]:
+    """Full state name (upper) -> two-letter code, from src/aliases/states.csv
+    plus DC -- the same set as the pilot importer's AK_STATE_ABBR."""
+    out = {"DISTRICT OF COLUMBIA": "DC"}
+    path = PROJECT_ROOT / "src" / "aliases" / "states.csv"
+    if path.exists():
+        with open(path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row.get("name") and row.get("abbr"):
+                    out[row["name"].strip().upper()] = row["abbr"].strip().upper()
+    return out
+
+
+STATE_ABBRS = _load_state_abbrs()
+
+
+def state_abbr(val: str) -> str:
+    """APOC's spelled-out state ("Alaska") -> "AK"; anything else (a foreign
+    province, a blank) passes through as is."""
+    v = clean(val)
+    return STATE_ABBRS.get(v.upper(), v)
+
+
+GOVERNOR_OFFICE      = "Governor"
+STATE_ELECTION_TYPES = {"State Primary", "State General"}
+NAME_SUFFIXES        = {"JR", "SR", "II", "III", "IV"}
+
+
+def ticket_lead(filer: str) -> tuple[str, str]:
+    """(first word, surname) of a filer name's top-of-ticket candidate.
+    Joint-ticket delimiters vary ("/", " / ", "\\"), as in the CDCandidates
+    block below, and so does the order: "Tom Begich/Julia Hnilicka" is two
+    people, "Bill / Randy  Walker / Hoffbeck" is first names then surnames.
+    Nicknames ("(JKT)", '"JP4"') and suffixes (Jr., Sr., IV) are dropped."""
+    parts = [p for p in re.split(r"\s*[/\\]\s*", filer) if p.strip()]
+    if not parts:
+        return "", ""
+    top = parts[0]
+    if (len(parts) == 3 and len(parts[0].split()) == 1
+            and len(parts[1].split()) >= 2 and "," not in parts[1]):
+        top = f"{parts[0]} {' '.join(parts[1].split()[1:])}"
+    top = re.sub(r'\s*(\([^)]*\)|"[^"]*")', "", top)
+    words = [w for w in top.replace(",", " ").split()
+             if w.upper().rstrip(".") not in NAME_SUFFIXES]
+    return (words[0], words[-1]) if words else ("", "")
+
+
+def tracker_filer_id(filer: str, filer_type: str, office: str, election_type: str) -> str:
+    """state_filer_id of a CDIncome / CDExpense row (see the module docstring).
+
+    A governor candidate's filer -> the top-of-ticket surname: "Tom
+    Begich/Julia Hnilicka" and "Tom Begich" (the same campaign before and
+    after the ticket formed) -> "Begich", the key state-politics-tracker's
+    filer_refs hold. That covers Office = Governor and, in a state election,
+    a blank Office: a candidate's own registration before the ticket forms
+    carries none (Kreiss-Tomkins's whole campaign, $4.5M by October 2026,
+    sits under one), so the pilot's Office = Governor filter missed it. Such
+    blank-office filers include legislators too; their surnames are keyed
+    alike, and run() warns when one surname covers two people. Every other
+    filer (groups included) keeps its name, which can't collide with a bare
+    surname."""
+    office = clean(office)
+    if clean(filer_type) != "Candidate" or not (
+            office == GOVERNOR_OFFICE
+            or (not office and clean(election_type) in STATE_ELECTION_TYPES)):
+        return filer
+    return ticket_lead(filer)[1] or filer
+
+
+def income_type(row: dict) -> str:
+    """transaction_type of a CDIncome row: "Loan" when the Payment Type or
+    Payment Detail says loan, "Non-Monetary" for an in-kind gift (the pilot
+    importer's two rules, which the loader reads off transaction_type), else
+    APOC's Transaction Type ("Income")."""
+    ptype   = clean(row.get("Payment Type", ""))
+    pdetail = clean(row.get("Payment Detail", ""))
+    if "loan" in ptype.lower() or "loan" in pdetail.lower():
+        return "Loan"
+    if ptype == "Non-Monetary":
+        return "Non-Monetary"
+    return clean(row.get("Transaction Type", ""))
 
 
 def contributor_type_from_first_name(first: str) -> str:
@@ -348,12 +468,32 @@ def run():
                         duration_s=time.perf_counter() - ft,
                         bytes=cand_path.stat().st_size if cand_path.exists() else 0)
 
+        # state_filer_id of CDIncome / CDExpense rows (tracker_filer_id), and
+        # who each surname key stands for, to warn when it is two people.
+        key_people: dict[str, set] = {}
+
+        def tracker_id(filer: str, row: dict) -> str:
+            key = tracker_filer_id(filer, row.get("Filer Type", ""), row.get("Office", ""),
+                                   row.get("Election Type", ""))
+            if key != filer:
+                key_people.setdefault(key, set()).add(ticket_lead(filer)[0].lower())
+            return key
+
+        # Grid files (scraper --grid), when a table has them, replace its bulk
+        # files: the same transactions, without the superseded versions.
+        income_files  = ([(p, True) for p in raw_files("grid_CDIncome_*.csv")]
+                         or [(p, False) for p in raw_files("CDIncome_*.csv")])
+        expense_files = ([(p, True) for p in raw_files("grid_CDExpense_*.csv")]
+                         or [(p, False) for p in raw_files("CDExpense_*.csv")])
+
         # Contributions (CDIncome)
-        # Dedup per file on (contributor, amount, date, committee), keeping the
-        # row with the highest Result number (most recent amendment).
-        for path in raw_files("CDIncome_*.csv"):
+        # Bulk files: dedup per file on (contributor, amount, date, committee),
+        # keeping the row with the highest Result number (most recent
+        # amendment). Grid files: every row is kept (module docstring).
+        for path, grid in income_files:
             ft   = time.perf_counter()
             seen: dict[tuple, dict] = {}
+            kept: list[dict] = []
             with open(path, newline="", encoding="utf-8", errors="replace") as f:
                 for row_num, row in enumerate(csv.DictReader(f), start=2):
                     amount = parse_amount(row.get("Amount", ""))
@@ -368,44 +508,53 @@ def run():
                     )
                     date_val = parse_date(row.get("Date", ""))
                     result   = clean(row.get("Result", ""))
+                    out_row = {
+                        "state":             STATE,
+                        "committee_name":    utils.clean_name(filer),
+                        "contributor_name":  utils.clean_name(contributor),
+                        "amount":            amount,
+                        "date":              date_val,
+                        "transaction_type":  income_type(row),
+                        "contributor_type":  contributor_type_from_first_name(row.get("First Name", "")),
+                        "contributor_city":  clean(row.get("City", "")),
+                        "contributor_state": state_abbr(row.get("State", "")),
+                        "contributor_zip":   clean(row.get("Zip", "")),
+                        "employer":          clean(row.get("Employer", "")),
+                        "occupation":        clean(row.get("Occupation", "")),
+                        "contributor_first": first_name(row.get("First Name", "")),
+                        "contributor_last":  clean(row.get("Last/Business Name", "")),
+                        "candidate_name":    utils.clean_name(filer) if filer_type == "Candidate" else "",
+                        "office":            utils.clean_name(row.get("Office", "")),
+                        "election_year":     clean(row.get("Report Year", year_from_filename(path))),
+                        "filing_id":         result,
+                        "state_filer_id":    tracker_id(filer, row),
+                        "amended":           "",
+                        "raw_file":          path.name,
+                        "row_num":           row_num,
+                    }
+                    if grid:
+                        kept.append(out_row)
+                        continue
                     key = (contributor, amount, date_val, filer)
                     prev = seen.get(key)
                     if prev is None or (result.isdigit() and
                             (not prev["filing_id"].isdigit() or
                              int(result) > int(prev["filing_id"]))):
-                        seen[key] = {
-                            "state":             STATE,
-                            "committee_name":    utils.clean_name(filer),
-                            "contributor_name":  utils.clean_name(contributor),
-                            "amount":            amount,
-                            "date":              date_val,
-                            "transaction_type":  clean(row.get("Transaction Type", "")),
-                            "contributor_type":  contributor_type_from_first_name(row.get("First Name", "")),
-                            "contributor_city":  clean(row.get("City", "")),
-                            "contributor_state": clean(row.get("State", "")),
-                            "contributor_zip":   clean(row.get("Zip", "")),
-                            "employer":          clean(row.get("Employer", "")),
-                            "occupation":        clean(row.get("Occupation", "")),
-                            "candidate_name":    utils.clean_name(filer) if filer_type == "Candidate" else "",
-                            "office":            utils.clean_name(row.get("Office", "")),
-                            "election_year":     clean(row.get("Report Year", year_from_filename(path))),
-                            "filing_id":         result,
-                            "amended":           "",
-                            "raw_file":          path.name,
-                            "row_num":           row_num,
-                        }
-            for out_row in seen.values():
+                        seen[key] = out_row
+            kept.extend(seen.values())
+            for out_row in kept:
                 cont_w.writerow(out_row)
-            count = len(seen)
+            count = len(kept)
             log.file_parsed(path.name, "contributions", count,
                             duration_s=time.perf_counter() - ft,
                             bytes=path.stat().st_size)
             total_contributions += count
 
-        # Expenditures (CDExpense)
-        for path in raw_files("CDExpense_*.csv"):
+        # Expenditures (CDExpense) -- same bulk / grid handling as CDIncome
+        for path, grid in expense_files:
             ft   = time.perf_counter()
             seen: dict[tuple, dict] = {}
+            kept: list[dict] = []
             with open(path, newline="", encoding="utf-8", errors="replace") as f:
                 for row_num, row in enumerate(csv.DictReader(f), start=2):
                     amount = parse_amount(row.get("Amount", ""))
@@ -420,38 +569,52 @@ def run():
                     )
                     date_val = parse_date(row.get("Date", ""))
                     result   = clean(row.get("Result", ""))
+                    out_row = {
+                        "state":            STATE,
+                        "committee_name":   utils.clean_name(filer),
+                        "payee_name":       utils.clean_name(payee),
+                        "payee_first":      first_name(row.get("First Name", "")),
+                        "payee_last":       clean(row.get("Last/Business Name", "")),
+                        "amount":           amount,
+                        "date":             date_val,
+                        "transaction_type": clean(row.get("Transaction Type", "")),
+                        "purpose":          clean(row.get("Purpose of Expenditure", "")),
+                        "category":         clean(row.get("Payment Type", "")),
+                        "payee_city":       clean(row.get("City", "")),
+                        "payee_state":      state_abbr(row.get("State", "")),
+                        "payee_zip":        clean(row.get("Zip", "")),
+                        "candidate_name":   utils.clean_name(filer) if filer_type == "Candidate" else "",
+                        "office":           utils.clean_name(row.get("Office", "")),
+                        "election_year":    clean(row.get("Report Year", year_from_filename(path))),
+                        "filing_id":        result,
+                        "state_filer_id":   tracker_id(filer, row),
+                        "amended":          "",
+                        "raw_file":         path.name,
+                        "row_num":          row_num,
+                    }
+                    if grid:
+                        kept.append(out_row)
+                        continue
                     key = (payee, amount, date_val, filer)
                     prev = seen.get(key)
                     if prev is None or (result.isdigit() and
                             (not prev["filing_id"].isdigit() or
                              int(result) > int(prev["filing_id"]))):
-                        seen[key] = {
-                            "state":            STATE,
-                            "committee_name":   utils.clean_name(filer),
-                            "payee_name":       utils.clean_name(payee),
-                            "amount":           amount,
-                            "date":             date_val,
-                            "transaction_type": clean(row.get("Transaction Type", "")),
-                            "purpose":          clean(row.get("Purpose of Expenditure", "")),
-                            "category":         clean(row.get("Payment Type", "")),
-                            "payee_city":       clean(row.get("City", "")),
-                            "payee_state":      clean(row.get("State", "")),
-                            "payee_zip":        clean(row.get("Zip", "")),
-                            "candidate_name":   utils.clean_name(filer) if filer_type == "Candidate" else "",
-                            "office":           utils.clean_name(row.get("Office", "")),
-                            "election_year":    clean(row.get("Report Year", year_from_filename(path))),
-                            "filing_id":        result,
-                            "amended":          "",
-                            "raw_file":         path.name,
-                            "row_num":          row_num,
-                        }
-            for out_row in seen.values():
+                        seen[key] = out_row
+            kept.extend(seen.values())
+            for out_row in kept:
                 expn_w.writerow(out_row)
-            count = len(seen)
+            count = len(kept)
             log.file_parsed(path.name, "expenditures", count,
                             duration_s=time.perf_counter() - ft,
                             bytes=path.stat().st_size)
             total_expenditures += count
+
+        for key, people in sorted(key_people.items()):
+            if len(people) > 1:
+                log.warning(f"  [!] state_filer_id {key!r} covers {len(people)} candidates "
+                            f"({', '.join(sorted(people))}) -- a tracker ref 'ak:{key}' "
+                            f"would take all their money")
 
         # Committees: enrich from GRForms bulk exports
         # Fills fields still blank after the transaction pass, and adds groups
