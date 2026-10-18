@@ -68,7 +68,7 @@ export function Footer() {
               ? `Updated nightly from the ${activeState.agency.name}${
                   statePollingLabel(activeState) ? ` and ${statePollingLabel(activeState)}` : ""
                 }. `
-              : "Updated nightly from each state's disclosure agency, 270toWin and FiftyPlusOne. "}
+              : "Updated nightly from each state's disclosure agency and FiftyPlusOne. "}
             Data is presented as filed; corrections and amendments appear after the next sync.
           </p>
           <p>© 2026 Political Integrity Project</p>

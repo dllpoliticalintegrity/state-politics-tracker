@@ -21,6 +21,8 @@ export const SINGLE_STATE_HOSTS: Record<string, string> = {
   // state-politics-tracker Worker, which pins the state from the hostname —
   // so every deploy of main updates both dedicated sites with the hub.
   "texaspoliticstracker.com": "tx",
+  // Same arrangement, since Oct 2026 (it was the ca-poll-boost site).
+  "cagovtracker.com": "ca",
 };
 
 /** Public URL of each dedicated site, for cross-links from the hub. */

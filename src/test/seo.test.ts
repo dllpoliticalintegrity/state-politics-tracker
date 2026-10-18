@@ -52,7 +52,7 @@ describe("single-state metadata", () => {
         expect(!!routes[`/${r.office}/polling`]).toBe(!!r.pollingSourceUrl);
       }
     }
-    expect(singleStateRoutes("ca")).toBeNull();
+    expect(singleStateRoutes("ne")).toBeNull();
     expect(singleStateRoutes("zz")).toBeNull();
   });
 
@@ -158,7 +158,7 @@ describe("Texas on the hub", () => {
     expect(routeMeta("/governor/polling", "tx")!.body).toContain("aggregated from FiftyPlusOne");
     expect(routeMeta("/lt-governor/polling", "tx")).toBeNull();
     expect(routeMeta("/about", "tx")!.body).toContain("polling comes from FiftyPlusOne");
-    expect(routeMeta("/governor", "mi")!.description).toContain("and 270toWin");
+    expect(routeMeta("/governor", "mi")!.description).toContain("and FiftyPlusOne");
     // A state with no polled race makes no polling claim.
     expect(routeMeta("/about", "hi")!.body).not.toContain("polling comes from");
   });

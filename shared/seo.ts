@@ -41,7 +41,7 @@ export const STATIC_ROUTES: Record<string, RouteMeta> = {
     h1: "State Politics Tracker — Follow the Money in Your State",
     body: `
       <p>State Politics Tracker is a public-interest dashboard for 2026 statewide races. We pull primary-source campaign-finance filings from each state's disclosure agency, surface outside spending, and aggregate public polling for every statewide race on the ballot — governor, attorney general, and the rest of the row offices — so you can see how money and momentum are moving, state by state.</p>
-      <p>Texas and Michigan also have their own sites — <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a> and <a href="https://michiganpoliticstracker.com">michiganpoliticstracker.com</a>. California is tracked on a separate site.</p>
+      <p>Texas, Michigan and California also have their own sites — <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a>, <a href="https://michiganpoliticstracker.com">michiganpoliticstracker.com</a> and <a href="https://cagovtracker.com">cagovtracker.com</a>.</p>
     `,
   },
 };

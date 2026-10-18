@@ -30,6 +30,12 @@ describe("single-state site resolution", () => {
     expect(normalizeHost("www.Example.com:443")).toBe("example.com");
   });
 
+  it("recognises cagovtracker.com", () => {
+    expect(siteStateForHost("cagovtracker.com")).toBe("ca");
+    expect(siteStateForHost("www.cagovtracker.com")).toBe("ca");
+    expect(SINGLE_STATE_SITES.ca).toBe("https://cagovtracker.com");
+  });
+
   it("recognises texaspoliticstracker.com", () => {
     expect(siteStateForHost("texaspoliticstracker.com")).toBe("tx");
     expect(siteStateForHost("www.texaspoliticstracker.com")).toBe("tx");

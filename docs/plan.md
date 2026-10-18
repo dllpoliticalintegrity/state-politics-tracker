@@ -56,7 +56,7 @@ site and normalizes everything to one canonical format:
 - **Operation**: `python3 src/main.py sync AZ FL GA` (or `sync all`),
   with year-range and data-type flags.
 
-What SLCF does **not** provide: polling (we keep 270toWin per state),
+What SLCF does **not** provide: polling (FiftyPlusOne per state; 270toWin until Oct 2026),
 independent/outside spending as a distinct concept in every state, and
 candidate curation (photos, slugs, featured flags — still editorial work
 per state, as `tx_candidates` is today).
@@ -72,7 +72,7 @@ export interface RaceConfig {
   office: string;          // URL segment: "governor", "attorney-general"
   title: string;           // "Governor"
   generalDate: string;     // "2026-11-03"
-  pollingSourceUrl?: string;  // 270toWin page, where polling exists
+  pollingSourceUrl?: string;  // FiftyPlusOne page, where polling exists
 }
 
 export interface StateConfig {
@@ -183,9 +183,29 @@ A per-state GitHub Actions workflow matrix (modeled on
 
 ### Polling
 
-Port `import-towin-polling` and parameterize the 270toWin page URL from
-the registry, looping over live states. States without a tracked
-governor's race hide the polling sections (the components already
+*Since Oct 2026:* every race is polled by FiftyPlusOne.
+`supabase/functions/import-fiftyplusone-polling-multi` (run by
+`polling-sync.yml` every 6 hours) reads FiftyPlusOne's documented CSV feed
+— `governor_general` for the charts and the average, `governor_primary` for
+the Polling page's poll list — once per run, splits it by state, and resolves
+names against each race's `cf_candidates` roster. The average leaves out,
+once the nominees are set, matchups FiftyPlusOne marks hypothetical and
+matchups that include a candidate whose status says they have left the race.
+A race shows polling when the registry gives it a `pollingSourceUrl` (its
+FiftyPlusOne page); the importer loads every live governor race, including
+ones with no general-election polls yet (CO, HI, KY in Oct 2026), so adding
+the URL is all a race needs when polls appear. FiftyPlusOne covers governor
+races only, which is all the site polls.
+
+It replaced two importers: the 270toWin scrape (`import-towin-polling-multi`,
+which broke whenever 270toWin moved or dropped a state page, and had no page
+for AK, AR, ID or MD) and Texas's single-race FiftyPlusOne import. Their old
+rows stay in `race_polls` / `race_polling` under source `270towin`; nothing
+reads them.
+
+*Original plan:* port `import-towin-polling` and parameterize the 270toWin
+page URL from the registry, looping over live states. States without a
+tracked governor's race hide the polling sections (the components already
 handle empty data).
 
 ## Dedicated single-state sites
@@ -280,11 +300,11 @@ with nothing keeping them in step (the risk the section below predicted).
   Until the cut-over `tx_candidates` stays the editorial source for Texas (the
   admin console edits it through `tx-tracker-admin`); the publish overwrites
   Texas's `cf_candidates` rows from it.
-- **Polling.** Texas's governor race is polled by FiftyPlusOne
-  (`supabase/functions/import-fiftyplusone-polling`), not
-  270toWin. `RaceConfig.pollingSource` names the importer whose
-  `race_polling` / `race_polls` rows a race reads; both write the same shapes.
-  Texas is deliberately not in `import-towin-polling-multi`'s race list.
+- **Polling.** Texas's governor race was polled by FiftyPlusOne
+  (its own `import-fiftyplusone-polling`) while every other state used
+  270toWin; `RaceConfig.pollingSource` named the importer whose rows a race
+  reads. Since the polling move (see "Polling" above) Texas is one of the
+  races `import-fiftyplusone-polling-multi` imports.
 - **Features ported from the Texas site:** Money → River (race-scoped, on the
   `cf_money_river` view), candidate social links (new `cf_candidates`
   `twitter_user` / `instagram_user` / `facebook_user` / `youtube_user`
@@ -302,7 +322,8 @@ with nothing keeping them in step (the risk the section below predicted).
 - **Pipelines live here now.** The TEC importer
   (`scripts/data-import/tec/import_tx_finance.py`, run by
   `tx-finance-sync.yml` at 12:00 UTC) and `import-fiftyplusone-polling` (a
-  step in `polling-sync.yml`) moved from tx-politics-tracker, whose workflows
+  step in `polling-sync.yml`, since folded into the all-states importer)
+  moved from tx-politics-tracker, whose workflows
   were removed; that repo is retired. The admin console dispatches
   `tx-finance-sync.yml` from Texas's Sync tab.
 - **Hosting.** texaspoliticstracker.com is a custom domain on the main
@@ -371,14 +392,43 @@ the tracker project.
   row per (committee, transaction id) — `ca_ie_contributions_deduped` —
   where cagovtracker.com's top IE donors counted a receipt again each time a
   later filing restated it.
-- **Polling.** The governor race joins `import-towin-polling-multi`'s race
-  list (same `race_id` as in the Integrity Index project).
+- **Polling.** The governor race is one of `import-fiftyplusone-polling-multi`'s
+  races (same `race_id` as in the Integrity Index project).
 - **Pipelines manifest.** `pipelines/states.json` gives California pipeline
   `calaccess`: like Texas's `tec`, it is never part of `finance-sync.yml`.
 - **Left in the Integrity Index project** until cagovtracker.com moves: its
   `ca_*` tables and California race rows (integrityindex's CA House races are
   in the same `races` table and are not ours), and ca-gov-polling's workflows,
   which keep that copy current for the old site.
+- **The site.** California is a live registry state (`LIVE_CONFIG_CA`: one
+  race, the governor, polled by FiftyPlusOne; top-two primary polls are tagged
+  `primary` and kept off the general-election chart), with the FPPC rules
+  guide and FAQ from cagovtracker.com's FAQ page in `src/states/guides.ts`.
+  `legacyPaths` maps cagovtracker.com's old paths (`/candidates`, `/polling`,
+  `/top-donors`, `/independent-expenditures`, `/faq`); old
+  `/candidates/:slug` profiles keep working because the slugs carried over.
+  `SINGLE_STATE_HOSTS` pins `cagovtracker.com` to `ca`. The brand follows the
+  per-state convention ("California Politics Tracker"); the old site called
+  itself "CA Gov Tracker". No state is `external` any more.
+
+**Cut-over checklist** (in order):
+
+1. Apply `20261018160000` (done via MCP) and `20261018160100` (SQL editor),
+   run `ca-finance-sync.yml` once, then
+   `select public.publish_california_to_cf(); select public.refresh_cf_finance_views();`
+   (a one-off pg_cron job with the `statement_timeout` prefix); reconcile
+   against the Integrity Index copy.
+2. Merge this repo's California site change, and the admin console's (Sync
+   tab, CA Gov Tracker page pointing at `/state-politics-tracker/ca`).
+3. Cloudflare: cagovtracker.com is on Lovable hosting today. Add the zone to
+   the Cloudflare account if it is not there, point its DNS at Cloudflare,
+   then add cagovtracker.com and www.cagovtracker.com as custom domains on the
+   `state-politics-tracker` Worker (Settings → Domains & Routes), and
+   disconnect the domain in Lovable.
+4. Then retire the old pipeline: disable ca-gov-polling's `ca-finance-sync.yml`
+   and `polling-sync.yml`, and archive ca-gov-polling and ca-poll-boost. The
+   Integrity Index project's `ca_*` tables can be dropped once nothing reads
+   them (the admin console's old CA page did).
 
 ## Keeping two repos honest
 

@@ -7,14 +7,14 @@ with a per-state switcher, powered by
 its states' data — the SLCF importer, curated candidate records, and
 nightly sync workflows.
 
-California is tracked on its own separate site
-([ca-gov-polling](https://github.com/dllpoliticalintegrity/ca-gov-polling));
-its tile on the landing page links out. Texas joined the hub in October
-2026: its TEC importer (`scripts/data-import/tec/`, `tx-finance-sync.yml`)
-stages Texas in `tx_*` and a nightly publish copies it into `cf_*`, and
-texaspoliticstracker.com — like michiganpoliticstracker.com — is a custom
-domain on this repo's Worker, pinned to its state by hostname. See
-`docs/plan.md`, "Texas joins the hub".
+Texas and California joined the hub in October 2026, each keeping its own
+importer: TEC (`scripts/data-import/tec/`, `tx-finance-sync.yml`) stages Texas
+in `tx_*`, CAL-ACCESS (`scripts/data-import/cal-access/`,
+`ca-finance-sync.yml`) stages California in `ca_*`, and nightly publishes copy
+both into `cf_*`. texaspoliticstracker.com and cagovtracker.com — like
+michiganpoliticstracker.com — are custom domains on this repo's Worker, pinned
+to their state by hostname. See `docs/plan.md`, "Texas joins the hub" and
+"California joins the hub".
 
 ## Status
 

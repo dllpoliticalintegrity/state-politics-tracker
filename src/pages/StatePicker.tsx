@@ -30,18 +30,20 @@ export default function StatePicker() {
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           Polling averages, campaign finance, and outside spending for statewide races
           across the country — governor on down — synced from each state's disclosure
-          agency, 270toWin and FiftyPlusOne. Pick your state to start.
+          agency and FiftyPlusOne. Pick your state to start.
         </p>
       </section>
 
       <section className="container pb-4">
         <div className="flex flex-wrap justify-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
-          {(["live", "external", "ready", "planned"] as const).map((status) => (
-            <span key={status} className="inline-flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${DOT_CLASS[status]}`} />
-              {status === "external" ? "Tracked on a separate site" : STATUS_LABEL[status]}
-            </span>
-          ))}
+          {(["live", "external", "ready", "planned"] as const)
+            .filter((status) => STATES.some((s) => s.status === status))
+            .map((status) => (
+              <span key={status} className="inline-flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${DOT_CLASS[status]}`} />
+                {status === "external" ? "Tracked on a separate site" : STATUS_LABEL[status]}
+              </span>
+            ))}
         </div>
       </section>
 

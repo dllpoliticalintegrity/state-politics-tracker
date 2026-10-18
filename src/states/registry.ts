@@ -14,17 +14,21 @@ export type StateStatus =
 
 /**
  * Where a race's polling comes from — the `source` key its importer writes
- * on race_polling / race_polls rows. 270toWin (import-towin-polling-multi)
- * covers every state but Texas; Texas's governor race is fed by FiftyPlusOne
- * (supabase/functions/import-fiftyplusone-polling). Both
- * importers write the same row shapes, so only the key and the label differ.
+ * on race_polling / race_polls rows. Every race is polled by FiftyPlusOne
+ * (supabase/functions/import-fiftyplusone-polling-multi) since Oct 2026; the
+ * 270toWin scrape it replaced left its rows under source '270towin', which
+ * nothing reads any more. A second source would be a new key here.
  */
-export type PollingSourceKey = "270towin" | "fiftyplusone";
+export type PollingSourceKey = "fiftyplusone";
 
 export const POLLING_SOURCES: Record<PollingSourceKey, { label: string }> = {
-  "270towin": { label: "270toWin" },
   fiftyplusone: { label: "FiftyPlusOne" },
 };
+
+/** A race's FiftyPlusOne page: "Florida" → …/polls/governor/general/florida. */
+function fpoGovernor(stateName: string): string {
+  return `https://fiftyplusone.news/polls/governor/general/${stateName.toLowerCase().replace(/ /g, "-")}`;
+}
 
 export interface RaceConfig {
   /** URL segment: "governor", "attorney-general", "secretary-of-state"… */
@@ -41,7 +45,7 @@ export interface RaceConfig {
    * on.
    */
   pollingSourceUrl?: string;
-  /** Which importer's rows to read; defaults to 270toWin. */
+  /** Which importer's rows to read; defaults to FiftyPlusOne. */
   pollingSource?: PollingSourceKey;
   /**
    * Set on the per-district races synthesized from a ChamberConfig (see
@@ -103,21 +107,19 @@ export interface StateConfig {
 }
 
 // States with a complete pipeline in hderyke/state-level-campaign-finance.
-// (California is also implemented there, but stays "external" while
-// ca-gov-polling remains the CA home.)
+// (California is also implemented there, but is live on its own CAL-ACCESS
+// importer instead — see LIVE_CONFIG_CA.)
 const SLCF_READY = new Set([
   "al", "ak", "az", "ar", "co", "ct", "de", "fl", "ga", "hi", "id", "il",
   "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "pa",
 ]);
 
-// Texas was external too until Oct 2026 (texaspoliticstracker.com was a fork
-// of this codebase's ancestor); it is now a live state whose data the TEC
-// importer stages in tx_* and publish_texas_to_cf() copies into cf_* — see
-// docs/plan.md, "Texas joins the hub".
-const EXTERNAL: Record<string, string> = {
-  // TODO: swap for the CA site's production domain once confirmed.
-  ca: "https://github.com/dllpoliticalintegrity/ca-gov-polling",
-};
+// States tracked on a separate site, whose tiles link out. Empty since Oct
+// 2026: Texas and California both had their own sites (texaspoliticstracker.com,
+// cagovtracker.com) and are now live states here, their data staged by their
+// own importers and published into cf_* — see docs/plan.md, "Texas joins the
+// hub" and "California joins the hub".
+const EXTERNAL: Record<string, string> = {};
 
 const ALL_STATES: Array<[string, string]> = [
   ["al", "Alabama"], ["ak", "Alaska"], ["az", "Arizona"], ["ar", "Arkansas"],
@@ -138,9 +140,9 @@ const ALL_STATES: Array<[string, string]> = [
   ["wy", "Wyoming"],
 ];
 
-// Pilot states live since July 2026: polling synced from 270toWin via the
-// import-towin-polling-multi edge function; finance lands via the SLCF
-// importer. Down-ballot races get added here as their candidates are curated.
+// Pilot states live since July 2026: polling synced from FiftyPlusOne via the
+// import-fiftyplusone-polling-multi edge function (270toWin until Oct 2026);
+// finance lands via the SLCF importer. Down-ballot races get added here as their candidates are curated.
 const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   fl: {
     agency: {
@@ -153,7 +155,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "florida-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/florida",
+        pollingSourceUrl: fpoGovernor("Florida"),
       },
       {
         office: "attorney-general",
@@ -186,7 +188,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "michigan-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/michigan",
+        pollingSourceUrl: fpoGovernor("Michigan"),
       },
       {
         office: "attorney-general",
@@ -221,7 +223,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "georgia-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/georgia",
+        pollingSourceUrl: fpoGovernor("Georgia"),
       },
       {
         office: "lt-governor",
@@ -257,7 +259,7 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "arizona-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/arizona",
+        pollingSourceUrl: fpoGovernor("Arizona"),
       },
       {
         office: "attorney-general",
@@ -304,14 +306,14 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "maine-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/maine",
+        pollingSourceUrl: fpoGovernor("Maine"),
       },
     ],
   },
 };
 // Wave 3 (Aug 2026): the bulk-open-data states — governor races first,
 // down-ballot to follow as candidates are curated. Polling URLs are set only
-// where 270toWin actually lists polls for the race.
+// where FiftyPlusOne has general-election polls for the race.
 const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
   pa: {
     agency: {
@@ -324,7 +326,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "pennsylvania-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/pennsylvania",
+        pollingSourceUrl: fpoGovernor("Pennsylvania"),
       },
     ],
   },
@@ -339,7 +341,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "massachusetts-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/massachusetts",
+        pollingSourceUrl: fpoGovernor("Massachusetts"),
       },
     ],
   },
@@ -354,7 +356,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "minnesota-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/minnesota",
+        pollingSourceUrl: fpoGovernor("Minnesota"),
       },
     ],
   },
@@ -368,8 +370,9 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only primary polls for CO so far — no general H2H
-        // to average yet; the race ranks by money until that changes.
+        // FiftyPlusOne has only primary polls for CO so far (Oct 2026) — no
+        // general matchup to average yet; the race ranks by money until that
+        // changes. The importer already loads it: add pollingSourceUrl then.
         raceSlug: "colorado-governor-2026",
       },
     ],
@@ -385,7 +388,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "iowa-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/iowa",
+        pollingSourceUrl: fpoGovernor("Iowa"),
       },
     ],
   },
@@ -399,9 +402,8 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Maryland governor polls page (verified Jul 2026) —
-        // the race ranks by money until public polling appears.
         raceSlug: "maryland-governor-2026",
+        pollingSourceUrl: fpoGovernor("Maryland"),
       },
     ],
   },
@@ -415,7 +417,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // No public polling exists for this race (270toWin has no HI page).
+        // No public polling for this race yet (none on FiftyPlusOne, Oct 2026).
         raceSlug: "hawaii-governor-2026",
       },
     ],
@@ -431,7 +433,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "ohio-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/ohio",
+        pollingSourceUrl: fpoGovernor("Ohio"),
       },
     ],
   },
@@ -446,7 +448,7 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "wisconsin-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/wisconsin",
+        pollingSourceUrl: fpoGovernor("Wisconsin"),
       },
     ],
   },
@@ -461,14 +463,14 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "nevada-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/nevada",
+        pollingSourceUrl: fpoGovernor("Nevada"),
       },
     ],
   },
 };
 // Wave 5 (Aug 2026): the last seven SLCF-ready states, all with 2026
-// governor races. Polling URLs only where 270toWin lists general-election
-// polls (AR/ID have no page; IL/KS list primary polls only so far).
+// governor races. Polling URLs only where FiftyPlusOne has general-election
+// polls (all seven as of Oct 2026).
 const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
   al: {
     agency: {
@@ -481,7 +483,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "alabama-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/alabama",
+        pollingSourceUrl: fpoGovernor("Alabama"),
       },
     ],
   },
@@ -495,11 +497,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin removed its Alaska page on 2026-09-01 (the URL now
-        // redirects to the generic governor-polls hub), so the race ranks by
-        // money until public polling reappears. Restore pollingSourceUrl and
-        // the RACES entry in import-towin-polling-multi if it comes back.
         raceSlug: "alaska-governor-2026",
+        pollingSourceUrl: fpoGovernor("Alaska"),
       },
     ],
   },
@@ -513,8 +512,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Arkansas governor polls page (verified Aug 2026).
         raceSlug: "arkansas-governor-2026",
+        pollingSourceUrl: fpoGovernor("Arkansas"),
       },
     ],
   },
@@ -529,7 +528,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "connecticut-governor-2026",
-        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/connecticut",
+        pollingSourceUrl: fpoGovernor("Connecticut"),
       },
     ],
   },
@@ -543,8 +542,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin has no Idaho governor polls page (verified Aug 2026).
         raceSlug: "idaho-governor-2026",
+        pollingSourceUrl: fpoGovernor("Idaho"),
       },
     ],
   },
@@ -558,9 +557,8 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only a GOP-primary poll for IL so far — no general
-        // H2H to average yet; the race ranks by money until that changes.
         raceSlug: "illinois-governor-2026",
+        pollingSourceUrl: fpoGovernor("Illinois"),
       },
     ],
   },
@@ -574,16 +572,15 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency">> = {
         office: "governor",
         title: "Governor",
         generalDate: "2026-11-03",
-        // 270toWin lists only a Dem-primary poll for KS so far (primary was
-        // Aug 4, 2026) — add the polling URL when general polls appear.
         raceSlug: "kansas-governor-2026",
+        pollingSourceUrl: fpoGovernor("Kansas"),
       },
     ],
   },
 };
 // Texas (Oct 2026): moved in from its own site. Finance is the TEC bulk
 // import (scripts/data-import/tec, tx-finance-sync.yml) staged in tx_* and
-// published into cf_* nightly; polling is FiftyPlusOne, not 270toWin.
+// published into cf_* nightly; polling is FiftyPlusOne, like every state's.
 // Primaries were Mar 3 with May 26 runoffs.
 const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
   tx: {
@@ -611,8 +608,7 @@ const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "leg
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "texas-governor-2026",
-        pollingSource: "fiftyplusone",
-        pollingSourceUrl: "https://fiftyplusone.news/polls/governor/general/texas",
+        pollingSourceUrl: fpoGovernor("Texas"),
       },
       {
         office: "lt-governor",
@@ -629,7 +625,37 @@ const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "leg
     ],
   },
 };
-Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX);
+// California (Oct 2026): moved in from cagovtracker.com. Finance is the
+// CAL-ACCESS bulk import (scripts/data-import/cal-access, ca-finance-sync.yml)
+// staged in ca_* and published into cf_* nightly; polling is FiftyPlusOne. The
+// primary (Jun 2) was top-two, so the general can pit any two parties.
+const LIVE_CONFIG_CA: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
+  ca: {
+    agency: {
+      name: "California Secretary of State (CAL-ACCESS)",
+      url: "https://cal-access.sos.ca.gov/Campaign/",
+    },
+    // cagovtracker.com's URLs before it moved onto this codebase: one race,
+    // its pages at the root.
+    legacyPaths: {
+      "/candidates": "/governor/candidates",
+      "/polling": "/governor/polling",
+      "/top-donors": "/governor/money/donors",
+      "/independent-expenditures": "/governor/money/outside-spending",
+      "/faq": "/about",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "california-governor-2026",
+        pollingSourceUrl: fpoGovernor("California"),
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX, LIVE_CONFIG_CA);
 
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,
@@ -665,17 +691,17 @@ export function legacyRedirect(state: Pick<StateConfig, "legacyPaths"> | null | 
 
 /** The importer key a race's polling rows carry. */
 export function pollingSourceKey(race: Pick<RaceConfig, "pollingSource">): PollingSourceKey {
-  return race.pollingSource ?? "270towin";
+  return race.pollingSource ?? "fiftyplusone";
 }
 
-/** "270toWin", "FiftyPlusOne" — for source credits next to polling. */
+/** "FiftyPlusOne" — for source credits next to polling. */
 export function pollingSourceLabel(race: Pick<RaceConfig, "pollingSource">): string {
   return POLLING_SOURCES[pollingSourceKey(race)].label;
 }
 
 /**
- * The polling sources a state's polled races use, joined for prose ("270toWin",
- * "FiftyPlusOne"). Null when none of its races is polled.
+ * The polling sources a state's polled races use, joined for prose
+ * ("FiftyPlusOne"). Null when none of its races is polled.
  */
 export function statePollingLabel(state: Pick<StateConfig, "races">): string | null {
   const labels = [

@@ -37,7 +37,7 @@ export default function Index() {
   if (polling && candidates) {
     for (const c of candidates) {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";
-      // Collect all per-poll rows for this candidate from the 270toWin backfill.
+      // Collect all per-poll rows for this candidate from the FiftyPlusOne import.
       const rawSeries = (racePolls ?? [])
         .filter((r) => (r.candidate_name.trim().split(/\s+/).pop() ?? "") === surname)
         .map((r) => {
