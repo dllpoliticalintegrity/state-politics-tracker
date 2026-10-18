@@ -19,6 +19,7 @@ import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
 import type { RaceConfig } from "@/states/registry";
 import star from "@/assets/star.svg";
+import { stateOutlineUrl } from "@/states/outlines";
 
 /** The org's hosted donation page; the Donate button links straight to it. */
 const DONATE_URL = "https://donate.politicalintegrity.us";
@@ -111,6 +112,9 @@ export function Header() {
   const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
   const navRaces = isSingleStateSite ? chrome.races : activeState?.races ?? [];
   const menu = useSiteMenu(navRaces);
+  // A state's own outline on its pages; the star on the hub's landing page.
+  const outline = stateOutlineUrl(activeState?.code);
+  const mark = outline ?? star;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -122,24 +126,20 @@ export function Header() {
   }, [chrome.accentColor]);
 
   // Browser-tab icon: a published row's uploaded icon replaces the build's
-  // favicon.ico; removing it (or the hub) restores the default.
+  // icons (index.html) while it is set; clearing it restores them.
   useEffect(() => {
-    const head = document.head;
-    let link = head.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    if (chrome.faviconUrl) {
-      if (!link) {
-        link = document.createElement("link");
-        link.rel = "icon";
-        head.appendChild(link);
-      }
-      link.href = chrome.faviconUrl;
-    } else if (link && link.dataset.siteIcon === "1") {
-      link.remove();
+    if (!chrome.faviconUrl) return;
+    const links = Array.from(document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"]'));
+    const original = links.map((l) => [l.href, l.type] as const);
+    for (const l of links) {
+      l.href = chrome.faviconUrl;
+      l.removeAttribute("type");
     }
-    if (link && chrome.faviconUrl) link.dataset.siteIcon = "1";
     return () => {
-      const l = head.querySelector<HTMLLinkElement>('link[rel="icon"][data-site-icon="1"]');
-      if (l) l.remove();
+      links.forEach((l, i) => {
+        l.href = original[i][0];
+        if (original[i][1]) l.type = original[i][1];
+      });
     };
   }, [chrome.faviconUrl]);
 
@@ -152,12 +152,13 @@ export function Header() {
         <div className="flex items-center gap-3 min-w-0">
           <Link to="/" className="flex items-center gap-2 min-w-0">
             <span
-              aria-label="Star"
+              aria-label={outline ? `Outline of ${activeState!.name}` : "Star"}
               role="img"
-              className="inline-block h-5 w-5 shrink-0 bg-primary"
+              data-testid="site-mark"
+              className={`inline-block shrink-0 bg-primary ${outline ? "h-6 w-6" : "h-5 w-5"}`}
               style={{
-                WebkitMaskImage: `url("${star}")`,
-                maskImage: `url("${star}")`,
+                WebkitMaskImage: `url("${mark}")`,
+                maskImage: `url("${mark}")`,
                 WebkitMaskRepeat: "no-repeat",
                 maskRepeat: "no-repeat",
                 WebkitMaskSize: "contain",
