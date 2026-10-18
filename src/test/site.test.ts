@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   SINGLE_STATE_HOSTS,
   SINGLE_STATE_SITES,
+  makeStateSitesLookup,
   normalizeHost,
   resolveSiteState,
+  resolveSiteStateAsync,
   siteNameFor,
   siteStateForHost,
   statePathFor,
@@ -70,5 +72,63 @@ describe("single-state site resolution", () => {
     expect(siteNameFor("Michigan")).toBe("Michigan Politics Tracker");
     expect(siteNameFor(null)).toBe("State Politics Tracker");
     expect(siteNameFor(undefined)).toBe("State Politics Tracker");
+  });
+});
+
+describe("state_sites hostname lookup", () => {
+  const ok = (rows: unknown[]) =>
+    (async () => new Response(JSON.stringify(rows), { status: 200 })) as unknown as typeof fetch;
+
+  it("maps a saved hostname to its state and caches it", async () => {
+    let calls = 0;
+    const fetchImpl = (async (url: string) => {
+      calls += 1;
+      expect(url).toContain("state_sites?select=state&hostname=eq.georgiapoliticstracker.com&limit=1");
+      return new Response(JSON.stringify([{ state: "ga" }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl });
+    expect(await lookup("www.georgiapoliticstracker.com")).toBe("ga");
+    expect(await lookup("georgiapoliticstracker.com")).toBe("ga");
+    expect(calls).toBe(1);
+  });
+
+  it("expires the cache after ttlMs", async () => {
+    let t = 0;
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response(JSON.stringify([{ state: "ga" }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl, ttlMs: 1000, now: () => t });
+    await lookup("a.example");
+    t = 999;
+    await lookup("a.example");
+    t = 1001;
+    await lookup("a.example");
+    expect(calls).toBe(2);
+  });
+
+  it("returns null for an unknown host, a non-2xx response or a thrown fetch", async () => {
+    const miss = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl: ok([]) });
+    expect(await miss("nobody.example")).toBeNull();
+    const bad = makeStateSitesLookup({
+      supabaseUrl: "https://x.supabase.co", anonKey: "k",
+      fetchImpl: (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch,
+    });
+    expect(await bad("a.example")).toBeNull();
+    const boom = makeStateSitesLookup({
+      supabaseUrl: "https://x.supabase.co", anonKey: "k",
+      fetchImpl: (async () => { throw new Error("offline"); }) as unknown as typeof fetch,
+    });
+    expect(await boom("a.example")).toBeNull();
+  });
+
+  it("resolves override, then the lookup, then the hard-coded hosts, then the hub", async () => {
+    const lookup = async (h: string) => (h === "georgiapoliticstracker.com" ? "ga" : null);
+    expect(await resolveSiteStateAsync({ override: "oh", hostname: "georgiapoliticstracker.com", lookup })).toBe("oh");
+    expect(await resolveSiteStateAsync({ override: "", hostname: "www.georgiapoliticstracker.com", lookup })).toBe("ga");
+    expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com", lookup })).toBe("mi");
+    expect(await resolveSiteStateAsync({ hostname: "localhost", lookup })).toBeNull();
+    expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com" })).toBe("mi");
   });
 });

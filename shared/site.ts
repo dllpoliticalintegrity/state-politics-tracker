@@ -11,7 +11,9 @@
 //      the SITE_STATE var for the Worker / Pages function, or the
 //      <meta name="site-state"> tag the Worker injects into the HTML so the
 //      SPA agrees with it even on a *.workers.dev preview hostname;
-//   2. the request hostname, looked up in SINGLE_STATE_HOSTS.
+//   2. the request hostname, looked up in the tracker project's
+//      `state_sites` table (Worker only, via resolveSiteStateAsync);
+//   3. the request hostname, looked up in SINGLE_STATE_HOSTS.
 // Anything else is the multi-state hub.
 
 /** Production hostnames of the dedicated per-state sites → state code. */
@@ -67,6 +69,79 @@ export function resolveSiteState(opts: {
 }): string | null {
   const o = (opts.override ?? "").trim().toLowerCase();
   if (o) return CODE_RE.test(o) ? o : null;
+  return siteStateForHost(opts.hostname);
+}
+
+/** Async hostname → state code resolver (the Worker's state_sites lookup). */
+export type HostLookup = (hostname: string) => Promise<string | null>;
+
+/**
+ * Hostname → state via the tracker project's public `state_sites` table,
+ * cached per hostname for `ttlMs` (5 minutes by default) so a busy site
+ * costs one REST call per isolate per window. Any failure is a null: the
+ * caller falls back to SINGLE_STATE_HOSTS and then the hub, never an error.
+ */
+export function makeStateSitesLookup(opts: {
+  supabaseUrl: string;
+  anonKey: string;
+  fetchImpl?: typeof fetch;
+  ttlMs?: number;
+  now?: () => number;
+}): HostLookup {
+  const ttl = opts.ttlMs ?? 5 * 60 * 1000;
+  const now = opts.now ?? (() => Date.now());
+  const doFetch = opts.fetchImpl ?? fetch;
+  const cache = new Map<string, { state: string | null; expires: number }>();
+  let warned = false;
+
+  return async (hostname: string) => {
+    const host = normalizeHost(hostname);
+    if (!host) return null;
+    const hit = cache.get(host);
+    if (hit && hit.expires > now()) return hit.state;
+    let state: string | null = null;
+    try {
+      const url =
+        `${opts.supabaseUrl.replace(/\/$/, "")}/rest/v1/state_sites` +
+        `?select=state&hostname=eq.${encodeURIComponent(host)}&limit=1`;
+      const res = await doFetch(url, {
+        headers: { apikey: opts.anonKey, Authorization: `Bearer ${opts.anonKey}` },
+      });
+      if (res.ok) {
+        const rows = (await res.json()) as { state?: string }[];
+        const code = (rows[0]?.state ?? "").toLowerCase();
+        state = CODE_RE.test(code) ? code : null;
+      } else if (!warned) {
+        warned = true;
+        console.warn(`state_sites lookup failed: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      if (!warned) {
+        warned = true;
+        console.warn(`state_sites lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    cache.set(host, { state, expires: now() + ttl });
+    return state;
+  };
+}
+
+/**
+ * resolveSiteState with the state_sites lookup in the middle: override →
+ * saved hostname → SINGLE_STATE_HOSTS → hub. The Worker uses this; the SPA
+ * keeps the synchronous version because the Worker already injected the pin.
+ */
+export async function resolveSiteStateAsync(opts: {
+  override?: string | null;
+  hostname?: string | null;
+  lookup?: HostLookup;
+}): Promise<string | null> {
+  const o = (opts.override ?? "").trim().toLowerCase();
+  if (o) return CODE_RE.test(o) ? o : null;
+  if (opts.lookup && opts.hostname) {
+    const found = await opts.lookup(normalizeHost(opts.hostname));
+    if (found) return found;
+  }
   return siteStateForHost(opts.hostname);
 }
 

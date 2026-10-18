@@ -15,26 +15,47 @@ import {
   robotsResponse,
   sitemapResponse,
 } from "../shared/seo";
-import { normalizeHost, resolveSiteState, siteStateForHost } from "../shared/site";
+import { makeStateSitesLookup, normalizeHost, resolveSiteStateAsync } from "../shared/site";
 
 interface Env {
   ASSETS: { fetch: (request: Request) => Promise<Response> };
   /** Two-letter code pinning this Worker to one state's site; unset = hub. */
   SITE_STATE?: string;
+  /** Optional overrides for a preview against another project. */
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
+}
+
+const DEFAULT_SUPABASE_URL = "https://lohxdfrxnxuxjdvvyfjc.supabase.co";
+const DEFAULT_ANON_KEY = "sb_publishable_r8D7t0Stine_UgCoU_ps8g_UDRKSpoX";
+
+// One lookup (and one cache) per isolate.
+let lookup: ReturnType<typeof makeStateSitesLookup> | null = null;
+function hostLookup(env: Env) {
+  if (!lookup) {
+    lookup = makeStateSitesLookup({
+      supabaseUrl: env.SUPABASE_URL ?? DEFAULT_SUPABASE_URL,
+      anonKey: env.SUPABASE_ANON_KEY ?? DEFAULT_ANON_KEY,
+    });
+  }
+  return lookup;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // www.michiganpoliticstracker.com → michiganpoliticstracker.com, so the
-    // dedicated sites have one canonical host.
-    if (url.hostname.startsWith("www.") && siteStateForHost(url.hostname)) {
+    const siteState = await resolveSiteStateAsync({
+      override: env.SITE_STATE,
+      hostname: url.hostname,
+      lookup: hostLookup(env),
+    });
+
+    // www.<site> → <site>, so each dedicated site has one canonical host.
+    if (url.hostname.startsWith("www.") && siteState) {
       url.hostname = normalizeHost(url.hostname);
       return Response.redirect(url.toString(), 301);
     }
-
-    const siteState = resolveSiteState({ override: env.SITE_STATE, hostname: url.hostname });
 
     if (url.pathname === "/sitemap.xml") return sitemapResponse(url.origin, siteState);
     if (url.pathname === "/robots.txt") return robotsResponse(url.origin);
