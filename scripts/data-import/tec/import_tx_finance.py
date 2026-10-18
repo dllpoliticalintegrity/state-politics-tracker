@@ -625,7 +625,13 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
         else:
             unmatched += 1
             continue
-        committees[fid] = (row.get("filerName") or "").strip()
+        if fid not in committees:
+            # Register the committee before any of its rows can be flushed:
+            # BatchWriter flushes mid-loop once a batch fills, and each row's
+            # ie_filer_ident must already exist in tx_ie_committees (FK).
+            committees[fid] = (row.get("filerName") or "").strip()
+            upsert_batch(sb, "tx_ie_committees", [{"filer_ident": fid, "name": committees[fid]}],
+                         on_conflict="filer_ident")
         writer.add({
             "expend_info_id": int(row["expendInfoId"]),
             "expend_persent_id": int(row["expendPersentId"]),
@@ -640,8 +646,6 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
             "cycle": cycle,
             "special": int(row["reportInfoIdent"]) in (special_report_ids or set()),
         })
-    for fid, name in committees.items():
-        upsert_batch(sb, "tx_ie_committees", [{"filer_ident": fid, "name": name}], on_conflict="filer_ident")
     writer.flush()
     logger.info(
         "tx_independent_expenditures: upserted %d rows across %d DCE filers "
