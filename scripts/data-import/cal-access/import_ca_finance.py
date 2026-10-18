@@ -1332,12 +1332,21 @@ def import_independent_expenditures(
     buffer: list = []
     total = 0
     skipped_old = 0
+    skipped_self = 0
     for row in stream_tsv(s496_path):
         filing_id = to_int(row.get("FILING_ID", ""))
         if filing_id not in ie_filings:
             continue
         meta = ie_filings[filing_id]
         if meta.get("form_type") != "F496":
+            continue
+        # A tracked candidate's own committee filing an F496 (one legislator's
+        # committee spending for or against another tracked candidate). Its
+        # money is already in ca_contributions/ca_expenditures, and the
+        # committee is deliberately kept out of ca_ie_committees (see above),
+        # so its rows would also break that FK. Same guard as the F461/F460 path.
+        if meta.get("filer_id") in by_committee:
+            skipped_self += 1
             continue
         tran_id = row.get("TRAN_ID", "").strip()
         amount = to_decimal(row.get("AMOUNT", ""))
@@ -1374,7 +1383,10 @@ def import_independent_expenditures(
             buffer = []
 
     total += upsert_batch(sb, "ca_independent_expenditures", buffer, "filing_id,amend_id,tran_id")
-    logger.info("upserted %d Form 496 IE transactions (skipped %d pre-cycle)", total, skipped_old)
+    logger.info(
+        "upserted %d Form 496 IE transactions (skipped %d pre-cycle, %d from tracked candidates' own committees)",
+        total, skipped_old, skipped_self,
+    )
 
     # Stage 4b: Form 461 IE — flush the records collected in the pre-pass.
     if f461_ie_records:
