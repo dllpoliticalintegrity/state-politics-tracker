@@ -23,9 +23,15 @@ Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec
 
 ## Status (2026-10-18)
 
-Phases 1–3 are merged (PR #23). Phase 4 is under way: the goal is every
-reachable state on SLCF before the 2026-11-03 election, because every state
-the pilot feeds carries rows it should have deleted.
+**Scope (decided 2026-10-18):** before the election, SLCF feeds only the
+states live on statemoney.us (AK, AZ, FL, GA, MI, OH, OR, TX, WI) plus
+California's own importer; MI and TX keep their importers. CO, AR, ID and KY
+were already cut over and stay. IL, PA, MN, CT, HI, MD, AL and IA reconciled
+(rows below) but stay on the pilot until their SLCF scrapers are signed off;
+their manifest entries keep the reconciled settings, so each cutover is one
+line.
+
+Phases 1–3 are merged (PR #23). Phase 4 is under way within that scope.
 
 **Why it matters.** The pilot upserts with `ignore-duplicates` and never
 deletes, so a row the source amended, re-filed or removed stays live next to
@@ -37,16 +43,18 @@ found this; the cutover's `prune` fixes it.
 |---|---|---|
 | CO | 2026-10-15 | Victor Marx's spending $4.41M → $3.98M (superseded rows); Kirkmeyer's loans 15 → 3 |
 | GA, AR, ID | 2026-10-15 | GA contributions $190.3M → $157.0M (47 loans, $32.5M, move to `cf_loans`) |
-| MD, AL, WI | cutover PR | WI adds 49,114 missing rows ($26.2M) and drops Rodriguez's duplicates; AL one stale row; MD none |
-| IL | cutover PR | 2,247 ISBE `Archived` copies: Pritzker $117.3M → $91.8M raised, Heidner's re-filed report (1,426 rows) |
-| AZ | cutover PR | 27,063 copies from the pilot's overlapping pages (Robson −$2.26M contributions, −$2.2M loans); the scraper now fetches one-page date windows |
-| KY | cutover PR | one amended expenditure (Coleman, $5,415) |
-| PA | cutover PR | none in dollars; names, zips and `&amp;` cleaned; Other Receipts stay skipped |
-| MN | cutover PR | 505 renamed or re-filed copies ($290k), mostly Klobuchar's |
-| CT | cutover PR | none; zips lose eCRIS's trailing dash |
-| AK | cutover PR | Kreiss-Tomkins appears ($4.49M raised; the pilot's Office filter dropped his filings); Wilson, Bronson and Walker gain their pre-ticket filings |
-| HI | cutover PR | the pilot re-inserted every CKAN reload: Green $7.83M → $3.64M raised, $5.21M → $2.52M spent; Cordery likewise |
-| FL, IA | in progress | — |
+| WI | 2026-10-18 | WI adds 49,114 missing rows ($26.2M) and drops Rodriguez's duplicates |
+| AL, MD | held on the pilot (reconciled) | AL one stale row; MD none |
+| IL | held on the pilot (reconciled) | 2,247 ISBE `Archived` copies: Pritzker $117.3M → $91.8M raised, Heidner's re-filed report (1,426 rows) |
+| AZ | 2026-10-18 | 27,063 copies from the pilot's overlapping pages (Robson −$2.26M contributions, −$2.2M loans); the scraper now fetches one-page date windows |
+| KY | 2026-10-18 | one amended expenditure (Coleman, $5,415) |
+| PA | held on the pilot (reconciled) | none in dollars; names, zips and `&amp;` cleaned; Other Receipts stay skipped |
+| MN | held on the pilot (reconciled) | 505 renamed or re-filed copies ($290k), mostly Klobuchar's |
+| CT | held on the pilot (reconciled) | none; zips lose eCRIS's trailing dash |
+| AK | 2026-10-18 | Kreiss-Tomkins appears ($4.49M raised; the pilot's Office filter dropped his filings); Wilson, Bronson and Walker gain their pre-ticket filings |
+| HI | held on the pilot (reconciled) | the pilot re-inserted every CKAN reload: Green $7.83M → $3.64M raised, $5.21M → $2.52M spent; Cordery likewise |
+| FL | 2026-10-18 | this week's governor reports (Donalds $802k, Jolly $1.01M) the pilot misses since the Division started returning 502; 2,062 double-counted rows |
+| IA | held on the pilot (reconciled) | the pilot's Data Hub export froze in July: nothing after 05-27 (Sand +$9.4M raised); SLCF's `--search` mode has it |
 | MA | pilot until after the election (decided 2026-10-18) | contributions and loans reconcile (Healey's $2.9M savings transfer is booked as a gift today); spending differs by model: OCPF's search shows itemized line items where SLCF's bulk export has the bank payment, and transfers to savings count as spending. The parser work (swap a payment for its itemization, drop savings transfers) is prototyped in the reconciliation notes |
 | KS | pilot, soft-fail | CAPTCHA |
 | OH, ME | — | Cloudflare blocks datacenter IPs, GitHub's runners included; need a runner outside a datacenter |
