@@ -1,0 +1,61 @@
+name: CA finance sync
+
+# California's campaign finance, moved here from ca-gov-polling in Oct 2026.
+# The CAL-ACCESS importer stages California in ca_* (amendments, Form 497 late
+# reports, unitemized totals, IE committees found by name — see the script's
+# docstring); the ca-publish-to-cf-nightly pg_cron job (10:30 UTC) then copies
+# the settled rows into cf_*, which the site reads. See docs/plan.md,
+# "California joins the hub".
+
+on:
+  schedule:
+    # 09:00 UTC = 02:00 PT; runs after SOS's nightly CAL-ACCESS refresh
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Single stage to run (filings|contributions|expenditures|summaries|loans|ie|ie-contributions). Blank = all."
+        required: false
+        default: ""
+
+concurrency:
+  group: ca-finance-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scripts/data-import/cal-access/requirements.txt
+
+      - name: Install deps
+        run: pip install -r scripts/data-import/cal-access/requirements.txt
+
+      # The bulk export is ~1.5 GB zipped and several GB extracted.
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      # Same SUPABASE_SERVICE_ROLE_KEY repository secret as finance-sync.yml.
+      - name: Run import
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CAL_ACCESS_WORK_DIR: ${{ runner.temp }}/calaccess
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping CA finance sync."
+            exit 0
+          fi
+          cd scripts/data-import/cal-access
+          python import_ca_finance.py ${ONLY:+--only "$ONLY"}

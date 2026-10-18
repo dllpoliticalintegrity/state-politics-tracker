@@ -6,7 +6,7 @@
 //
 // POST body {} imports every race; { "slugs": ["florida-governor-2026"] }
 // restricts to a subset. Response reports per-race results.
-// build-tag: 270towin-multi-v7
+// build-tag: 270towin-multi-v8
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser, Element } from "https://deno.land/x/deno_dom@v0.1.46/deno-dom-wasm.ts";
@@ -36,6 +36,9 @@ const RACES = [
   { slug: "nevada-governor-2026",        url: "https://www.270towin.com/2026-governor-polls/nevada",        state: "nv", office: "governor" },
   { slug: "alabama-governor-2026",       url: "https://www.270towin.com/2026-governor-polls/alabama",       state: "al", office: "governor" },
   { slug: "connecticut-governor-2026",   url: "https://www.270towin.com/2026-governor-polls/connecticut",   state: "ct", office: "governor" },
+  // CA: moved from ca-gov-polling's own import-towin-polling (Integrity Index
+  // project) in Oct 2026; same race_id as there.
+  { slug: "california-governor-2026",    url: "https://www.270towin.com/2026-governor-polls/california",    state: "ca", office: "governor" },
   // CO/HI/MD/AR/ID/IL/KS: no 270toWin general-election polls yet (CO and IL
   // and KS are primary-only, HI/MD/AR/ID have no page) — add entries here
   // when they appear.

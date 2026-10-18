@@ -144,7 +144,8 @@ class PlanTest(unittest.TestCase):
         "mi": {"pipeline": "pilot"}, "co": {"pipeline": "pilot"},
         "oh": {"pipeline": "slcf", "nightly": False}, "ga": {"pipeline": "slcf"},
         "nv": {"pipeline": "slcf", "dry_run_only": True},
-        "tx": {"pipeline": "tec"}, "me": {"pipeline": "none"},
+        "tx": {"pipeline": "tec"}, "ca": {"pipeline": "calaccess"},
+        "me": {"pipeline": "none"},
     }
 
     def plan(self, codes, dry_run=False):
@@ -165,7 +166,8 @@ class PlanTest(unittest.TestCase):
             self.plan(["nv"])                     # a console Sync can't load it for real
 
     def test_refusals(self):
-        for codes, dry in ((["tx"], False), (["me"], False), (["zz"], False),
+        for codes, dry in ((["tx"], False), (["ca"], False), (["ca"], True),
+                           (["me"], False), (["zz"], False),
                            (["mi"], True), ([], True)):
             with self.assertRaises(ValueError):
                 self.plan(codes, dry)
@@ -177,7 +179,8 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(states["tx"]["pipeline"], "tec")
         self.assertEqual(states["mi"]["pipeline"], "pilot")
         for st, e in states.items():
-            self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "none"), st)
+            self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "calaccess", "none"), st)
+        self.assertEqual(states["ca"]["pipeline"], "calaccess")
 
     def test_schedule_covers_every_pilot_state_once(self):
         # Every state the pilot imported before the merge is still scheduled,
@@ -188,6 +191,7 @@ class ManifestTest(unittest.TestCase):
         self.assertTrue(set(before) <= set(pilot + slcf))
         self.assertIn("mi", pilot)
         self.assertNotIn("tx", pilot + slcf)
+        self.assertNotIn("ca", pilot + slcf)
 
     def test_loader_columns_stay_out_of_slcf_master_db(self):
         for t in ("CONTRIBUTIONS", "EXPENDITURES", "LOANS_DEBTS"):

@@ -14,8 +14,9 @@ run whatever their nightly flag says. With --dry-run every named state goes
 to the SLCF matrix — a dry run is the reconciliation of a state's SLCF output
 against its live rows, pilot state or not — and none to the pilot.
 
-Unknown codes, Texas (its own tx-finance-sync.yml), `none` states and a
-non-dry run of a `dry_run_only` state fail here, before any job starts.
+Unknown codes, Texas and California (their own tx-/ca-finance-sync.yml),
+`none` states and a non-dry run of a `dry_run_only` state fail here, before
+any job starts.
 """
 
 import json
@@ -36,6 +37,8 @@ def plan(codes, dry_run=False, states=None):
             errors.append(f"{c}: not in states.json")
         elif e["pipeline"] == "tec":
             errors.append(f"{c}: Texas runs in tx-finance-sync.yml")
+        elif e["pipeline"] == "calaccess":
+            errors.append(f"{c}: California runs in ca-finance-sync.yml")
         elif e["pipeline"] not in RUNNABLE:
             errors.append(f"{c}: pipeline is '{e['pipeline']}' ({e.get('note', 'no source')})")
         elif dry_run and c == "mi":
