@@ -13,7 +13,7 @@ describe("worker routing", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("generates the per-state sitemap instead of hitting assets", async () => {
-    const body = await (await get("https://michiganpoliticstracker.com/sitemap.xml")).text();
+    const body = await (await get("https://ohiopoliticstracker.com/sitemap.xml")).text();
     expect(body).toContain("<urlset");
     expect(body).not.toBe("asset");
   });
@@ -32,5 +32,17 @@ describe("worker routing", () => {
     const res = await get("https://www.michiganpoliticstracker.com/governor");
     expect(res.status).toBe(301);
     expect(res.headers.get("location")).toBe("https://michiganpoliticstracker.com/governor");
+  });
+
+  it("redirects the hub's www to the apex", async () => {
+    const res = await get("https://www.statepoliticstracker.com/mi");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://statepoliticstracker.com/mi");
+  });
+
+  it("sends Michigan's sitemap to the hub", async () => {
+    const res = await get("https://michiganpoliticstracker.com/sitemap.xml");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://statepoliticstracker.com/sitemap.xml");
   });
 });
