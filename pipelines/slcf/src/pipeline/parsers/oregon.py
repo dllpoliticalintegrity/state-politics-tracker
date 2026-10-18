@@ -781,6 +781,12 @@ def run():
                 sub_type  = clean(row.get("Sub Type", ""))
                 tx_date   = parse_date(row.get("Tran Date", ""))
                 amended   = "1" if clean(row.get("Tran Status", "")).lower() == "amended" else "0"
+                # Original Id: unique per row in the export (only the current
+                # version of each transaction is published) and kept across
+                # amendments, so it is also the loader's txn_id -- an amended
+                # transaction updates its row in place. Filer Id is the filing
+                # committee, the loader's state_filer_id (columns.py,
+                # TRANSACTION_IDS).
                 filing_id = clean(row.get("Original Id", ""))
                 cp_id     = clean(row.get("Contributor/Payee Committee ID", ""))
                 cp_name   = strip_committee_suffix(
@@ -809,6 +815,8 @@ def run():
                         "election_year":    elec_year,
                         "amended":          amended,
                         "filing_id":        filing_id,
+                        "state_filer_id":   filer_id,
+                        "txn_id":           filing_id,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })
@@ -832,6 +840,8 @@ def run():
                         "election_year":    elec_year,
                         "amended":          amended,
                         "filing_id":        filing_id,
+                        "state_filer_id":   filer_id,
+                        "txn_id":           filing_id,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })
@@ -852,6 +862,8 @@ def run():
                         "election_year":      elec_year,
                         "amended":            amended,
                         "filing_id":          filing_id,
+                        "state_filer_id":     filer_id,
+                        "txn_id":             filing_id,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })
