@@ -16,21 +16,13 @@
 //   3. the request hostname, looked up in SINGLE_STATE_HOSTS.
 // Anything else is the multi-state hub.
 
-/** Production hostnames of the dedicated per-state sites → state code. */
-export const SINGLE_STATE_HOSTS: Record<string, string> = {
-  "michiganpoliticstracker.com": "mi",
-  // Like michiganpoliticstracker.com, attached as a custom domain to the main
-  // state-politics-tracker Worker, which pins the state from the hostname —
-  // so every deploy of main updates both dedicated sites with the hub.
-  "texaspoliticstracker.com": "tx",
-  // Same arrangement, since Oct 2026 (it was the ca-poll-boost site).
-  "cagovtracker.com": "ca",
-};
-
-/** Public URL of each dedicated site, for cross-links from the hub. */
-export const SINGLE_STATE_SITES: Record<string, string> = Object.fromEntries(
-  Object.entries(SINGLE_STATE_HOSTS).map(([host, code]) => [code, `https://${host}`]),
-);
+/**
+ * Hostname → state code for dedicated sites served by the hub Worker. Empty
+ * since Oct 2026: every dedicated site is its own Worker (deploy-site.yml)
+ * pinned by its SITE_STATE var, published from the `state_sites` table.
+ * Kept as the last-resort fallback for a hostname attached to the hub Worker.
+ */
+export const SINGLE_STATE_HOSTS: Record<string, string> = {};
 
 /**
  * The multi-state hub's public URL, for "All states" links on a dedicated
@@ -38,20 +30,6 @@ export const SINGLE_STATE_SITES: Record<string, string> = Object.fromEntries(
  * statepoliticstracker.com since Oct 2026.
  */
 export const HUB_URL: string | null = "https://statepoliticstracker.com";
-
-/**
- * Dedicated sites whose pages name the hub's copy as canonical: search
- * engines index statepoliticstracker.com/mi/governor rather than
- * michiganpoliticstracker.com/governor. Each dedicated path P maps to
- * /<code>P on the hub. Other dedicated sites stay self-canonical.
- */
-export const HUB_CANONICAL_STATES: ReadonlySet<string> = new Set(["mi", "tx"]);
-
-/** The hub's URL for a path on a hub-canonical dedicated site, else null. */
-export function hubCanonicalUrl(siteState: string | null | undefined, path: string): string | null {
-  if (!HUB_URL || !siteState || !HUB_CANONICAL_STATES.has(siteState)) return null;
-  return `${HUB_URL}/${siteState}${path === "/" ? "" : path}`;
-}
 
 /** Name of the <meta> tag the Worker injects to pin the SPA's state. */
 export const SITE_STATE_META = "site-state";
@@ -86,6 +64,65 @@ export function resolveSiteState(opts: {
   return siteStateForHost(opts.hostname);
 }
 
+/** state code → https://<hostname> of each published dedicated site. */
+export type PublishedSites = Record<string, string>;
+
+/** PublishedSites from `state_sites` rows; skips malformed rows. */
+export function publishedSitesFrom(rows: { state?: string | null; hostname?: string | null }[]): PublishedSites {
+  const out: PublishedSites = {};
+  for (const r of rows) {
+    const code = (r.state ?? "").toLowerCase();
+    const host = normalizeHost(r.hostname);
+    if (CODE_RE.test(code) && /^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) out[code] = `https://${host}`;
+  }
+  return out;
+}
+
+/**
+ * Every published dedicated site, from `state_sites`, cached for `ttlMs`
+ * (5 minutes by default; a failure is remembered for 30 s and reads as no
+ * sites, so the hub then treats every state as its own).
+ */
+export function makePublishedSitesLookup(opts: {
+  supabaseUrl: string;
+  anonKey: string;
+  fetchImpl?: typeof fetch;
+  ttlMs?: number;
+  timeoutMs?: number;
+  now?: () => number;
+}): () => Promise<PublishedSites> {
+  const ttl = opts.ttlMs ?? 5 * 60 * 1000;
+  const now = opts.now ?? (() => Date.now());
+  const doFetch = opts.fetchImpl ?? fetch;
+  let entry: { promise: Promise<PublishedSites>; expires: number } | null = null;
+  const load = async (): Promise<{ sites: PublishedSites; ok: boolean }> => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 1500);
+    try {
+      const res = await doFetch(
+        `${opts.supabaseUrl.replace(/\/$/, "")}/rest/v1/state_sites?select=state,hostname&published=eq.true`,
+        { headers: { apikey: opts.anonKey, Authorization: `Bearer ${opts.anonKey}` }, signal: ctrl.signal },
+      );
+      if (!res.ok) return { sites: {}, ok: false };
+      return { sites: publishedSitesFrom((await res.json()) as { state?: string; hostname?: string }[]), ok: true };
+    } catch {
+      return { sites: {}, ok: false };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  return () => {
+    if (entry && entry.expires > now()) return entry.promise;
+    const e = { promise: null as unknown as Promise<PublishedSites>, expires: Infinity };
+    e.promise = load().then((r) => {
+      e.expires = now() + (r.ok ? ttl : 30_000);
+      return r.sites;
+    });
+    entry = e;
+    return e.promise;
+  };
+}
+
 /** Async hostname → state code resolver (the Worker's state_sites lookup). */
 export type HostLookup = (hostname: string) => Promise<string | null>;
 
@@ -93,7 +130,7 @@ export type HostLookup = (hostname: string) => Promise<string | null>;
  * Hostname → state via the tracker project's public `state_sites` table,
  * cached per hostname for `ttlMs` (5 minutes by default) so a busy site
  * costs one REST call per isolate per window. Any failure is a null: the
- * caller falls back to SINGLE_STATE_HOSTS and then the hub, never an error.
+ * caller falls back to SINGLE_STATE_HOSTS (empty) and then the hub, never an error.
  */
 export function makeStateSitesLookup(opts: {
   supabaseUrl: string;

@@ -4,14 +4,15 @@
 // and by the SPA (src/App.tsx keeps document.title in step via routeMeta).
 //
 // Two route tables:
-//  - the multi-state hub covers the landing page, plus the full state table
-//    under /<code> for states whose dedicated site points its canonical at
-//    the hub (HUB_CANONICAL_STATES in shared/site.ts);
+//  - the multi-state hub covers the landing page, plus every live state's
+//    table under /<code>, titled for the hub;
 //  - a dedicated single-state site (shared/site.ts) gets registry-driven
 //    metadata for its home, every statewide race page, each legislative
 //    chamber's overview and district pages, and the About page.
-// Canonical URLs derive from the request origin, except on a hub-canonical
-// dedicated site, whose pages name the hub's copy (shared/site.ts).
+// Canonical URLs derive from the request origin, except the hub's copy of a
+// state with a published dedicated site (state_sites), which names the
+// dedicated site's page: michiganpoliticstracker.com ranks for Michigan, and
+// the hub for the states without a site of their own.
 
 import {
   chamberDistricts,
@@ -21,13 +22,14 @@ import {
   getState,
   isValidDistrict,
   legacyRedirect,
+  liveStates,
   pollingSourceLabel,
   statePollingLabel,
   type ChamberConfig,
   type RaceConfig,
   type StateConfig,
 } from "../src/states/registry";
-import { HUB_CANONICAL_STATES, HUB_URL, SITE_STATE_META, hubCanonicalUrl, siteNameFor } from "./site";
+import { SITE_STATE_META, siteNameFor, type PublishedSites } from "./site";
 
 export type RouteMeta = {
   title: string;
@@ -38,13 +40,15 @@ export type RouteMeta = {
 
 export const STATIC_ROUTES: Record<string, RouteMeta> = {
   "/": {
-    title: "State Politics Tracker — Money & Polling in 2026 Statewide Races",
+    title: "State Politics Tracker — Political Donations & Campaign Finance in 2026 State Races",
     description:
-      "Follow the money and polling in 2026 statewide races across the country — governor on down. Campaign-finance data from state disclosure agencies, polling averages, and outside spending.",
+      "Who's donating to 2026 state candidates, governor on down: political contributions, top donors and outside spending from state disclosure agencies, plus polling averages.",
     h1: "State Politics Tracker — Follow the Money in Your State",
     body: `
       <p>State Politics Tracker is a public-interest dashboard for 2026 statewide races. We pull primary-source campaign-finance filings from each state's disclosure agency, surface outside spending, and aggregate public polling for every statewide race on the ballot — governor, attorney general, and the rest of the row offices — so you can see how money and momentum are moving, state by state.</p>
-      <p>Texas, Michigan and California also have their own sites — <a href="https://texaspoliticstracker.com">texaspoliticstracker.com</a>, <a href="https://michiganpoliticstracker.com">michiganpoliticstracker.com</a> and <a href="https://cagovtracker.com">cagovtracker.com</a>.</p>
+      <ul>
+        ${liveStates().map((st) => `<li><a href="/${st.code}">${st.name} political donations and campaign finance</a></li>`).join("\n        ")}
+      </ul>
     `,
   },
 };
@@ -129,10 +133,10 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string, ctx: Tab
   const routes: Record<string, RouteMeta> = {};
 
   routes[base] = {
-    title: `${label} Race — ${polled ? "Polls & " : ""}Campaign Finance | ${site}`,
+    title: `${label} Race — Campaign Donations${polled ? ", Polls" : ""} & Candidates | ${site}`,
     description: polled
-      ? `Who's running for ${state.name} ${race.title} in ${year}, who leads the polling average, and who is funding each campaign — from the ${agency} and ${pollingSourceLabel(race)}.`
-      : `Who's running for ${state.name} ${race.title} in ${year} and who is funding each campaign — itemized contributions and spending from the ${agency}.`,
+      ? `Who's donating to the ${state.name} ${race.title} candidates in ${year}: campaign contributions, top donors and outside spending from the ${agency}, plus the polling average from ${pollingSourceLabel(race)}.`
+      : `Who's donating to the ${state.name} ${race.title} candidates in ${year}: campaign contributions, top donors, spending and outside money from the ${agency}.`,
     h1: `${label}: ${polled ? "Polls, Candidates & Money" : "Candidates & Money"}`,
     body: `
       <p>Track the ${escapeHtml(label)} race: the candidate field, ${polled ? "a polling average built from public general-election polls, " : ""}money raised and spent by each campaign, top donors, and outside spending — updated nightly from the ${escapeHtml(agency)}.</p>
@@ -160,8 +164,8 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string, ctx: Tab
     };
   }
   routes[`${base}/money/donors`] = {
-    title: `${label} Top Donors & Campaign Finance | ${site}`,
-    description: `Who is funding the ${state.name} ${race.title} candidates: top individual and organizational donors, industries and totals from ${agency} filings.`,
+    title: `${label} Top Donors & Political Contributions | ${site}`,
+    description: `Who is donating to the ${state.name} ${race.title} candidates: top individual and PAC donors, contribution totals and every itemized donation from ${agency} filings.`,
     h1: `${label}: Top Donors`,
     body: `<p>Itemized contributions to every ${escapeHtml(label)} campaign committee, grouped by donor, as filed with the ${escapeHtml(agency)}.</p>`,
   };
@@ -184,8 +188,8 @@ function candidateMeta(state: StateConfig, race: RaceConfig, slug: string, site 
   const name = humanizeSlug(slug);
   const label = raceLabel(state, race);
   return {
-    title: `${name} — ${label} Candidate | ${site}`,
-    description: `${name}'s campaign for ${state.name} ${race.title}: money raised, top donors, spending${race.pollingSourceUrl ? ", polling" : ""} and outside spending, from ${state.agency?.name ?? "state"} filings.`,
+    title: `${name} Campaign Donations & Donors — ${label} | ${site}`,
+    description: `Who is donating to ${name}'s campaign for ${state.name} ${race.title}: contributions, top donors, money raised and spent${race.pollingSourceUrl ? ", polling" : ""} and outside spending, from ${state.agency?.name ?? "state"} filings.`,
     h1: `${name} — ${label}`,
     body: `<p>Campaign-finance profile of ${escapeHtml(name)}, candidate for ${escapeHtml(label)}: contributions, top donors, expenditures and independent expenditures for and against.</p>`,
   };
@@ -196,8 +200,8 @@ function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string, c
   const agency = agencyName(state);
   const year = chamber.generalDate.slice(0, 4);
   return {
-    title: `${state.name} ${chamber.title} ${year} — Campaign Finance by District | ${site}`,
-    description: `Who is running for the ${state.name} ${chamber.title} in ${year} and who is funding them, district by district: candidate committees, money raised and top donors from ${agency} filings.`,
+    title: `${state.name} ${chamber.title} ${year} — Campaign Donations by District | ${site}`,
+    description: `Who is donating to ${state.name} ${chamber.title} candidates in ${year}, district by district: campaign contributions, money raised and top donors from ${agency} filings.`,
     h1: `${state.name} ${chamber.title} ${year}: Money in Every District`,
     body: `
       <p>Campaign finance for ${escapeHtml(state.name)}'s ${escapeHtml(chamberScope(chamber).replace(/^all /, "").replace(/^the /, ""))}, synced nightly from the ${escapeHtml(agency)}. Each district page lists its candidates, what they have raised and spent, their top donors and any outside spending.</p>
@@ -233,8 +237,8 @@ export function singleStateRoutes(code: string, hub = false): Record<string, Rou
   const routes: Record<string, RouteMeta> = {};
 
   routes["/"] = {
-    title: `${site} — Money & Polling in ${state.name}'s 2026 Statewide Races`,
-    description: `Follow the money and polling in ${state.name}'s 2026 ${listOffices(state)} races. Campaign-finance filings from the ${agency}, polling averages, and outside spending.`,
+    title: `${state.name} Political Donations & Campaign Finance 2026 | ${site}`,
+    description: `Who's donating to ${state.name} candidates in 2026: political contributions, top donors, PAC money and outside spending in the ${listOffices(state)} races, from the ${agency}, plus polling averages.`,
     h1: `${site} — Follow the Money in ${state.name}`,
     body: `
       <p>${escapeHtml(site)} is a public-interest dashboard for ${escapeHtml(state.name)}'s 2026 statewide races, from the Political Integrity Project. We pull primary-source campaign-finance filings from the ${escapeHtml(agency)}, surface outside spending, and aggregate public polling so you can see how money and momentum are moving in each race.</p>
@@ -253,7 +257,7 @@ export function singleStateRoutes(code: string, hub = false): Record<string, Rou
   for (const chamber of state.chambers ?? []) routes[`/${chamber.office}`] = chamberMeta(state, chamber, `/${chamber.office}`, ctx);
 
   routes["/committees"] = {
-    title: `Committees & PACs Giving in ${state.name} | ${site}`,
+    title: `${state.name} PAC & Committee Donations | ${site}`,
     description: `Every political committee, PAC, union, party and business that has given to a ${state.name} candidate in 2026, searchable by name, with each one's contributions broken down by campaign — from ${agency} filings.`,
     h1: `Committees & PACs giving in ${state.name}`,
     body: `<p>Organizational donors to tracked ${escapeHtml(state.name)} candidates — political action committees, party committees, unions and businesses — ranked by total given, with a per-candidate breakdown for each. Search by committee name or city.</p>`,
@@ -284,9 +288,9 @@ export function routeMeta(pathname: string, siteState: string | null): RouteMeta
   const path = pathname.replace(/\/+$/, "") || "/";
   if (!siteState) {
     if (STATIC_ROUTES[path]) return STATIC_ROUTES[path];
-    // The hub's copy of a hub-canonical state: /mi/governor → Michigan's table.
+    // The hub's copy of a state: /mi/governor → Michigan's table, hub-titled.
     const hm = HUB_STATE_RE.exec(path);
-    if (hm && HUB_CANONICAL_STATES.has(hm[1])) return stateRouteMeta(hm[2] ?? "/", hm[1], true);
+    if (hm) return stateRouteMeta(hm[2] ?? "/", hm[1], true);
     return null;
   }
   return stateRouteMeta(path, siteState, false) ?? STATIC_ROUTES[path] ?? null;
@@ -322,6 +326,16 @@ function stateRouteMeta(path: string, code: string, hub: boolean): RouteMeta | n
     if (race) return candidateMeta(state, race, m[2], ctx.site);
   }
   return null;
+}
+
+/**
+ * On the hub, the dedicated site's URL for a state page whose state has a
+ * published site of its own (/mi/governor → https://michiganpoliticstracker.com/governor).
+ */
+export function dedicatedUrl(pathname: string, sites: PublishedSites): string | null {
+  const m = HUB_STATE_RE.exec(pathname.replace(/\/+$/, "") || "/");
+  const base = m ? sites[m[1]] : undefined;
+  return base ? `${base}${m![2] ?? "/"}` : null;
 }
 
 function buildSsrBlock(meta: RouteMeta): string {
@@ -413,6 +427,7 @@ export async function applySeoRewrite(
   request: Request,
   response: Response,
   siteState: string | null = null,
+  sites: PublishedSites = {},
 ): Promise<Response> {
   const ct = response.headers.get("content-type") ?? "";
   if (!ct.toLowerCase().includes("text/html")) return response;
@@ -423,7 +438,7 @@ export async function applySeoRewrite(
   if (!meta && !siteState) return response;
 
   let html = await response.text();
-  const canonical = hubCanonicalUrl(siteState, pathname) ?? `${url.origin}${pathname}`;
+  const canonical = (!siteState && dedicatedUrl(pathname, sites)) || `${url.origin}${pathname}`;
   if (meta) html = rewriteHtml(html, meta, canonical);
   if (siteState) html = injectSiteState(html, siteState);
 
@@ -445,12 +460,12 @@ const HUB_SITEMAP: SitemapEntry[] = [{ path: "/", priority: "1.0", changefreq: "
  * static route table plus each district's home page (district sub-pages are
  * reachable from there and stay out of the sitemap to keep it readable).
  */
-export function sitemapEntries(siteState: string | null): SitemapEntry[] {
+export function sitemapEntries(siteState: string | null, sites: PublishedSites = {}): SitemapEntry[] {
   if (!siteState) {
-    // The hub lists its copy of each hub-canonical state under /<code>.
+    // The hub lists its copy of each live state without a dedicated site.
     const entries = [...HUB_SITEMAP];
-    for (const code of HUB_CANONICAL_STATES) {
-      if (!liveState(code)) continue;
+    for (const { code } of liveStates()) {
+      if (sites[code] || !liveState(code)) continue;
       for (const e of sitemapEntries(code)) {
         entries.push({ ...e, path: `/${code}${e.path === "/" ? "" : e.path}` });
       }
@@ -475,11 +490,9 @@ export function sitemapEntries(siteState: string | null): SitemapEntry[] {
   return entries;
 }
 
-export function sitemapResponse(origin: string, siteState: string | null = null): Response {
-  // A hub-canonical site's pages are indexed on the hub: send crawlers there.
-  if (hubCanonicalUrl(siteState, "/")) return Response.redirect(`${HUB_URL}/sitemap.xml`, 301);
+export function sitemapResponse(origin: string, siteState: string | null = null, sites: PublishedSites = {}): Response {
   const today = new Date().toISOString().slice(0, 10);
-  const urls = sitemapEntries(siteState).map(
+  const urls = sitemapEntries(siteState, sites).map(
     ({ path, priority, changefreq }) =>
       `  <url>\n    <loc>${origin}${path}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>${changefreq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`,
   );
@@ -494,12 +507,9 @@ export function sitemapResponse(origin: string, siteState: string | null = null)
   });
 }
 
-/**
- * robots.txt with the Sitemap line pointed at the requesting origin, or at
- * the hub's sitemap on a hub-canonical dedicated site.
- */
-export function robotsResponse(origin: string, siteState: string | null = null): Response {
-  const sitemap = hubCanonicalUrl(siteState, "/") ? `${HUB_URL}/sitemap.xml` : `${origin}/sitemap.xml`;
+/** robots.txt with the Sitemap line pointed at the requesting origin. */
+export function robotsResponse(origin: string): Response {
+  const sitemap = `${origin}/sitemap.xml`;
   const body = [
     "User-agent: Googlebot",
     "Allow: /",
