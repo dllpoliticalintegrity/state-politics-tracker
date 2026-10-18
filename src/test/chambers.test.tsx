@@ -136,7 +136,7 @@ describe("staggered chambers", () => {
     const ga = getChamber(getState("ga")!, "state-house")!;
     expect(chamberDistricts(ga)).toHaveLength(180);
     expect(chamberScope(ga)).toBe("all 180 State House districts");
-    for (const code of ["ak", "az", "fl", "ga", "oh", "or", "wi", "mi", "tx"]) {
+    for (const code of ["ak", "az", "fl", "ga", "oh", "or", "wi", "mi", "tx", "ca"]) {
       for (const c of getState(code)!.chambers!) {
         expect(c.map, `${code} ${c.office}`).toMatch(new RegExp(`^/maps/${code}-${c.office}\\.json$`));
         for (const d of c.seatsUp ?? []) expect(d).toBeLessThanOrEqual(c.districts);
