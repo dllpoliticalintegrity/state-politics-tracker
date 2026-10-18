@@ -610,7 +610,7 @@ export function useTopIndustries(candidateId: string | undefined, limit = 10) {
     queryKey: ["cf_contributions_industries", stateCfg.source, candidateId, limit],
     enabled: !!candidateId,
     queryFn: async (): Promise<{ name: string; amount: number }[]> => {
-      if (stateCfg.source === "lpt") return lptReads.fetchTopEmployers(candidateId!, limit);
+      if (stateCfg.source === "lpt") return lptReads.fetchTopEmployers(stateCfg.code, candidateId!, limit);
       // Group client-side — no RPC yet. Cap at 5000 rows to stay snappy.
       const { data, error } = await (supabase as any)
         .from("cf_contributions")
@@ -784,7 +784,7 @@ export function useCandidateLoans(
     queryKey: ["cf_candidate_loans", stateCfg.source, candidateId, candidateName, limit],
     enabled: !!candidateId && !!candidateName,
     queryFn: async (): Promise<TxLoan[]> => {
-      if (stateCfg.source === "lpt") return lptReads.fetchLoans(candidateId!, limit);
+      if (stateCfg.source === "lpt") return lptReads.fetchLoans(stateCfg.code, candidateId!, limit);
       // Strip middle initials / suffixes ("Jr.", "Sr.", "II", "III").
       const SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv"]);
       const parts = (candidateName ?? "")
@@ -993,7 +993,7 @@ export function useIEForCandidate(candidateId: string | undefined, limit = 50) {
     queryKey: ["cf_ie_for_candidate", stateCfg.source, candidateId, limit],
     enabled: !!candidateId,
     queryFn: async (): Promise<TxIeRow[]> => {
-      if (stateCfg.source === "lpt") return lptReads.fetchIeForCandidate(candidateId!, limit);
+      if (stateCfg.source === "lpt") return lptReads.fetchIeForCandidate(stateCfg.code, candidateId!, limit);
       const { data, error } = await (supabase as any)
         .from("cf_independent_expenditures")
         .select(

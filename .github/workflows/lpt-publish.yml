@@ -1,0 +1,60 @@
+name: LPT publish
+
+# Copies the hub's own states (Michigan, Texas, California) from the
+# tracker's settled cf_* rows into the Local Politics Tracker project's
+# <st>_* tables and refreshes LPT's hub caches — the bridge in
+# docs/lpt-frontend-plan.md. Runs after the three importers have published
+# (MI 07:20, CA 10:30, TX 14:30 UTC).
+
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      states:
+        description: "Space-separated states (mi tx ca)"
+        required: false
+        default: "mi tx ca"
+      dry_run:
+        description: "Read and report only"
+        type: boolean
+        default: false
+      limit:
+        description: "First N transaction rows per table (a smoke test; skips prune)"
+        required: false
+        default: ""
+
+concurrency:
+  group: lpt-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Publish
+        env:
+          SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
+          LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
+          STATES: ${{ inputs.states || 'mi tx ca' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          if [ -z "$LPT_SERVICE_ROLE_KEY" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::warning::LPT_SERVICE_ROLE_KEY secret not set — skipping LPT publish."
+            exit 0
+          fi
+          status=0
+          for st in $STATES; do
+            python3 pipelines/lpt/publish_state.py --state "$st" \
+              ${DRY_RUN:+$( [ "$DRY_RUN" = "true" ] && echo --dry-run )} \
+              ${LIMIT:+--limit "$LIMIT"} || status=1
+          done
+          exit $status
