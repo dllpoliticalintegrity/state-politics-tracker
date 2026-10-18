@@ -15,6 +15,7 @@ import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
 import { offBallotLast } from "@/lib/candidateStatus";
+import { homeHeadline } from "@/states/nicknames";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -128,7 +129,9 @@ export default function Index() {
           {`${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
-          {`Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
+          {isHome
+            ? homeHeadline(stateCfg.code, stateCfg.name)
+            : `Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           {hasPollingSource

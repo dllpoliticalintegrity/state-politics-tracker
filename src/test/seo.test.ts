@@ -234,3 +234,15 @@ describe("each dedicated site ranks for its own state", () => {
     expect(robots).toContain("Sitemap: https://texaspoliticstracker.com/sitemap.xml");
   });
 });
+
+describe("state home headline", () => {
+  it("follows the money across the state's nickname", async () => {
+    const { homeHeadline, STATE_NICKNAMES } = await import("@/states/nicknames");
+    expect(homeHeadline("tx", "Texas")).toBe("Follow the Money across the Lone Star State");
+    expect(homeHeadline("MI", "Michigan")).toBe("Follow the Money across the Great Lakes State");
+    expect(homeHeadline("zz", "Nowhere")).toBe("Follow the Money across Nowhere");
+    for (const s of liveStates()) expect(STATE_NICKNAMES[s.code], s.code).toBeTruthy();
+    expect(routeMeta("/", "ca")!.h1).toBe("Follow the Money across the Golden State");
+    expect(routeMeta("/oh", null)!.h1).toBe("Follow the Money across the Buckeye State");
+  });
+});

@@ -29,6 +29,7 @@ import {
   type RaceConfig,
   type StateConfig,
 } from "../src/states/registry";
+import { homeHeadline } from "../src/states/nicknames";
 import { SITE_STATE_META, siteNameFor, type PublishedSites } from "./site";
 
 export type RouteMeta = {
@@ -239,7 +240,7 @@ export function singleStateRoutes(code: string, hub = false): Record<string, Rou
   routes["/"] = {
     title: `${state.name} Political Donations & Campaign Finance 2026 | ${site}`,
     description: `Who's donating to ${state.name} candidates in 2026: political contributions, top donors, PAC money and outside spending in the ${listOffices(state)} races, from the ${agency}, plus polling averages.`,
-    h1: `${site} — Follow the Money in ${state.name}`,
+    h1: homeHeadline(state.code, state.name),
     body: `
       <p>${escapeHtml(site)} is a public-interest dashboard for ${escapeHtml(state.name)}'s 2026 statewide races, from the Political Integrity Project. We pull primary-source campaign-finance filings from the ${escapeHtml(agency)}, surface outside spending, and aggregate public polling so you can see how money and momentum are moving in each race.</p>
       <ul>
