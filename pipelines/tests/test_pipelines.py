@@ -467,3 +467,14 @@ class LoaderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScrapeScope(unittest.TestCase):
+    def test_entities_follow_ie_unless_switched_off(self):
+        import run_state
+        self.assertEqual(run_state.scrape_scope({}), ["--transactions"])
+        self.assertEqual(run_state.scrape_scope({"ie": True}), ["--transactions", "--entities"])
+        self.assertEqual(run_state.scrape_scope({"ie": True, "entities": False}), ["--transactions"])
+        states = json.loads((PIPELINES / "states.json").read_text())["states"]
+        self.assertEqual(run_state.scrape_scope(states["ak"]), ["--transactions"])
+        self.assertEqual(run_state.scrape_scope(states["fl"]), ["--transactions", "--entities"])

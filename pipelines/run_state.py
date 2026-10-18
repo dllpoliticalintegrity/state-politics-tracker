@@ -81,9 +81,11 @@ def sync(st, entry):
     env = dict(os.environ, CF_RUN_ID=run_id)
     env.pop("CF_DAEMON", None)
     # "ie": entities too, so committees.csv (and SLCF's registry enrichment)
-    # exist for the outside-spending stage; "fec_ie": keep SLCF's FEC
-    # nonfederal-IE enrichment on (Ohio), which reads FEC_API_KEY from the env.
-    scope = ["--transactions", "--entities"] if entry.get("ie") else ["--transactions"]
+    # exist for the outside-spending stage, unless "entities": false (a state
+    # whose entity exports need a browser the runner can't drive; ie.py then
+    # identifies spenders by name); "fec_ie": keep SLCF's FEC nonfederal-IE
+    # enrichment on (Ohio), which reads FEC_API_KEY from the env.
+    scope = scrape_scope(entry)
     fec = [] if entry.get("fec_ie") else ["--no-fec-ie"]
     run([sys.executable, str(PIPELINES / "slcf" / "src" / "main.py"), "--no-report",
          "sync", st.upper(), "--start-year", start_year, "--no-aggregate", *fec,
@@ -96,6 +98,13 @@ def sync(st, entry):
     print(f"   SLCF: {n:,} contributions in {clean_dir}", flush=True)
     return scrape_errors(run_id)
 
+
+
+def scrape_scope(entry: dict) -> list:
+    """SLCF scope flags for a states.json entry (see the comment in main)."""
+    if entry.get("ie") and entry.get("entities", True):
+        return ["--transactions", "--entities"]
+    return ["--transactions"]
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Run one SLCF state: sync, check, load.")
