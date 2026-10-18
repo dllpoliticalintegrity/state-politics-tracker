@@ -13,14 +13,22 @@ matches the scraper's own back-to-back year-download pattern. The slider
 requires a genuine human drag gesture — it cannot be solved by script. Runs
 headless=False for exactly this reason (a headless browser is itself a bot
 signal DataDome checks for) and uses a persistent Playwright profile
-(PROFILE_DIR) so a human-solved challenge's trust cookie survives across runs
+(under PROFILE_ROOT) so a human-solved challenge's trust cookie survives across runs
 instead of being thrown away every time — same fix already proven for
 Missouri's Incapsula CAPTCHA elsewhere in this repo. See
 _wait_out_datadome() below and docs/states/alaska.md.
+
+The browser is the locally installed Google Chrome by default, not
+Playwright's bundled Chromium, because DataDome blocks the bundled build on
+the first request while the same network passes in an ordinary Chrome. When
+Chrome is not installed, the scraper falls back to the bundled Chromium.
+Set AK_BROWSER_CHANNEL to chrome, msedge or chromium to choose explicitly.
 """
 
 import csv
+import os
 import random
+import re
 import sys
 import time
 from datetime import datetime
@@ -36,15 +44,19 @@ from src.reporting.logger import get_logger
 RAW_DIR      = PROJECT_ROOT / "data" / "Alaska" / "raw"
 MANIFEST     = PROJECT_ROOT / "data" / "Alaska" / "manifest.csv"
 
-# Persistent Playwright profile directory -- NOT under data/Alaska/raw,
-# since parsers glob that tree for CSV exports and shouldn't see Chrome
-# profile internals. See the launch_persistent_context() note in run()
-# for why this needs to be persistent rather than a fresh throwaway
-# context (same reasoning/pattern as Missouri's PROFILE_DIR).
-PROFILE_DIR  = PROJECT_ROOT / ".playwright-profiles" / "alaska"
+# Persistent Playwright profiles live under PROFILE_ROOT, one per browser
+# channel (alaska-chrome, alaska-chromium, ...), since Chrome and Chromium
+# profiles are not interchangeable. Not under data/Alaska/raw, because
+# parsers glob that tree for CSV exports. These profiles are separate from
+# the user's everyday browser profile. See _launch_context() and the
+# launch note in run() for why they persist between runs.
+PROFILE_ROOT = PROJECT_ROOT / ".playwright-profiles"
+
+# Browser channel to launch: "chrome" (installed Google Chrome), "msedge"
+# (installed Microsoft Edge) or "chromium" (Playwright's bundled build).
+BROWSER_CHANNEL = os.environ.get("AK_BROWSER_CHANNEL", "chrome").strip().lower() or "chrome"
 
 RAW_DIR.mkdir(parents=True, exist_ok=True)
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 MANIFEST_COLS = ["relation_type", "year", "filename", "row_count"]
 
@@ -107,10 +119,10 @@ STEMS = {
 # just with an Alaska-appropriate timezone.
 LAUNCH_ARGS = ["--disable-blink-features=AutomationControlled"]
 
-DESKTOP_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+# No user agent override: the browser's real user agent has to match the
+# version it reports in its Sec-CH-UA client hints and TLS fingerprint.
+# A hardcoded user agent from an older Chrome contradicts both, and
+# DataDome scores that mismatch as automation.
 VIEWPORT = {"width": 1440, "height": 900}
 LOCALE   = "en-US"
 TIMEZONE_ID = "America/Anchorage"
@@ -118,7 +130,6 @@ TIMEZONE_ID = "America/Anchorage"
 STEALTH_INIT_SCRIPT = """
 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
 window.chrome = window.chrome || { runtime: {} };
 const _origQuery = window.navigator.permissions.query;
 window.navigator.permissions.query = (parameters) => (
@@ -127,6 +138,16 @@ window.navigator.permissions.query = (parameters) => (
         : _origQuery(parameters)
 );
 """
+
+# ========================== Year range default ==========================
+def default_start_year(today: datetime | None = None) -> int:
+    """First year of the current two-year election cycle: the odd year
+    before an even (election) year. Large historical years take several
+    minutes each to export and do not change, so routine runs refresh
+    only the current cycle."""
+    year = (today or datetime.today()).year
+    return year - 1 if year % 2 == 0 else year
+
 
 # ========================== Manifest helpers ==========================
 def load_manifest() -> tuple[set[tuple[str, str]], set[str]]:
@@ -172,6 +193,94 @@ def upsert_manifest(record: dict) -> None:
 
 
 
+# ================ Division of Elections candidate list ================
+# APOC's exports carry no legislative district: Office is bare "House" or
+# "Senate" in every file. The Alaska Division of Elections publishes each
+# election's candidate list as HTML pages, with candidates grouped under
+# "HOUSE DISTRICT 01" / "SENATE DISTRICT A" headings and party and
+# incumbency in the name cell. The entities step saves those pages for the
+# current election cycle's primary and general; parsers/alaska.py reads
+# district, party and incumbency from them. One request per page, a few
+# pages per election.
+#
+# The pages are loaded in the same browser as the APOC exports rather than
+# with requests: Python's certificate check fails against this site
+# ("unable to get local issuer certificate") while Chrome, which fetches a
+# missing intermediate certificate itself, loads it. Verification stays on.
+DOE_BASE       = "https://www.elections.alaska.gov/candidates/"
+DOE_PAGE_PARAM = "frm-page-407"
+DOE_MAX_PAGES  = 20
+DOE_TIMEOUT_MS = 60_000
+
+
+def doe_election_codes(election_year: int) -> list[str]:
+    """The site's election codes for one election year: 2026 ->
+    ['26prim', '26genr']."""
+    yy = f"{election_year % 100:02d}"
+    return [f"{yy}prim", f"{yy}genr"]
+
+
+def doe_page_path(code: str, page_num: int) -> Path:
+    return RAW_DIR / f"DOECandidates_{code}_p{page_num}.html"
+
+
+def _doe_page_count(html: str) -> int:
+    """Highest page number linked from a list page (1 when unpaginated),
+    capped at DOE_MAX_PAGES."""
+    nums = [int(n) for n in re.findall(rf"{DOE_PAGE_PARAM}=(\d+)", html)]
+    return min(max(nums, default=1), DOE_MAX_PAGES)
+
+
+def download_doe_candidates(page, election_year: int, log) -> tuple[int, int]:
+    """Save every page of the Division of Elections candidate list for
+    each of election_year's elections, loaded in the browser `page`.
+    Returns (pages_ok, pages_err).
+
+    The page count comes from the pagination links on page 1. An
+    election's saved pages are replaced only after all of its pages were
+    fetched, so a failed run leaves the previous complete set in place."""
+    pages_ok = pages_err = 0
+    for code in doe_election_codes(election_year):
+        url = f"{DOE_BASE}?election={code}"
+        log.file_download_start(filename=f"Division of Elections candidate list {code}")
+        pages: list[str] = []
+        try:
+            n = 1
+            total = 1
+            while n <= total:
+                if n > 1:
+                    time.sleep(random.uniform(1.0, 2.0))
+                page_url = url if n == 1 else f"{url}&{DOE_PAGE_PARAM}={n}"
+                t_page = time.perf_counter()
+                resp = page.goto(page_url, timeout=DOE_TIMEOUT_MS, wait_until="domcontentloaded")
+                if resp is None or not resp.ok:
+                    raise RuntimeError(f"HTTP {resp.status if resp else 'no response'} for {page_url}")
+                html = page.content()
+                if n == 1:
+                    total = _doe_page_count(html)
+                pages.append(html)
+                log.page_scrape_ok(entity="doe_candidates", page_id=f"{code} p{n}",
+                                   duration_s=time.perf_counter() - t_page)
+                n += 1
+        except Exception as e:
+            log.page_scrape_error(entity="doe_candidates", page_id=f"{code} p{len(pages) + 1}",
+                                  error=str(e))
+            pages_err += 1
+            continue
+
+        for old in RAW_DIR.glob(f"DOECandidates_{code}_p*.html"):
+            old.unlink()
+        size = 0
+        for num, html in enumerate(pages, start=1):
+            path = doe_page_path(code, num)
+            path.write_text(html, encoding="utf-8")
+            size += path.stat().st_size
+        pages_ok += len(pages)
+        log.info(f"  ✓ Division of Elections candidate list {code}: "
+                 f"{len(pages)} page(s), {size / 1024:.1f} KB")
+    return pages_ok, pages_err
+
+
 # ========================= Playwright helpers =========================
 def get_available_years(page) -> list[str]:
     sel = page.locator("select[name*='ddlReportYear']")
@@ -184,6 +293,37 @@ def get_available_years(page) -> list[str]:
         if opt.get_attribute("value") not in ("-1", "0", "", None)
     ]
     return sorted(set(years))
+
+
+def _launch_context(p, log):
+    """Launch a persistent, visible browser context on BROWSER_CHANNEL.
+
+    Falls back to Playwright's bundled Chromium when the requested
+    installed browser cannot be launched (for example, Chrome is not
+    installed). Each channel gets its own profile directory."""
+    channels = [BROWSER_CHANNEL]
+    if BROWSER_CHANNEL != "chromium":
+        channels.append("chromium")
+    last_err = None
+    for channel in channels:
+        profile_dir = PROFILE_ROOT / f"alaska-{channel}"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        kwargs = dict(
+            headless=False, accept_downloads=False, args=LAUNCH_ARGS,
+            viewport=VIEWPORT, locale=LOCALE, timezone_id=TIMEZONE_ID,
+        )
+        if channel != "chromium":
+            kwargs["channel"] = channel
+        try:
+            context = p.chromium.launch_persistent_context(str(profile_dir), **kwargs)
+        except Exception as e:
+            last_err = e
+            log.warning(f"  [!] Could not launch browser channel '{channel}': "
+                        f"{str(e).splitlines()[0]}")
+            continue
+        log.info(f"  Browser: {channel} (profile {profile_dir.name})")
+        return context
+    raise last_err
 
 
 # ========================= DataDome bot-check =========================
@@ -276,62 +416,46 @@ def _wait_out_datadome(page, log, where: str) -> bool | None:
     return False
 
 
-def _goto_export_link(page, csv_link, href: str | None, log) -> None:
-    """Trigger the CSV download by navigating directly to the export
-    link's href instead of clicking the <a> element.
+FETCH_EXPORT_JS = """
+async ([url, timeoutMs]) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { credentials: "include", signal: ctrl.signal });
+    return { status: r.status, text: await r.text() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+"""
 
-    Investigated live 2026-09-23 (see docs/states/alaska.md): the export
-    link (`a[id*='hlAllCSV']`) opens target="_blank", and confirmed the
-    underlying export URL is a plain, deterministic GET
-    (`?exportAll=True&exportFormat=CSV&isExport=True&...`) that returns the
-    CSV directly once Search+Export have set server-side state -- a real
-    in-page fetch() to it works standalone. Went as far as prototyping a
-    full fetch()-driven replacement for the Search/Export clicks too, but
-    backed off: a DataDome challenge triggered mid-fetch() would be
-    invisible (nothing renders in the browser for a human to solve), which
-    would quietly break the human-solvable design _wait_out_datadome()
-    depends on. So Search/Export stay real Playwright clicks -- any
-    DataDome hit there still renders normally in the visible window -- and
-    only this last step (which needs no further server-side interaction)
-    is a direct goto() to the href instead of a click. This makes download
-    capture unambiguous rather than depending on Playwright's context-level
-    accept_downloads correctly attributing a new-tab click's download back
-    to this page's expect_download(), which usually works but isn't
-    guaranteed across Chromium versions. Falls back to the original click()
-    if no href was found, so this is a pure improvement, not a behavior
-    change when the DOM doesn't look as expected."""
-    if href:
-        try:
-            # wait_until="commit" resolves as soon as the response headers
-            # arrive, instead of Playwright's default "load" -- a download
-            # response never fires "load" (no page loads), so the default
-            # would time out at 30s on every single successful download,
-            # trigger a needless fallback click() (itself racing the
-            # already-in-flight download and prone to its own timeout),
-            # and log a scary-looking warning for what was actually a
-            # clean success. Confirmed live 2026-09-23: without this, 3/5
-            # of one run's downloads succeeded silently via a fast
-            # ERR_ABORTED and 1/5 hit this exact false-alarm path.
-            page.goto(href, timeout=30_000, wait_until="commit")
-        except Exception as e:
-            # A download response reclassifies the navigation and goto()
-            # raises for it -- expected, the download itself is tracked
-            # separately by expect_download(). Anything else (bad URL,
-            # DNS, etc.) is a real failure and must not be swallowed
-            # silently -- that's exactly what let the 2026-09-23
-            # relative-href bug hide as "not hitting the csv button".
-            msg = str(e)
-            if "ERR_ABORTED" not in msg and "Download is starting" not in msg:
-                log.warning(f"  [!] goto(href) for CSV export failed unexpectedly: {msg!r} -- falling back to click()")
-                try:
-                    csv_link.click()
-                except Exception as e2:
-                    log.warning(f"  [!] fallback click() also failed: {e2!r}")
-    else:
-        try:
-            csv_link.click()
-        except Exception as e:
-            log.warning(f"  [!] csv_link.click() failed with no href available: {e!r}")
+
+def _fetch_export(page, href: str, out_path: Path, page_url: str, log, where: str) -> int:
+    """Fetch the CSV export from inside the page and write it to out_path.
+
+    The request runs through the page's own fetch(), so it uses the same
+    browser network stack and cookies as a click, but it does not go
+    through the browser's download handling: installed Chrome crashes
+    when a Playwright-managed download completes. Returns the row count.
+
+    A DataDome response is not rendered by fetch(), so on one the page is
+    reloaded to show the challenge in the visible window, then the year is
+    failed so the caller's block counting applies."""
+    log.info("  Waiting for the server to generate the export "
+             "(large years take several minutes)...")
+    res = page.evaluate(FETCH_EXPORT_JS, [href, DOWNLOAD_TIMEOUT_MS])
+    status, text = res["status"], res["text"]
+    head = text[:5000]
+    if _content_has_datadome(head):
+        page.goto(page_url, timeout=30_000)
+        _wait_out_datadome(page, log, f"{where} export fetch")
+        raise RuntimeError(f"DataDome blocked the export fetch at {where}")
+    if status != 200 or head.lstrip().startswith("<"):
+        raise RuntimeError(f"export fetch at {where} returned HTTP {status} "
+                           f"with {'HTML' if head.lstrip().startswith('<') else 'unexpected'} content")
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    return text.count("\n") - 1
 
 
 def download_candidates(page, context, log) -> tuple[str, int] | None:
@@ -373,16 +497,64 @@ def download_candidates(page, context, log) -> tuple[str, int] | None:
 
     filename = "CDCandidates_all.csv"
     out_path = RAW_DIR / filename
-
-    with page.expect_download(timeout=DOWNLOAD_TIMEOUT_MS) as dl_info:
-        _goto_export_link(page, csv_link, csv_href, log)
-
-    dl = dl_info.value
-    dl.save_as(str(out_path))
-
-    text      = out_path.read_text(encoding="utf-8", errors="replace")
-    row_count = text.count("\n") - 1
+    row_count = _fetch_export(page, csv_href, out_path, page_url, log, "candidates")
     return filename, row_count
+
+
+def _save_debug_snapshot(page, label: str, log) -> None:
+    """Save a screenshot and the page HTML to logs/dev/ for a failed step."""
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    out_dir = PROJECT_ROOT / "logs" / "dev"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = out_dir / f"{stamp}-alaska-{label}"
+    try:
+        page.screenshot(path=str(base.with_suffix(".png")), full_page=True)
+        base.with_suffix(".html").write_text(page.content(), encoding="utf-8")
+        log.warning(f"  [!] Saved page snapshot: {base.name}.png / .html")
+    except Exception as e:
+        log.warning(f"  [!] Could not save page snapshot: {e!r}")
+
+
+RESULT_COUNT_RE = re.compile(r"([\d,]+)\s+items?\s+in\s+\d+\s+pages?", re.I)
+
+
+def _result_count(page, timeout_ms: int = 20_000) -> int | None:
+    """Wait for the results summary ("N items in M pages") and return N.
+
+    Returns None when no summary renders within timeout_ms (for example,
+    a search with no results shows no summary)."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        try:
+            m = RESULT_COUNT_RE.search(page.locator("body").inner_text())
+        except Exception:
+            m = None
+        if m:
+            return int(m.group(1).replace(",", ""))
+        time.sleep(1)
+    return None
+
+
+def _export_csv_href(page, csv_link, log, where: str, label: str) -> str:
+    """Click Export and return the resolved href of the CSV export link.
+
+    Call after _result_count(), which waits for the search results to
+    render: an Export click made while the results postback is still in
+    flight is dropped and the CSV link never appears. Retries the click
+    once, then saves a page snapshot and raises."""
+    for attempt in (1, 2):
+        page.locator("input[value='Export']:visible").first.click()
+        _wait_out_datadome(page, log, f"{where} export click")
+        try:
+            csv_link.wait_for(state="visible", timeout=30_000)
+            # evaluate() returns the resolved absolute href; get_attribute()
+            # returns the raw relative one, which goto() rejects.
+            return csv_link.evaluate("el => el.href")
+        except Exception:
+            log.warning(f"  [!] CSV link did not appear after Export click "
+                        f"(attempt {attempt}) at {where}")
+    _save_debug_snapshot(page, label, log)
+    raise RuntimeError(f"CSV export link never appeared at {where}")
 
 
 def download_year(page, context, relation_type: str, year: str, log) -> tuple[str, int] | None:
@@ -415,25 +587,25 @@ def download_year(page, context, relation_type: str, year: str, log) -> tuple[st
     out_path = RAW_DIR / filename
     csv_link = page.locator("a[id*='hlAllCSV']")
 
-    with page.expect_download(timeout=DOWNLOAD_TIMEOUT_MS) as dl_info:
-        page.click("input[value='Export']")
-        _wait_out_datadome(page, log, f"{relation_type} {year} export click")
-        csv_href = None
-        try:
-            csv_link.wait_for(timeout=8_000)
-            # see download_candidates() above -- evaluate() gives the
-            # resolved absolute href, get_attribute() would give the raw
-            # (relative) one and silently break goto().
-            csv_href = csv_link.evaluate("el => el.href")
-        except Exception:
-            pass
-        _goto_export_link(page, csv_link, csv_href, log)
-
-    dl = dl_info.value
-    dl.save_as(str(out_path))
-
-    text      = out_path.read_text(encoding="utf-8", errors="replace")
-    row_count = text.count("\n") - 1
+    # An empty year gets an empty file, matching what the export returns
+    # for one, so the year is recorded and not retried on every run.
+    count = _result_count(page)
+    if count == 0:
+        log.info(f"  {relation_type} {year}: 0 results, writing empty file")
+        out_path.write_text("", encoding="utf-8")
+        return filename, -1
+    try:
+        csv_href = _export_csv_href(page, csv_link, log, f"{relation_type} {year}",
+                                    f"{STEMS[relation_type]}_{year}")
+    except RuntimeError:
+        if count is not None:
+            raise
+        log.warning(f"  [!] {relation_type} {year}: no results summary and no CSV "
+                    f"link; treating as empty (see the saved snapshot)")
+        out_path.write_text("", encoding="utf-8")
+        return filename, -1
+    row_count = _fetch_export(page, csv_href, out_path, page_url,
+                              log, f"{relation_type} {year}")
     return filename, row_count
 
 
@@ -455,6 +627,9 @@ def run(
     Vertical scope (mutually exclusive):
         force=True              — re-download all years, wipe relevant manifest entries
         start_year / end_year   — restrict year-based downloads to this range
+        neither                 — start_year defaults to the first year of the
+                                  current two-year election cycle (2025 in
+                                  2025-2026); pass start_year=2008 to backfill
 
     Horizontal scope:
         No flags                — download everything
@@ -469,6 +644,10 @@ def run(
     log = get_logger("alaska", "scrape")
     t0  = time.perf_counter()
     log.info("Starting Alaska scraper")
+    if not force and start_year is None and end_year is None:
+        start_year = default_start_year()
+        log.info(f"  No year range given: defaulting to --start-year {start_year} "
+                 f"(current election cycle). Pass --start-year 2008 to backfill.")
     log._emit("scrape_started", force=force, entities=entities, transactions=transactions,
               start_year=start_year, end_year=end_year,
               contributions=contributions, expenditures=expenditures,
@@ -556,7 +735,7 @@ def run(
     try:
         # ── Playwright: transaction CSVs + candidate/group exports ────
         with sync_playwright() as p:
-            # Persistent profile (PROFILE_DIR), not a fresh launch()/
+            # Persistent profile (under PROFILE_ROOT), not a fresh launch()/
             # new_context() pair. Confirmed live 2026-09-23: aws.state.ak.us
             # is fronted by DataDome, which serves an interactive "slide to
             # verify" challenge when it sees automated-looking traffic
@@ -569,18 +748,45 @@ def run(
             # and a fresh challenge is effectively guaranteed every time.
             # launch_persistent_context() writes cookies (including the
             # `datadome` trust cookie set after a challenge is solved) to
-            # PROFILE_DIR on disk -- solve it once by hand and later runs
+            # the profile directory -- solve it once by hand and later runs
             # reuse that cookie, same fix already proven for Missouri's
             # Incapsula CAPTCHA elsewhere in this repo. If the challenge
             # ever reappears, that's the trust cookie expiring or getting
             # invalidated, not a code regression -- just solve it again once.
-            context = p.chromium.launch_persistent_context(
-                str(PROFILE_DIR), headless=False, accept_downloads=True,
-                args=LAUNCH_ARGS, user_agent=DESKTOP_USER_AGENT,
-                viewport=VIEWPORT, locale=LOCALE, timezone_id=TIMEZONE_ID,
-            )
+            context = _launch_context(p, log)
             context.add_init_script(STEALTH_INIT_SCRIPT)
             page = context.new_page()
+
+            def _browser_alive() -> bool:
+                try:
+                    page.evaluate("1")
+                    return True
+                except Exception:
+                    return False
+
+            def _relaunch_browser() -> None:
+                """Replace a crashed or closed browser with a fresh one on
+                the same persistent profile."""
+                nonlocal context, page
+                log.warning("  [!] Browser closed unexpectedly -- relaunching")
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                context = _launch_context(p, log)
+                context.add_init_script(STEALTH_INIT_SCRIPT)
+                page = context.new_page()
+
+            # ── Division of Elections candidate list ──────────────────
+            # Current election cycle only: older cycles' lists are not
+            # known to be published under the same codes.
+            if do_candidates_dl:
+                election_year = default_start_year() + 1
+                if end_year is None or end_year >= election_year:
+                    log.info(f"\nAlaska Division of Elections candidate list ({election_year}):")
+                    ok, err = download_doe_candidates(page, election_year, log)
+                    pages_ok += ok
+                    pages_err += err
 
             for relation_type, page_url in PAGES.items():
                 if relation_type not in pages_to_run:
@@ -592,7 +798,11 @@ def run(
                 if relation_type == "candidates":
                     key = ("candidates", "all")
                     cand_file = RAW_DIR / "CDCandidates_all.csv"
-                    if (key in done or cand_file.exists()) and not force:
+                    # The candidate registry is one all-years export, so it
+                    # is refreshed whenever the run covers the current year;
+                    # new registrations appear in it all cycle.
+                    refresh = force or end_year is None or end_year >= int(current_year)
+                    if (key in done or cand_file.exists()) and not refresh:
                         log.file_download_skip(filename="CDCandidates_all.csv")
                     else:
                         log.file_download_start(filename="CDCandidates_all.csv")
@@ -624,6 +834,8 @@ def run(
                     continue
 
                 # Year-based relations (income, expenditures, groups)
+                if not _browser_alive():
+                    _relaunch_browser()
                 page.goto(page_url, timeout=30_000)
                 page.wait_for_load_state("networkidle")
                 _wait_out_datadome(page, log, f"{relation_type} years dropdown load")
@@ -672,6 +884,14 @@ def run(
                         result = download_year(page, context, relation_type, year, log)
                     except Exception as e:
                         err_msg = str(e)
+                    if err_msg and not _browser_alive():
+                        _relaunch_browser()
+                        log.info(f"  Retrying {expected_stem} in the relaunched browser")
+                        err_msg = None
+                        try:
+                            result = download_year(page, context, relation_type, year, log)
+                        except Exception as e:
+                            err_msg = str(e)
 
                     if err_msg:
                         log.file_download_error(filename=expected_stem, error=err_msg)
