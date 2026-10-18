@@ -15,7 +15,7 @@ import {
   robotsResponse,
   sitemapResponse,
 } from "../shared/seo";
-import { makeStateSitesLookup, normalizeHost, resolveSiteStateAsync } from "../shared/site";
+import { HUB_URL, makeStateSitesLookup, normalizeHost, resolveSiteStateAsync } from "../shared/site";
 
 interface Env {
   ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -44,6 +44,12 @@ function hostLookup(env: Env) {
   return lookup;
 }
 
+const HUB_HOST = HUB_URL ? new URL(HUB_URL).hostname : null;
+
+function isHubHost(hostname: string): boolean {
+  return HUB_HOST !== null && normalizeHost(hostname) === HUB_HOST;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -59,8 +65,9 @@ export default {
       lookup: hostLookup(env),
     });
 
-    // www.<site> → <site>, so each dedicated site has one canonical host.
-    if (url.hostname.startsWith("www.") && siteState) {
+    // www.<site> → <site>, so each dedicated site and the hub have one
+    // canonical host.
+    if (url.hostname.startsWith("www.") && (siteState || isHubHost(url.hostname))) {
       url.hostname = normalizeHost(url.hostname);
       return Response.redirect(url.toString(), 301);
     }
