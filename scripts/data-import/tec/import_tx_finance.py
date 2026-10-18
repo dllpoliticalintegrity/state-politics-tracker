@@ -60,7 +60,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 from urllib.request import Request, urlopen
 
 logging.basicConfig(
@@ -370,23 +370,43 @@ def load_seed_candidates(sb) -> Dict[str, SeedCandidate]:
     return seeds
 
 
-def load_ie_targets(sb) -> Dict[str, tuple]:
+def fetch_all(sb, table: str, cols: str, order: str) -> list:
+    """Every row of a table, paged past PostgREST's 1,000-row cap."""
+    out: list = []
+    for start in range(0, 1_000_000, 1000):
+        res = sb.table(table).select(cols).order(order).range(start, start + 999).execute()
+        out.extend(res.data or [])
+        if len(res.data or []) < 1000:
+            break
+    return out
+
+
+def load_ie_targets(sb) -> Tuple[Dict[str, tuple], Dict[str, tuple]]:
     """Curated overrides: ie_filer_ident → (candidate_id, support_oppose).
     DCE records name the benefited candidate, so unlike CA this is only for
-    edge cases (e.g. marking a DCE filer as opposing)."""
-    targets: Dict[str, tuple] = {}
+    edge cases (e.g. marking a DCE filer as opposing).
+
+    Returns (overrides, fallbacks). Rows import_spac_links adds automatically
+    (note 'auto:spacs.csv') are only fallbacks, used for a DCE row that names
+    no seeded candidate, and only for a SPAC linked to exactly one candidate:
+    one SPAC can back several legislators, so pinning all its rows to one of
+    them would misattribute spending."""
+    overrides: Dict[str, tuple] = {}
+    auto: Dict[str, set] = {}
     try:
-        res = sb.table("tx_ie_committee_targets").select(
-            "ie_filer_ident,target_candidate_id,support_oppose"
-        ).execute()
-        for row in res.data or []:
-            targets[norm_ident(row["ie_filer_ident"])] = (
-                row["target_candidate_id"],
-                (row.get("support_oppose") or "S").upper(),
-            )
+        rows = fetch_all(sb, "tx_ie_committee_targets",
+                         "ie_filer_ident,target_candidate_id,support_oppose,note", "ie_filer_ident")
+        for row in rows:
+            fid = norm_ident(row["ie_filer_ident"])
+            pair = (row["target_candidate_id"], (row.get("support_oppose") or "S").upper())
+            if (row.get("note") or "").startswith("auto:"):
+                auto.setdefault(fid, set()).add(pair)
+            else:
+                overrides[fid] = pair
     except Exception as e:
         logger.warning("tx_ie_committee_targets lookup failed: %s", e)
-    return targets
+    fallbacks = {fid: next(iter(p)) for fid, p in auto.items() if len(p) == 1 and fid not in overrides}
+    return overrides, fallbacks
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +595,8 @@ def import_loans(sb, zf, seeds: Dict[str, SeedCandidate]):
 
 
 def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple],
-               special_report_ids: Optional[set] = None) -> set:
+               special_report_ids: Optional[set] = None,
+               fallback_targets: Optional[Dict[str, tuple]] = None) -> set:
     """cand.csv → tx_ie_committees + tx_independent_expenditures.
 
     Texas's independent-expenditure analog: a CAND record names the candidate
@@ -601,6 +622,7 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
             groups.setdefault(k, set()).add(c.id)
     by_id = {c.id: c for c in seeds.values()}
     seed_by_name = {k: by_id[next(iter(v))] for k, v in groups.items() if len(v) == 1}
+    fallback_targets = fallback_targets or {}
     committees: Dict[str, str] = {}
     writer = BatchWriter(sb, "tx_independent_expenditures", on_conflict="expend_info_id,expend_persent_id")
     unmatched = 0
@@ -622,10 +644,18 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
             cand_id, sup_opp = targets[fid]
         elif cand:
             cand_id = cand.id
+        elif fid in fallback_targets:
+            cand_id, sup_opp = fallback_targets[fid]
         else:
             unmatched += 1
             continue
-        committees[fid] = (row.get("filerName") or "").strip()
+        if fid not in committees:
+            # Register the committee before any of its rows can be flushed:
+            # BatchWriter flushes mid-loop once a batch fills, and each row's
+            # ie_filer_ident must already exist in tx_ie_committees (FK).
+            committees[fid] = (row.get("filerName") or "").strip()
+            upsert_batch(sb, "tx_ie_committees", [{"filer_ident": fid, "name": committees[fid]}],
+                         on_conflict="filer_ident")
         writer.add({
             "expend_info_id": int(row["expendInfoId"]),
             "expend_persent_id": int(row["expendPersentId"]),
@@ -640,12 +670,10 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
             "cycle": cycle,
             "special": int(row["reportInfoIdent"]) in (special_report_ids or set()),
         })
-    for fid, name in committees.items():
-        upsert_batch(sb, "tx_ie_committees", [{"filer_ident": fid, "name": name}], on_conflict="filer_ident")
     writer.flush()
     logger.info(
         "tx_independent_expenditures: upserted %d rows across %d DCE filers "
-        "(%d GOVERNOR rows didn't match a seeded candidate)",
+        "(%d rows didn't match a seeded candidate)",
         writer.total, len(committees), unmatched,
     )
     return set(committees)
@@ -690,8 +718,8 @@ def import_spac_links(sb, zf, seeds: Dict[str, SeedCandidate]) -> set:
 
 
 def import_ie_contributions(sb, zf, seeds: Dict[str, SeedCandidate]):
-    res = sb.table("tx_ie_committees").select("filer_ident").execute()
-    idents = {norm_ident(r["filer_ident"]): None for r in (res.data or [])}
+    rows = fetch_all(sb, "tx_ie_committees", "filer_ident", "filer_ident")
+    idents = {norm_ident(r["filer_ident"]): None for r in rows}
     if not idents:
         logger.info("no DCE committees in tx_ie_committees yet — run --only ie first")
         return
@@ -738,13 +766,13 @@ def main():
     if not seeds:
         logger.error("no seeded candidates — populate tx_candidates first (try --discover)")
         sys.exit(1)
-    targets = load_ie_targets(sb)
+    targets, fallback_targets = load_ie_targets(sb)
 
     special_report_ids = load_special_report_ids(zf)
 
     ie_filers: set = set()
     if args.only in (None, "ie"):
-        ie_filers = import_dce(sb, zf, seeds, targets, special_report_ids)
+        ie_filers = import_dce(sb, zf, seeds, targets, special_report_ids, fallback_targets)
         ie_filers |= import_spac_links(sb, zf, seeds)
 
     if args.only in (None, "filings"):
