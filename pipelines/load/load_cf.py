@@ -37,6 +37,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+import ie
 import mapping
 import rest
 
@@ -347,6 +348,15 @@ def main(argv=None):
         if do_prune and not args.dry_run:
             prune(st, refs, stats, live, since,
                   entry.get("prune_min_share", PRUNE_MIN_SHARE))
+
+    # Outside spending (states.json "ie": true): independent expenditures
+    # targeting the tracked candidates, their spenders and the spenders'
+    # receipts -> cf_ie_* (pipelines/load/ie.py). Needs committees.csv, so
+    # run_state scrapes entities as well for these states.
+    if entry.get("ie"):
+        cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name&order=id")
+        ie.load_ie(st, entry, clean_dir, cands, args.dry_run, since, entry.get("cycle", "2026"),
+                   mapping.TxnIds(st, entry.get("id_format")), open_table)
     return 0
 
 
