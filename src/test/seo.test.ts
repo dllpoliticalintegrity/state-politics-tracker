@@ -159,9 +159,11 @@ describe("Texas on the hub", () => {
     expect(routeMeta("/lt-governor/polling", "tx")).toBeNull();
     expect(routeMeta("/about", "tx")!.body).toContain("polling comes from FiftyPlusOne");
     expect(routeMeta("/governor", "mi")!.description).toContain("and FiftyPlusOne");
-    // Georgia's polling comes with its Local Politics Tracker data.
-    expect(routeMeta("/about", "ga")!.body).toContain("polling comes from Local Politics Tracker");
-    expect(routeMeta("/governor/polling", "ga")!.body).toContain("aggregated from Local Politics Tracker");
+    // Georgia reads the tracker again, so its polling is the FiftyPlusOne import.
+    expect(routeMeta("/about", "ga")!.body).toContain("polling comes from FiftyPlusOne");
+    expect(routeMeta("/governor/polling", "ga")!.body).toContain("aggregated from FiftyPlusOne");
+    // Ohio still reads the Local Politics Tracker, polls included.
+    expect(routeMeta("/governor/polling", "oh")!.body).toContain("aggregated from Local Politics Tracker");
     // A hidden state has no routes at all.
     expect(routeMeta("/about", "hi")).toBeNull();
   });

@@ -24,10 +24,10 @@ describe("LPT vocabulary", () => {
   });
 
   it("derives office_num: 0 statewide, the district number, null for a chamber overview", () => {
-    const ga = getState("ga")!;
-    expect(lptDistrict(ga, { office: "governor" })).toBe(0);
-    expect(lptDistrict(ga, { office: "state-senate", district: "11" })).toBe(11);
-    expect(lptDistrict(ga, { office: "state-senate" })).toBeNull();
+    const mi = getState("mi")!;
+    expect(lptDistrict(mi, { office: "governor" })).toBe(0);
+    expect(lptDistrict(mi, { office: "state-senate", district: "11" })).toBe(11);
+    expect(lptDistrict(mi, { office: "state-senate" })).toBeNull();
   });
 
   it("builds LPT race slugs", () => {

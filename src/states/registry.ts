@@ -133,13 +133,13 @@ const SLCF_READY = new Set([
 ]);
 
 // States whose pages read the Local Politics Tracker project. A state moves
-// here only after its numbers have been checked against the tracker's
-// (docs/lpt-frontend-plan.md). GA, OH and OR read Henry's tables there;
-// MI, TX and CA read the hub's own mi_/tx_/ca_ tables, bridged nightly
-// from the tracker (phase 3). VITE_LPT_STATES ("ga,az") overrides the set
-// at build time, for previews and local checks.
+// here only while the tracker has no rows for it (docs/lpt-frontend-plan.md).
+// The tracker project is the unified store: every state reads it as soon as
+// its own pipeline reconciles. OH and OR read Henry's tables until their
+// SLCF scrapes land in the tracker. VITE_LPT_STATES ("oh,or,ga") overrides
+// the set at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga,oh,or,mi,tx,ca")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "oh,or")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
@@ -263,9 +263,7 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "georgia-governor-2026",
-        // Polling comes with the LPT data (statemoney.us), not FiftyPlusOne.
-        pollingSource: "lpt",
-        pollingSourceUrl: lptRace("ga", "governor-2026"),
+        pollingSourceUrl: fpoGovernor("Georgia"),
       },
       {
         office: "lt-governor",
@@ -286,12 +284,10 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         raceSlug: "georgia-secretary-of-state-2026",
       },
     ],
-    // Legislature (Oct 2026, from the Local Politics Tracker data): finance
-    // only; all 56 Senate and 180 House seats are on the 2026 ballot.
-    chambers: [
-      { office: "state-senate", title: "State Senate", districts: 56, generalDate: "2026-11-03" },
-      { office: "state-house", title: "State House", districts: 180, generalDate: "2026-11-03" },
-    ],
+    // Legislature: the tracker has no Georgia legislative roster yet (the
+    // SLCF load tracks the statewide committees only), so no chambers until
+    // one is derived the way Michigan's is. All 56 Senate and 180 House seats
+    // are on the 2026 ballot.
   },
 };
 

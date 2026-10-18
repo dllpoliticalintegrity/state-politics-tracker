@@ -30,3 +30,6 @@ dist-ssr
 # Python
 __pycache__/
 *.pyc
+
+# Python virtualenv for pipelines/ (README: python3.12 -m venv .venv)
+.venv/

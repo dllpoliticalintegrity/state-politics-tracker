@@ -28,6 +28,47 @@ The site's current database is the Texas Politics Tracker project
 (`lohxdfrxnxuxjdvvyfjc`, "tracker"). It stays up and keeps being fed until
 every state has moved, so the site works throughout the election.
 
+## 0. Direction change (2026-10-18, morning after)
+
+**The tracker project is the unified store, not LPT.** Reasoning, once the
+bridge had run: the tracker already held nine of the ten states natively (our
+own SLCF scrapes of AK, AZ, FL, GA, WI plus the MI, TX and CA importers), every
+pg_cron job, the admin console and the FiftyPlusOne polling import point at it,
+and the only states it lacked (OH, OR) have scrapers in `pipelines/slcf`. The
+LPT path meant copying our own data into Henry's project a day late and
+maintaining the `hub_*` read layer there to work around his instance's slow
+aggregates. So:
+
+- `LPT_STATES` defaults to `oh,or`: every other state reads the tracker.
+  Georgia's governor polling is the FiftyPlusOne import again (the tracker
+  has 256 polls for `georgia-governor-2026`); Georgia's legislative chambers
+  come off the registry until the tracker has a legislative roster (the SLCF
+  load tracks the 25 statewide committees only).
+- Georgia reconciled against LPT before the flip: every statewide candidate
+  matched to the dollar except two whose `filer_refs` pointed at the wrong
+  committee — Jason Esteves (his Senate committee instead of Georgia for
+  Jason, Inc., `ga:101067`) and Brad Raffensperger (no committee; Brad for
+  Governor, Inc. is `ga:102576`). Both fixed in `cf_candidates`; the next
+  Georgia sync loads them.
+- **Ohio:** the SLCF scrape works from a residential connection (curl_cffi's
+  browser impersonation gets past the TLS check; only datacenter IPs are
+  blocked). A local dry run on 2026-10-18 reconciled: 5 tracked committees,
+  1.16M contributions, Ramaswamy $40.0M and Acton $31.9M against LPT's $36.6M
+  and $25.9M as of Aug 31. Load it with `python pipelines/run_state.py oh`
+  from a Mac with the tracker's service role key; nightly needs a
+  non-datacenter runner (a self-hosted GitHub runner on a Mac is the simplest).
+  OH flips to the tracker once loaded.
+- **Oregon:** ORESTAR needs headed Chromium (F5 bot defense), so it also runs
+  only from a desktop. The tracker has no Oregon roster yet; LPT's `candidates`
+  rows for OR governor carry the ORESTAR committee ids (`state_filer_id`) to
+  seed `cf_candidates.filer_refs`. OR stays on LPT until then.
+- The `lpt-publish` bridge and the `hub_*` objects in LPT stay as they are
+  (harmless, and the cache refresh still serves OH and OR) until both states
+  are on the tracker; then the workflow can be retired.
+
+Sections 1–5 below describe the LPT-first design as built; they remain
+accurate for how OH and OR are read today.
+
 ## 1. What each side has
 
 **LPT** (read 2026-10-18):

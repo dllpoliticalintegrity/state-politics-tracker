@@ -26,8 +26,8 @@ describe("chamber registry", () => {
     expect(senate.districts).toBe(38);
     expect(getChamber(mi, "state-house")!.districts).toBe(110);
     expect(getChamber(mi, "governor")).toBeUndefined();
-    expect(getChamber(getState("ga")!, "state-senate")!.districts).toBe(56);
-    expect(getChamber(getState("ga")!, "state-house")!.districts).toBe(180);
+    // Georgia's chambers wait for a legislative roster in the tracker.
+    expect(getChamber(getState("ga")!, "state-senate")).toBeUndefined();
     expect(getChamber(getState("fl")!, "state-senate")).toBeUndefined();
   });
 
