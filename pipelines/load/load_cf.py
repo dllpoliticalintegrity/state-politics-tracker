@@ -39,6 +39,7 @@ from pathlib import Path
 
 import ie
 import mapping
+import roster
 import rest
 
 PIPELINES = Path(__file__).resolve().parents[1]
@@ -311,6 +312,16 @@ def main(argv=None):
     if clean_dir is None:
         sys.exit(f"{st}: no SLCF cleaned data under {args.data_dir} — run "
                  f"`python3 pipelines/slcf/src/main.py sync {st.upper()}` first")
+
+    # Legislative roster from LPT (states.json "lpt_roster"), before the refs
+    # are read so new candidates' money loads on this same run (roster.py).
+    if entry.get("lpt_roster"):
+        def scrape_rows():
+            for table in ("contributions", "expenditures"):
+                for row in open_table(clean_dir, table) or []:
+                    yield row
+        roster.sync_state(st, scrape_rows(), dry_run=args.dry_run,
+                          committees=list(open_table(clean_dir, "committees") or []))
 
     refs = candidate_refs(st)
     print(f"== loading {st} from {clean_dir} ({len(refs)} tracked committees, "
