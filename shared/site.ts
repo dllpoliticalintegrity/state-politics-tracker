@@ -39,6 +39,20 @@ export const SINGLE_STATE_SITES: Record<string, string> = Object.fromEntries(
  */
 export const HUB_URL: string | null = "https://statepoliticstracker.com";
 
+/**
+ * Dedicated sites whose pages name the hub's copy as canonical: search
+ * engines index statepoliticstracker.com/mi/governor rather than
+ * michiganpoliticstracker.com/governor. Each dedicated path P maps to
+ * /<code>P on the hub. Other dedicated sites stay self-canonical.
+ */
+export const HUB_CANONICAL_STATES: ReadonlySet<string> = new Set(["mi", "tx"]);
+
+/** The hub's URL for a path on a hub-canonical dedicated site, else null. */
+export function hubCanonicalUrl(siteState: string | null | undefined, path: string): string | null {
+  if (!HUB_URL || !siteState || !HUB_CANONICAL_STATES.has(siteState)) return null;
+  return `${HUB_URL}/${siteState}${path === "/" ? "" : path}`;
+}
+
 /** Name of the <meta> tag the Worker injects to pin the SPA's state. */
 export const SITE_STATE_META = "site-state";
 

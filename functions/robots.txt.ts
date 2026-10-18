@@ -3,7 +3,15 @@
 // site — the hub or a dedicated state site; see shared/seo.ts.
 
 import { robotsResponse } from "../shared/seo";
+import { resolveSiteState } from "../shared/site";
 
-export const onRequest = async (context: { request: Request }): Promise<Response> => {
-  return robotsResponse(new URL(context.request.url).origin);
+export const onRequest = async (context: {
+  request: Request;
+  env?: { SITE_STATE?: string };
+}): Promise<Response> => {
+  const url = new URL(context.request.url);
+  return robotsResponse(
+    url.origin,
+    resolveSiteState({ override: context.env?.SITE_STATE, hostname: url.hostname }),
+  );
 };
