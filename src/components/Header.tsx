@@ -55,16 +55,18 @@ function StateSwitcher() {
             ))}
           </SelectGroup>
         )}
-        <SelectGroup>
-          <SelectLabel>Separate sites</SelectLabel>
-          {external.map((s) => (
-            <SelectItem key={s.code} value={s.code}>
-              <span className="inline-flex items-center gap-1.5">
-                {s.name} <ExternalLink className="h-3 w-3" />
-              </span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
+        {external.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>Separate sites</SelectLabel>
+            {external.map((s) => (
+              <SelectItem key={s.code} value={s.code}>
+                <span className="inline-flex items-center gap-1.5">
+                  {s.name} <ExternalLink className="h-3 w-3" />
+                </span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        )}
         <SelectGroup>
           <SelectLabel>Coming soon</SelectLabel>
           {ready.map((s) => (

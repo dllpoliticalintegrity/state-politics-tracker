@@ -103,21 +103,19 @@ export interface StateConfig {
 }
 
 // States with a complete pipeline in hderyke/state-level-campaign-finance.
-// (California is also implemented there, but stays "external" while
-// ca-gov-polling remains the CA home.)
+// (California is also implemented there, but is live on its own CAL-ACCESS
+// importer instead — see LIVE_CONFIG_CA.)
 const SLCF_READY = new Set([
   "al", "ak", "az", "ar", "co", "ct", "de", "fl", "ga", "hi", "id", "il",
   "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "pa",
 ]);
 
-// Texas was external too until Oct 2026 (texaspoliticstracker.com was a fork
-// of this codebase's ancestor); it is now a live state whose data the TEC
-// importer stages in tx_* and publish_texas_to_cf() copies into cf_* — see
-// docs/plan.md, "Texas joins the hub".
-const EXTERNAL: Record<string, string> = {
-  // TODO: swap for the CA site's production domain once confirmed.
-  ca: "https://github.com/dllpoliticalintegrity/ca-gov-polling",
-};
+// States tracked on a separate site, whose tiles link out. Empty since Oct
+// 2026: Texas and California both had their own sites (texaspoliticstracker.com,
+// cagovtracker.com) and are now live states here, their data staged by their
+// own importers and published into cf_* — see docs/plan.md, "Texas joins the
+// hub" and "California joins the hub".
+const EXTERNAL: Record<string, string> = {};
 
 const ALL_STATES: Array<[string, string]> = [
   ["al", "Alabama"], ["ak", "Alaska"], ["az", "Arizona"], ["ar", "Arkansas"],
@@ -629,7 +627,37 @@ const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "leg
     ],
   },
 };
-Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX);
+// California (Oct 2026): moved in from cagovtracker.com. Finance is the
+// CAL-ACCESS bulk import (scripts/data-import/cal-access, ca-finance-sync.yml)
+// staged in ca_* and published into cf_* nightly; polling is 270toWin. The
+// primary (Jun 2) was top-two, so the general can pit any two parties.
+const LIVE_CONFIG_CA: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
+  ca: {
+    agency: {
+      name: "California Secretary of State (CAL-ACCESS)",
+      url: "https://cal-access.sos.ca.gov/Campaign/",
+    },
+    // cagovtracker.com's URLs before it moved onto this codebase: one race,
+    // its pages at the root.
+    legacyPaths: {
+      "/candidates": "/governor/candidates",
+      "/polling": "/governor/polling",
+      "/top-donors": "/governor/money/donors",
+      "/independent-expenditures": "/governor/money/outside-spending",
+      "/faq": "/about",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "california-governor-2026",
+        pollingSourceUrl: "https://www.270towin.com/2026-governor-polls/california",
+      },
+    ],
+  },
+};
+Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX, LIVE_CONFIG_CA);
 
 export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   code,

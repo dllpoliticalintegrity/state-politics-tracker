@@ -379,6 +379,35 @@ the tracker project.
   `ca_*` tables and California race rows (integrityindex's CA House races are
   in the same `races` table and are not ours), and ca-gov-polling's workflows,
   which keep that copy current for the old site.
+- **The site.** California is a live registry state (`LIVE_CONFIG_CA`: one
+  race, the governor, polled by 270toWin; top-two primary polls are tagged
+  `primary` and kept off the general-election chart), with the FPPC rules
+  guide and FAQ from cagovtracker.com's FAQ page in `src/states/guides.ts`.
+  `legacyPaths` maps cagovtracker.com's old paths (`/candidates`, `/polling`,
+  `/top-donors`, `/independent-expenditures`, `/faq`); old
+  `/candidates/:slug` profiles keep working because the slugs carried over.
+  `SINGLE_STATE_HOSTS` pins `cagovtracker.com` to `ca`. The brand follows the
+  per-state convention ("California Politics Tracker"); the old site called
+  itself "CA Gov Tracker". No state is `external` any more.
+
+**Cut-over checklist** (in order):
+
+1. Apply `20261018160000` (done via MCP) and `20261018160100` (SQL editor),
+   run `ca-finance-sync.yml` once, then
+   `select public.publish_california_to_cf(); select public.refresh_cf_finance_views();`
+   (a one-off pg_cron job with the `statement_timeout` prefix); reconcile
+   against the Integrity Index copy.
+2. Merge this repo's California site change, and the admin console's (Sync
+   tab, CA Gov Tracker page pointing at `/state-politics-tracker/ca`).
+3. Cloudflare: cagovtracker.com is on Lovable hosting today. Add the zone to
+   the Cloudflare account if it is not there, point its DNS at Cloudflare,
+   then add cagovtracker.com and www.cagovtracker.com as custom domains on the
+   `state-politics-tracker` Worker (Settings → Domains & Routes), and
+   disconnect the domain in Lovable.
+4. Then retire the old pipeline: disable ca-gov-polling's `ca-finance-sync.yml`
+   and `polling-sync.yml`, and archive ca-gov-polling and ca-poll-boost. The
+   Integrity Index project's `ca_*` tables can be dropped once nothing reads
+   them (the admin console's old CA page did).
 
 ## Keeping two repos honest
 

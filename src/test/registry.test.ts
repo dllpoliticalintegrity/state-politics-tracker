@@ -17,10 +17,25 @@ describe("state registry", () => {
     for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
   });
 
-  it("marks California external with a URL", () => {
-    const s = getState("ca");
-    expect(s?.status).toBe("external");
-    expect(s?.externalUrl).toMatch(/^https:\/\//);
+  it("tracks California as a live state with its governor race on 270toWin", () => {
+    const ca = getState("ca")!;
+    expect(ca.status).toBe("live");
+    expect(ca.externalUrl).toBeUndefined();
+    expect(ca.races!.map((r) => r.raceSlug)).toEqual(["california-governor-2026"]);
+    expect(pollingSourceKey(ca.races![0])).toBe("270towin");
+    expect(ca.races![0].pollingSourceUrl).toBe("https://www.270towin.com/2026-governor-polls/california");
+    // No state links out to a separate site any more.
+    expect(STATES.filter((s) => s.status === "external")).toEqual([]);
+  });
+
+  it("maps cagovtracker.com's pre-hub URLs onto the governor's race pages", () => {
+    const ca = getState("ca")!;
+    expect(legacyRedirect(ca, "/candidates")).toBe("/governor/candidates");
+    expect(legacyRedirect(ca, "/polling")).toBe("/governor/polling");
+    expect(legacyRedirect(ca, "/top-donors")).toBe("/governor/money/donors");
+    expect(legacyRedirect(ca, "/independent-expenditures/")).toBe("/governor/money/outside-spending");
+    expect(legacyRedirect(ca, "/faq")).toBe("/about");
+    expect(legacyRedirect(ca, "/governor")).toBeNull();
   });
 
   it("tracks Texas as a live state with its three statewide races", () => {
@@ -71,7 +86,7 @@ describe("state registry", () => {
       "pa", "ma", "mn", "co", "ia", "md", "hi",
       "oh", "wi", "nv",
       "al", "ak", "ar", "ct", "id", "il", "ks",
-      "tx",
+      "tx", "ca",
     ];
     for (const code of live) {
       expect(getState(code)?.status).toBe("live");

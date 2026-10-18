@@ -63,6 +63,9 @@ export default function StateRulesGuide({ guide }: { guide: StateGuide }) {
               note={rules.schedule.note}
             />
           )}
+          {rules.tables?.map((t) => (
+            <TwoColumnTable key={t.title} title={t.title} head={t.head} rows={t.rows} note={t.note} />
+          ))}
         </>
       )}
 

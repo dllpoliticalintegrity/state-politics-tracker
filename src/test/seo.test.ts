@@ -52,7 +52,7 @@ describe("single-state metadata", () => {
         expect(!!routes[`/${r.office}/polling`]).toBe(!!r.pollingSourceUrl);
       }
     }
-    expect(singleStateRoutes("ca")).toBeNull();
+    expect(singleStateRoutes("ne")).toBeNull();
     expect(singleStateRoutes("zz")).toBeNull();
   });
 

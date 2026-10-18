@@ -68,7 +68,7 @@ function parseDate(raw: string): string | null {
 
 function parseSample(raw: string): { size: number | null; kind: string | null } {
   if (!raw) return { size: null, kind: null };
-  const m = raw.replace(/ /g, " ").trim().match(/^([\d,]+)\s*([A-Za-z]+)?(?:\s*±[\d.]+%?)?$/);
+  const m = raw.replace(/\u00a0/g, " ").trim().match(/^([\d,]+)\s*([A-Za-z]+)?(?:\s*±[\d.]+%?)?$/);
   if (!m) return { size: null, kind: null };
   const size = parseInt(m[1].replace(/,/g, ""), 10);
   const k = (m[2] ?? "").toLowerCase().trim();
@@ -87,6 +87,9 @@ function classifyMatchup(heading: string, candidateLabels: string[]): string {
   const h = (heading || "").toLowerCase();
   if (h.includes("democratic primary") || h.includes("dem primary")) return "dem_primary";
   if (h.includes("republican primary") || h.includes("gop primary") || h.includes("rep primary")) return "rep_primary";
+  // California's top-two primary: one ballot for every party ("All Party
+  // Primary" on 270toWin). Not a general-election matchup.
+  if (/\b(all[- ]party|top[- ]two|nonpartisan|jungle) primary\b/.test(h)) return "primary";
   if (h.includes(" vs")) {
     const names = candidateLabels
       .filter(c => c && !GENERIC_CHOICE.has(c.toLowerCase()))
