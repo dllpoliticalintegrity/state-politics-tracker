@@ -101,6 +101,10 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           STATE: ${{ matrix.state }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # Ohio only: ohiosos.gov blocks GitHub's runners, so its scraper
+          # fetches through workers/ohio-fetch-proxy (repo variable + secret).
+          OHIO_FETCH_PROXY: ${{ vars.OHIO_FETCH_PROXY }}
+          OHIO_FETCH_PROXY_TOKEN: ${{ secrets.OHIO_FETCH_PROXY_TOKEN }}
         run: |
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY secret not set — skipping finance sync."

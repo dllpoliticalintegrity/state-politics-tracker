@@ -86,8 +86,8 @@
                               "Incurred Obligation Paid": "expenditures" },
             "note": "on SLCF since 2026-10-15: state_filer_id = Sunshine entity id (payee on receipts, payer on disbursements), txn_id = Sunshine ID (the pilot's wi:<ID>); Incurred Obligation dropped (the pilot double-counted it against its payment); ~21 min nightly" },
 
-    "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false,
-            "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not. From a residential connection it works: dry run 2026-10-18 from a Mac reconciled (5 tracked committees, 1.16M rows, totals above LPT's Aug 31 copy), so load it by hand with python pipelines/run_state.py oh until a non-datacenter runner exists; nightly stays off" },
+    "oh": { "pipeline": "slcf", "cycle": "2026", "prune": true,
+            "note": "on SLCF since 2026-10-18 (first load from a Mac: 22 tracked committees, 1.18M rows). ohiosos.gov blocks GitHub's runner IPs (403, impersonation or not) but not Cloudflare's network, so the nightly run fetches through workers/ohio-fetch-proxy via OHIO_FETCH_PROXY + OHIO_FETCH_PROXY_TOKEN; state_filer_id = SoS MASTER_KEY (filer_refs oh:<id>)" },
 
     "or": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "playwright": true, "prune": true,
             "individual_types": ["individual"],

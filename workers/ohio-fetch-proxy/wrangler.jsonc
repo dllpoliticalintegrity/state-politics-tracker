@@ -1,0 +1,9 @@
+// `npx wrangler deploy` from this directory. PROXY_TOKEN is a secret
+// (`npx wrangler secret put PROXY_TOKEN`), never a var.
+{
+  "name": "ohio-fetch-proxy",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "observability": { "enabled": true }
+}

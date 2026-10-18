@@ -54,6 +54,11 @@ has no Git integration for this repo; before the workflow existed every
 deployment was a manual push, and the site sat on an October 7 build until
 2026-10-18.
 
+`workers/ohio-fetch-proxy` is a second, tiny Worker: the Ohio scraper's
+fetch proxy for GitHub's runners (see `pipelines/slcf/docs/states/ohio.md`).
+Deploy it from its own directory with `npx wrangler deploy` and set its
+`PROXY_TOKEN` secret with `npx wrangler secret put PROXY_TOKEN`.
+
 Two Cloudflare targets are supported; both share `shared/seo.ts`:
 
 - **Workers Git-import flow** (dashboard default): build command
