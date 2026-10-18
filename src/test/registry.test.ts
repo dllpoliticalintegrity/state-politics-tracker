@@ -13,9 +13,9 @@ import {
 describe("state registry", () => {
   it("covers the statemoney.us states plus Michigan and California, reading Georgia from LPT", () => {
     expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "or", "tx", "wi"]);
-    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ca", "ga", "mi", "oh", "or", "tx"]);
-    // The states still on the tracker: Henry's loads lag the scraper fixes (plan doc, phase 2).
-    expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "fl", "wi"]);
+    // Only the states the tracker has no rows for yet read LPT (plan doc).
+    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["oh", "or"]);
+    expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "tx", "wi"]);
     for (const s of STATES) expect(["lpt", "tracker"]).toContain(s.source);
     // Hidden states keep their dashboards and pipelines; the hub just does not list them as live.
     const hidden = hiddenStates().map((s) => s.code).sort();
@@ -25,7 +25,7 @@ describe("state registry", () => {
       expect(s.races?.length).toBeGreaterThan(0);
     }
     // Georgia's legislature comes with the LPT data.
-    expect(getState("ga")!.chambers!.map((c) => [c.office, c.districts])).toEqual([["state-senate", 56], ["state-house", 180]]);
+    expect(getState("ga")!.chambers).toBeUndefined();
   });
 
   it("contains all 50 states with unique codes", () => {

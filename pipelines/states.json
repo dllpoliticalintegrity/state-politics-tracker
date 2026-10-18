@@ -86,8 +86,8 @@
                               "Incurred Obligation Paid": "expenditures" },
             "note": "on SLCF since 2026-10-15: state_filer_id = Sunshine entity id (payee on receipts, payer on disbursements), txn_id = Sunshine ID (the pilot's wi:<ID>); Incurred Obligation dropped (the pilot double-counted it against its payment); ~21 min nightly" },
 
-    "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false, "dry_run_only": true,
-            "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not; needs a non-datacenter runner. Then: dry run, drop dry_run_only, nightly" },
+    "oh": { "pipeline": "slcf", "cycle": "2026", "nightly": false,
+            "note": "ohiosos.gov's Cloudflare answers 403 to datacenter IPs, GitHub's runners included (dry run 2026-10-15), browser impersonation or not. From a residential connection it works: dry run 2026-10-18 from a Mac reconciled (5 tracked committees, 1.16M rows, totals above LPT's Aug 31 copy), so load it by hand with python pipelines/run_state.py oh until a non-datacenter runner exists; nightly stays off" },
 
     "me": { "pipeline": "none", "note": "Maine's disclosure system blocks datacenter IPs (Cloudflare WAF)" },
     "nv": { "pipeline": "none", "note": "SLCF has a Nevada scraper but no parser yet" }
