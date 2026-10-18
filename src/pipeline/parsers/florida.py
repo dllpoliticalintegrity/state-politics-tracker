@@ -328,6 +328,7 @@ def parse_committees(log) -> int:
                     "committee_name": norm_name,
                     "committee_type": cmte_type,
                     "treasurer_name": treas_name,
+                    "chairperson_name": clean(row.get("chairperson_name", "")),
                     "city":           city,
                     "zip":            zip_,
                     "active":         1 if status.lower() == "active" else 0,
