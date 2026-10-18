@@ -11,14 +11,12 @@ import PollingAveragesList from "@/components/PollingAveragesList";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
-import CandidateSearch from "@/components/CandidateSearch";
 import RaceSummary from "@/components/RaceSummary";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
 import { offBallotLast } from "@/lib/candidateStatus";
-import { homeHeadline } from "@/states/nicknames";
-import pipLogo from "@/assets/pip-logo.png";
+import PoweredBy from "@/components/PoweredBy";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -26,7 +24,6 @@ export default function Index() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   const hasPollingSource = !!race.pollingSourceUrl;
-  const isHome = !race.district && race.office === stateCfg.races?.[0]?.office;
   const { data: candidates, isLoading } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
   const { data: funding } = useFundingSources();
@@ -118,36 +115,18 @@ export default function Index() {
 
       {/* Hero */}
       <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
-        <a
-          href="https://politicalintegrity.us"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex flex-col items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          <img src={pipLogo} alt="" width={56} height={56} className="h-14 w-14" />
-          Powered by the Political Integrity Project
-        </a>
+        <PoweredBy />
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {`${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
-          {isHome
-            ? homeHeadline(stateCfg.code, stateCfg.name)
-            : `Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
+          {`Who's winning the race for ${stateCfg.name} ${race.title} — and who's paying for it`}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           {hasPollingSource
             ? `Polling averages, campaign finance, and outside spending, synced from ${pollingSourceLabel(race)} and the ${stateCfg.agency?.name}.`
             : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
-        {/* The state's home page (its first race) searches every candidate in the state. */}
-        {isHome && stateCfg.source === "tracker" && (
-          <CandidateSearch
-            states={[stateCfg.code]}
-            placeholder={`Search any ${stateCfg.name} candidate by name`}
-            className="pt-2"
-          />
-        )}
       </section>
 
       {/* Summary: leader, raised & spent, funding sources, money by party */}

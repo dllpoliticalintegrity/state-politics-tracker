@@ -31,6 +31,7 @@ import TopDonors from "./pages/TopDonors";
 import MoneyRiver from "./pages/MoneyRiver";
 import Polling from "./pages/Polling";
 import About from "./pages/About";
+import Overview from "./pages/Overview";
 import Committees from "./pages/Committees";
 import CandidateRedirect from "./pages/CandidateRedirect";
 import NotFound from "./pages/NotFound";
@@ -52,7 +53,7 @@ function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
   return (
     <StateProvider config={cfg}>
       <Routes>
-        <Route index element={<Navigate to={cfg.races[0].office} replace />} />
+        <Route index element={<Overview />} />
         <Route path="about" element={<About />} />
         <Route path="committees" element={<Committees />} />
         {/* Race-less profile links (the Texas site's old /candidates/:slug). */}
