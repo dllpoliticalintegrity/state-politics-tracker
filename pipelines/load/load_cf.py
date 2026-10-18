@@ -317,6 +317,12 @@ def main(argv=None):
         print(f"   {st}: no cf_candidates.filer_refs — nothing to load")
         return 0
 
+    # What is live before this run writes anything. The prune guard and the
+    # stale rows are judged against it: read after the upsert, a hashed-id
+    # state's first run would count its new rows beside the pilot's (twice
+    # the live rows, so the guard refuses and both copies stay live).
+    live = live_stats(st, refs) if (args.dry_run or do_prune or args.report) else None
+
     stats = defaultdict(new_stat)
     batches = defaultdict(list)
     totals = defaultdict(int)
@@ -334,8 +340,7 @@ def main(argv=None):
         rest.upsert(cf_table, rows, resolution=args.resolution)
     print(f"   {'would load' if args.dry_run else 'loaded'}: {dict(totals)}", flush=True)
 
-    if args.dry_run or do_prune or args.report:
-        live = live_stats(st, refs)
+    if live is not None:
         write_report(args.report, stats, live, since)
         if do_prune and not args.dry_run:
             prune(st, refs, stats, live, since,
