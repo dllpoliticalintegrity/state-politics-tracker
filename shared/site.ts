@@ -12,7 +12,7 @@
 //      <meta name="site-state"> tag the Worker injects into the HTML so the
 //      SPA agrees with it even on a *.workers.dev preview hostname;
 //   2. the request hostname, looked up in the tracker project's
-//      `state_sites` table (Worker only, via resolveSiteStateAsync);
+//      `state_sites` table, published rows only (Worker only, via resolveSiteStateAsync);
 //   3. the request hostname, looked up in SINGLE_STATE_HOSTS.
 // Anything else is the multi-state hub.
 
@@ -117,7 +117,7 @@ export function makeStateSitesLookup(opts: {
     try {
       const url =
         `${opts.supabaseUrl.replace(/\/$/, "")}/rest/v1/state_sites` +
-        `?select=state&hostname=eq.${encodeURIComponent(host)}&limit=1`;
+        `?select=state&hostname=eq.${encodeURIComponent(host)}&published=eq.true&limit=1`;
       const res = await doFetch(url, {
         headers: { apikey: opts.anonKey, Authorization: `Bearer ${opts.anonKey}` },
         signal: ctrl.signal,

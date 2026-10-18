@@ -45,6 +45,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // Assets never use the site state; skip the hostname lookup for them.
+    if (isAssetPath(url.pathname)) return env.ASSETS.fetch(request);
+
     const siteState = await resolveSiteStateAsync({
       override: env.SITE_STATE,
       hostname: url.hostname,
@@ -69,7 +72,6 @@ export default {
     const response = await env.ASSETS.fetch(request);
 
     if (request.method !== "GET" && request.method !== "HEAD") return response;
-    if (isAssetPath(url.pathname)) return response;
     return applySeoRewrite(request, response, siteState);
   },
 };

@@ -84,13 +84,24 @@ describe("state_sites hostname lookup", () => {
     let calls = 0;
     const fetchImpl = (async (url: string) => {
       calls += 1;
-      expect(url).toContain("state_sites?select=state&hostname=eq.georgiapoliticstracker.com&limit=1");
+      expect(url).toContain("state_sites?select=state&hostname=eq.georgiapoliticstracker.com&published=eq.true&limit=1");
       return new Response(JSON.stringify([{ state: "ga" }]), { status: 200 });
     }) as unknown as typeof fetch;
     const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl });
     expect(await lookup("www.georgiapoliticstracker.com")).toBe("ga");
     expect(await lookup("georgiapoliticstracker.com")).toBe("ga");
     expect(calls).toBe(1);
+  });
+
+  it("never returns a row for an unpublished host (the published filter yields none)", async () => {
+    let requested = "";
+    const fetchImpl = (async (url: string) => {
+      requested = url;
+      return new Response(JSON.stringify([]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl });
+    expect(await lookup("draft.example.com")).toBeNull();
+    expect(requested).toContain("published=eq.true");
   });
 
   it("expires the cache after ttlMs", async () => {

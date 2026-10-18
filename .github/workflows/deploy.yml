@@ -93,8 +93,12 @@ jobs:
           rows=$(curl -fsS "$SUPABASE_URL/rest/v1/state_sites?select=state,worker_name&published=eq.true&order=state" \
                  -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY")
           failed=0
-          for pair in $(printf '%s' "$rows" | python3 -c 'import json,sys; [print(r["state"]+":"+r["worker_name"]) for r in json.load(sys.stdin)]'); do
+          pairs=$(printf '%s' "$rows" | python3 -c 'import json,sys; [print(r["state"]+":"+r["worker_name"]) for r in json.load(sys.stdin)]')
+          for pair in $pairs; do
             st=${pair%%:*}; worker=${pair#*:}
+            if [ "$worker" = "state-politics-tracker" ] || ! printf '%s' "$worker" | grep -Eq -- '-politics-tracker$'; then
+              echo "::error::skipping $st: worker_name '$worker' is reserved or does not end in -politics-tracker"; failed=1; continue
+            fi
             echo "== $st → $worker"
             npx wrangler deploy --name "$worker" --var "SITE_STATE:$st" || { echo "::error::$worker failed"; failed=1; }
           done

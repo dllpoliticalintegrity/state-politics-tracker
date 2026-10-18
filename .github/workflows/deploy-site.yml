@@ -44,6 +44,9 @@ jobs:
           if [ -z "$worker" ]; then
             echo "::error::No state_sites row for '$st' — save the site in the admin first"; exit 1
           fi
+          if [ "$worker" = "state-politics-tracker" ] || ! printf '%s' "$worker" | grep -Eq -- '-politics-tracker$'; then
+            echo "::error::worker_name '$worker' is reserved or does not end in -politics-tracker"; exit 1
+          fi
           echo "state=$st" >> "$GITHUB_OUTPUT"
           echo "worker=$worker" >> "$GITHUB_OUTPUT"
           echo "hostname=$host" >> "$GITHUB_OUTPUT"

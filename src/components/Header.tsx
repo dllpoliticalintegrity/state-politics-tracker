@@ -122,7 +122,10 @@ export function Header() {
   }, [chrome.accentColor]);
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+    <header
+      className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85"
+      style={{ borderTop: "3px solid var(--site-accent, hsl(var(--primary)))" }}
+    >
       <div className="container flex h-14 items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <Link to="/" className="flex items-center gap-2 min-w-0">
