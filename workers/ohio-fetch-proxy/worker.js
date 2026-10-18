@@ -1,5 +1,11 @@
 // Fetch proxy for the Ohio Secretary of State's campaign-finance bulk files.
 //
+// STATUS (2026-10-18): does not work once deployed. It pulled every file in
+// a `wrangler dev --remote` preview, but ohiosos.gov answers 403 to the
+// deployed Worker: the site is on Cloudflare and blocks subrequests from
+// other zones' Workers (cf.worker.upstream_zone). Kept for the record; the
+// scraper only uses it when OHIO_FETCH_PROXY is set, which it is not.
+//
 // ohiosos.gov answers 403 to GitHub's hosted runners (an IP-range block;
 // browser impersonation makes no difference), but Cloudflare's network gets
 // the pages and files with a plain fetch (tested 2026-10-18). The nightly

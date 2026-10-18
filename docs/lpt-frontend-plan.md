@@ -63,11 +63,13 @@ aggregates. So:
   auditor, treasurer) were seeded into `cf_candidates` from LPT's roster with
   their Ohio filer ids first, so those races keep their pages. OH reads the
   tracker; its governor polling is the FiftyPlusOne import (112 polls); its
-  chambers come off the registry like Georgia's. **Nightly:** Cloudflare's
-  network is not blocked by ohiosos.gov, so `workers/ohio-fetch-proxy` (a
-  Worker, shared secret, www6.ohiosos.gov only) fetches for the GitHub
-  runner; `finance-sync.yml` passes `OHIO_FETCH_PROXY` /
-  `OHIO_FETCH_PROXY_TOKEN` and Ohio is back on the 07:20 UTC schedule.
+  chambers come off the registry like Georgia's. **Nightly:** not yet. A
+  Cloudflare Worker proxy (`workers/ohio-fetch-proxy`) worked in a preview
+  session but the deployed Worker gets 403: ohiosos.gov is on Cloudflare and
+  blocks other zones' Worker subrequests. Ohio stays `nightly: false` and is
+  loaded by hand from a residential connection; the durable fix is a
+  self-hosted GitHub runner on such a connection (or Henry's own setup, if
+  he runs Ohio from somewhere non-datacenter).
 - **Oregon:** ORESTAR needs headed Chromium (F5 bot defense), so it also runs
   only from a desktop. The tracker has no Oregon roster yet; LPT's `candidates`
   rows for OR governor carry the ORESTAR committee ids (`state_filer_id`);
