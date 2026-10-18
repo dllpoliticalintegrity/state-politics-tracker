@@ -91,6 +91,22 @@ LOAN_CONTRIB_TYPES = {"Direct Contributions - Loan"}
 # expenditure_type values that go to loans_debts instead of expenditures
 LOAN_EXP_TYPES = {"Direct Expenditures - Loan Owed to/Given By"}
 
+
+def as_loan(base):
+    """A contribution/expenditure base row re-shaped for loans_debts.csv:
+    the loan amount, its MiTN type as the record type, and the lender or
+    payee as the counterparty. (Written with LOANS_DEBTS columns, so the
+    base's own keys are ignored except the shared identifiers.)"""
+    return {
+        **base,
+        "original_amount":   base.get("amount", ""),
+        "record_type":       base.get("transaction_type", ""),
+        "counterparty_name": base.get("contributor_name") or base.get("payee_name", ""),
+        "counterparty_city": base.get("contributor_city") or base.get("payee_city", ""),
+        "counterparty_state": base.get("contributor_state") or base.get("payee_state", ""),
+        "counterparty_zip":  base.get("contributor_zip") or base.get("payee_zip", ""),
+    }
+
 # receipttype values in the receipts file that indicate a refund/rebate —
 # these are written to expenditures with a negative amount rather than
 # contributions (they represent money leaving the committee).
@@ -408,6 +424,10 @@ def run():
                         "office":            e.get("office_sought", ""),
                         "election_year":     doc_year,
                         "filing_id":         clean(row.get("contribution_id", "")),
+                        # The filing committee (MiTN cfr_com_id = entities'
+                        # committee_id): state-politics-tracker's loader
+                        # matches rows to candidates on it.
+                        "state_filer_id":    clean(row.get("cfr_com_id", "")),
                         # state-politics-tracker's loader keys rows on this
                         # (columns.py, TRANSACTION_IDS): the pilot importer's
                         # mi:<contribution_id>-<cont_detail_id>, so a cutover
@@ -419,7 +439,7 @@ def run():
                     }
 
                     if ctype in LOAN_CONTRIB_TYPES:
-                        loan_w.writerow(base)
+                        loan_w.writerow(as_loan(base))
                         loans += 1
                     else:
                         cont_w.writerow(base)
@@ -478,12 +498,12 @@ def run():
                     }
 
                     if ctype in LOAN_CONTRIB_TYPES:
-                        loan_w.writerow({
+                        loan_w.writerow(as_loan({
                             **base,
                             "contributor_name": utils.clean_name(
                                 build_name(payer_f,
                                            row.get("payer_l_name_or_org", ""))),
-                        })
+                        }))
                         loans += 1
                     elif receipttype in REFUND_RECEIPT_TYPES:
                         # Refund/rebate: money leaving the committee — write as
@@ -599,6 +619,7 @@ def run():
                         "support_oppose":   support_oppose,
                         "election_year":    doc_year,
                         "filing_id":        clean(row.get("expense_id", "")),
+                        "state_filer_id":   clean(row.get("cfr_com_id", "")),
                         "txn_id":           f"{clean(row.get('expense_id', ''))}-"
                                             f"{clean(row.get('detail_id', ''))}",
                         "raw_file":         path.name,
@@ -606,7 +627,7 @@ def run():
                     }
 
                     if etype in LOAN_EXP_TYPES:
-                        loan_w.writerow(base)
+                        loan_w.writerow(as_loan(base))
                         loans += 1
                     else:
                         expn_w.writerow(base)
