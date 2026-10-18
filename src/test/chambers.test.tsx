@@ -93,10 +93,10 @@ describe("chamber URL resolution", () => {
 describe("chamber SEO", () => {
   it("titles the chamber overview and district pages", () => {
     expect(routeMeta("/state-senate", "mi")!.title).toBe(
-      "Michigan State Senate 2026 — Campaign Finance by District | Michigan Politics Tracker",
+      "Michigan State Senate 2026 — Campaign Donations by District | Michigan Politics Tracker",
     );
     expect(routeMeta("/state-senate/11", "mi")!.title).toBe(
-      "Michigan State Senate District 11 2026 Race — Campaign Finance | Michigan Politics Tracker",
+      "Michigan State Senate District 11 2026 Race — Campaign Donations & Candidates | Michigan Politics Tracker",
     );
     expect(routeMeta("/state-house/110/money/donors", "mi")!.h1).toBe(
       "Michigan State House District 110 2026: Top Donors",
@@ -111,7 +111,7 @@ describe("chamber SEO", () => {
     expect(humanizeSlug("hashim-bakari-sd11")).toBe("Hashim Bakari");
     expect(humanizeSlug("jocelyn-benson")).toBe("Jocelyn Benson");
     expect(routeMeta("/state-senate/11/candidates/hashim-bakari-sd11", "mi")!.title).toBe(
-      "Hashim Bakari — Michigan State Senate District 11 2026 Candidate | Michigan Politics Tracker",
+      "Hashim Bakari Campaign Donations & Donors — Michigan State Senate District 11 2026 | Michigan Politics Tracker",
     );
   });
 

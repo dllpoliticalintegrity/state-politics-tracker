@@ -3,7 +3,7 @@ import { useStateConfig } from "@/states/StateContext";
 import { SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
 import { pollingSourceLabel } from "@/states/registry";
-import { SINGLE_STATE_SITES } from "../../shared/site";
+import { usePublishedSites } from "@/hooks/usePublishedSites";
 import { stateGuide } from "@/states/guides";
 import StateRulesGuide from "@/components/StateRulesGuide";
 
@@ -14,7 +14,10 @@ export default function About() {
   const polled = (stateCfg.races ?? []).find((r) => r.pollingSourceUrl);
   const pollingLabel = pollingSourceLabel(polled ?? {});
   // Every dedicated single-state site except the one being read.
-  const otherSites = Object.entries(SINGLE_STATE_SITES).filter(([code]) => code !== stateCfg.code);
+  const sites = usePublishedSites();
+  const otherSites = Object.entries(sites)
+    .filter(([code]) => code !== stateCfg.code)
+    .sort(([a], [b]) => a.localeCompare(b));
   const guide = stateGuide(stateCfg.code);
 
   return (

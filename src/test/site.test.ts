@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   SINGLE_STATE_HOSTS,
-  SINGLE_STATE_SITES,
+  makePublishedSitesLookup,
   makeStateSitesLookup,
+  publishedSitesFrom,
   normalizeHost,
   resolveSiteState,
   resolveSiteStateAsync,
@@ -13,35 +14,15 @@ import {
 import { getState } from "@/states/registry";
 
 describe("single-state site resolution", () => {
-  it("maps every dedicated host to a live registry state", () => {
-    for (const [host, code] of Object.entries(SINGLE_STATE_HOSTS)) {
-      expect(host).toMatch(/^[a-z0-9.-]+$/);
-      expect(host.startsWith("www.")).toBe(false);
-      const cfg = getState(code);
-      expect(cfg?.status, `${host} → ${code}`).toBe("live");
-      expect(cfg?.races?.length).toBeGreaterThan(0);
-      expect(SINGLE_STATE_SITES[code]).toBe(`https://${host}`);
-    }
+  it("has no hard-coded dedicated hosts: each site is its own Worker", () => {
+    expect(SINGLE_STATE_HOSTS).toEqual({});
+    expect(siteStateForHost("michiganpoliticstracker.com")).toBeNull();
   });
 
-  it("recognises michiganpoliticstracker.com, with or without www, port or trailing dot", () => {
-    expect(siteStateForHost("michiganpoliticstracker.com")).toBe("mi");
-    expect(siteStateForHost("www.michiganpoliticstracker.com")).toBe("mi");
-    expect(siteStateForHost("WWW.MichiganPoliticsTracker.com.")).toBe("mi");
-    expect(siteStateForHost("michiganpoliticstracker.com:8788")).toBe("mi");
+  it("normalizes hostnames", () => {
+    expect(normalizeHost("WWW.MichiganPoliticsTracker.com.")).toBe("michiganpoliticstracker.com");
+    expect(normalizeHost("michiganpoliticstracker.com:8788")).toBe("michiganpoliticstracker.com");
     expect(normalizeHost("www.Example.com:443")).toBe("example.com");
-  });
-
-  it("recognises cagovtracker.com", () => {
-    expect(siteStateForHost("cagovtracker.com")).toBe("ca");
-    expect(siteStateForHost("www.cagovtracker.com")).toBe("ca");
-    expect(SINGLE_STATE_SITES.ca).toBe("https://cagovtracker.com");
-  });
-
-  it("recognises texaspoliticstracker.com", () => {
-    expect(siteStateForHost("texaspoliticstracker.com")).toBe("tx");
-    expect(siteStateForHost("www.texaspoliticstracker.com")).toBe("tx");
-    expect(SINGLE_STATE_SITES.tx).toBe("https://texaspoliticstracker.com");
   });
 
   it("treats every other host as the hub", () => {
@@ -58,7 +39,7 @@ describe("single-state site resolution", () => {
     // A non-code override ("hub") forces the multi-state site even on a dedicated host.
     expect(resolveSiteState({ override: "hub", hostname: "michiganpoliticstracker.com" })).toBeNull();
     // Blank overrides fall through to the hostname.
-    expect(resolveSiteState({ override: "", hostname: "michiganpoliticstracker.com" })).toBe("mi");
+    expect(resolveSiteState({ override: "", hostname: "michiganpoliticstracker.com" })).toBeNull();
     expect(resolveSiteState({ override: null, hostname: undefined })).toBeNull();
   });
 
@@ -136,13 +117,12 @@ describe("state_sites hostname lookup", () => {
     expect(await boom("a.example")).toBeNull();
   });
 
-  it("resolves override, then the lookup, then the hard-coded hosts, then the hub", async () => {
+  it("resolves override, then the lookup, then the hub", async () => {
     const lookup = async (h: string) => (h === "georgiapoliticstracker.com" ? "ga" : null);
     expect(await resolveSiteStateAsync({ override: "oh", hostname: "georgiapoliticstracker.com", lookup })).toBe("oh");
     expect(await resolveSiteStateAsync({ override: "", hostname: "www.georgiapoliticstracker.com", lookup })).toBe("ga");
-    expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com", lookup })).toBe("mi");
     expect(await resolveSiteStateAsync({ hostname: "localhost", lookup })).toBeNull();
-    expect(await resolveSiteStateAsync({ hostname: "michiganpoliticstracker.com" })).toBe("mi");
+    expect(await resolveSiteStateAsync({ hostname: "georgiapoliticstracker.com" })).toBeNull();
   });
 
   it("re-fetches an error after errorTtlMs but keeps a success until ttlMs", async () => {
@@ -193,5 +173,43 @@ describe("state_sites hostname lookup", () => {
       })) as unknown as typeof fetch;
     const lookup = makeStateSitesLookup({ supabaseUrl: "https://x.supabase.co", anonKey: "k", fetchImpl, timeoutMs: 20 });
     expect(await lookup("slow.example")).toBeNull();
+  });
+});
+
+describe("published sites lookup", () => {
+  it("maps published rows to https URLs and skips malformed ones", () => {
+    expect(
+      publishedSitesFrom([
+        { state: "MI", hostname: "www.MichiganPoliticsTracker.com" },
+        { state: "tx", hostname: "texaspoliticstracker.com" },
+        { state: "zzz", hostname: "bad.example" },
+        { state: "oh", hostname: "not a host" },
+        { state: null, hostname: null },
+      ]),
+    ).toEqual({ mi: "https://michiganpoliticstracker.com", tx: "https://texaspoliticstracker.com" });
+  });
+
+  it("fetches published rows once per ttl and reads a failure as no sites", async () => {
+    let t = 0;
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify([{ state: "fl", hostname: "floridapoliticstracker.com" }]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const sites = makePublishedSitesLookup({ supabaseUrl: "https://x.supabase.co/", anonKey: "k", fetchImpl, ttlMs: 1000, now: () => t });
+    expect(await sites()).toEqual({ fl: "https://floridapoliticstracker.com" });
+    expect(await sites()).toEqual({ fl: "https://floridapoliticstracker.com" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe("https://x.supabase.co/rest/v1/state_sites?select=state,hostname&published=eq.true");
+    t = 2000;
+    await sites();
+    expect(calls).toHaveLength(2);
+
+    const failing = makePublishedSitesLookup({
+      supabaseUrl: "https://x.supabase.co",
+      anonKey: "k",
+      fetchImpl: (async () => new Response("no", { status: 500 })) as unknown as typeof fetch,
+    });
+    expect(await failing()).toEqual({});
   });
 });

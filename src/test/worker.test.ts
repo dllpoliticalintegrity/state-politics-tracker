@@ -29,9 +29,9 @@ describe("worker routing", () => {
   });
 
   it("redirects www to the apex", async () => {
-    const res = await get("https://www.michiganpoliticstracker.com/governor");
+    const res = await get("https://www.statepoliticstracker.com/governor");
     expect(res.status).toBe(301);
-    expect(res.headers.get("location")).toBe("https://michiganpoliticstracker.com/governor");
+    expect(res.headers.get("location")).toBe("https://statepoliticstracker.com/governor");
   });
 
   it("redirects the hub's www to the apex", async () => {
@@ -40,9 +40,9 @@ describe("worker routing", () => {
     expect(res.headers.get("location")).toBe("https://statepoliticstracker.com/mi");
   });
 
-  it("sends Michigan's sitemap to the hub", async () => {
-    const res = await get("https://michiganpoliticstracker.com/sitemap.xml");
-    expect(res.status).toBe(301);
-    expect(res.headers.get("location")).toBe("https://statepoliticstracker.com/sitemap.xml");
+  it("serves each dedicated Worker's own sitemap", async () => {
+    const res = await worker.fetch(new Request("https://michiganpoliticstracker.com/sitemap.xml"), { ...env, SITE_STATE: "mi" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<loc>https://michiganpoliticstracker.com/governor</loc>");
   });
 });

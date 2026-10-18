@@ -21,16 +21,16 @@ const INDEX_HTML = `<!doctype html><html><head><title>State Politics Tracker —
 </head><body><div id="root"></div></body></html>`;
 
 describe("hub metadata", () => {
-  it("serves the landing page, and nothing for states that keep their own canonical", () => {
+  it("serves the landing page, linking every live state", () => {
     expect(routeMeta("/", null)).toBe(STATIC_ROUTES["/"]);
-    expect(routeMeta("/oh", null)).toBeNull();
-    expect(routeMeta("/oh/governor", null)).toBeNull();
-    expect(routeMeta("/ca/governor", null)).toBeNull();
+    expect(STATIC_ROUTES["/"].body).toContain('href="/oh"');
+    expect(routeMeta("/zz/governor", null)).toBeNull();
+    expect(routeMeta("/hi", null)).toBeNull();
     expect(llmsResponse(null)).toBeNull();
   });
 
   it("passes hub HTML through untouched when the route has no metadata", async () => {
-    const req = new Request("https://hub.example/oh/governor");
+    const req = new Request("https://hub.example/no-such-page");
     const res = new Response(INDEX_HTML, { headers: { "content-type": "text/html" } });
     expect(await applySeoRewrite(req, res, null)).toBe(res);
   });
@@ -59,13 +59,13 @@ describe("single-state metadata", () => {
 
   it("titles Michigan's pages after the state and the race", () => {
     expect(routeMeta("/", "mi")!.title).toBe(
-      "Michigan Politics Tracker — Money & Polling in Michigan's 2026 Statewide Races",
+      "Michigan Political Donations & Campaign Finance 2026 | Michigan Politics Tracker",
     );
     expect(routeMeta("/", "mi")!.description).toContain(
       "Governor, Attorney General, Secretary of State, State Senate and State House",
     );
     expect(routeMeta("/governor", "mi")!.title).toBe(
-      "Michigan Governor 2026 Race — Polls & Campaign Finance | Michigan Politics Tracker",
+      "Michigan Governor 2026 Race — Campaign Donations, Polls & Candidates | Michigan Politics Tracker",
     );
     expect(routeMeta("/governor/", "mi")).toBe(routeMeta("/governor", "mi"));
     expect(routeMeta("/attorney-general/money/donors", "mi")!.h1).toBe(
@@ -79,7 +79,7 @@ describe("single-state metadata", () => {
   it("gives candidate profiles a per-slug title", () => {
     const meta = routeMeta("/governor/candidates/jocelyn-benson", "mi")!;
     expect(meta.title).toBe(
-      "Jocelyn Benson — Michigan Governor 2026 Candidate | Michigan Politics Tracker",
+      "Jocelyn Benson Campaign Donations & Donors — Michigan Governor 2026 | Michigan Politics Tracker",
     );
     expect(meta.description).toContain(mi.agency!.name);
     expect(routeMeta("/nope/candidates/someone", "mi")).toBeNull();
@@ -110,8 +110,9 @@ describe("single-state metadata", () => {
     const xml = await sitemapResponse("https://ohiopoliticstracker.com", "oh").text();
     expect(xml).toContain("<loc>https://ohiopoliticstracker.com/governor</loc>");
     expect(xml).not.toContain("/oh/governor");
-    const hub = await sitemapResponse("https://hub.example", null).text();
+    const hub = await sitemapResponse("https://hub.example", null, { oh: "https://ohiopoliticstracker.com" }).text();
     expect(hub).toContain("<loc>https://hub.example/</loc>");
+    expect(hub).toContain("<loc>https://hub.example/az</loc>");
     expect(hub).not.toContain("hub.example/oh");
   });
 
@@ -126,7 +127,7 @@ describe("single-state metadata", () => {
 describe("HTML rewriting", () => {
   it("rewrites title, description and canonical for a known route", () => {
     const out = rewriteHtml(INDEX_HTML, routeMeta("/governor", "mi")!, "https://michiganpoliticstracker.com/governor");
-    expect(out).toContain("<title>Michigan Governor 2026 Race — Polls &amp; Campaign Finance | Michigan Politics Tracker</title>");
+    expect(out).toContain("<title>Michigan Governor 2026 Race — Campaign Donations, Polls &amp; Candidates | Michigan Politics Tracker</title>");
     expect(out).toContain('<link rel="canonical" href="https://michiganpoliticstracker.com/governor">');
     expect(out).toContain('<div id="ssr-content"');
   });
@@ -156,11 +157,11 @@ describe("HTML rewriting", () => {
 
 describe("Texas on the hub", () => {
   it("credits each race's own polling source", () => {
-    expect(routeMeta("/governor", "tx")!.description).toContain("Texas Ethics Commission and FiftyPlusOne");
+    expect(routeMeta("/governor", "tx")!.description).toContain("Texas Ethics Commission, plus the polling average from FiftyPlusOne");
     expect(routeMeta("/governor/polling", "tx")!.body).toContain("aggregated from FiftyPlusOne");
     expect(routeMeta("/lt-governor/polling", "tx")).toBeNull();
     expect(routeMeta("/about", "tx")!.body).toContain("polling comes from FiftyPlusOne");
-    expect(routeMeta("/governor", "mi")!.description).toContain("and FiftyPlusOne");
+    expect(routeMeta("/governor", "mi")!.description).toContain("from FiftyPlusOne");
     // Georgia reads the tracker again, so its polling is the FiftyPlusOne import.
     expect(routeMeta("/about", "ga")!.body).toContain("polling comes from FiftyPlusOne");
     expect(routeMeta("/governor/polling", "ga")!.body).toContain("aggregated from FiftyPlusOne");
@@ -180,57 +181,56 @@ describe("Texas on the hub", () => {
   });
 });
 
-describe("Michigan and Texas canonical on the hub", () => {
-  it("titles the hub's copy for the hub, with links under the state", () => {
+describe("each dedicated site ranks for its own state", () => {
+  const SITES = { mi: "https://michiganpoliticstracker.com", tx: "https://texaspoliticstracker.com" };
+  const res = () => new Response(INDEX_HTML, { headers: { "content-type": "text/html" } });
+
+  it("titles the hub's copy of any live state for the hub, with links under the state", () => {
     const home = routeMeta("/mi", null)!;
-    expect(home.title).toBe("State Politics Tracker — Money & Polling in Michigan's 2026 Statewide Races");
+    expect(home.title).toBe("Michigan Political Donations & Campaign Finance 2026 | State Politics Tracker");
     expect(home.body).toContain('href="/mi/governor"');
-    const gov = routeMeta("/mi/governor", null)!;
-    expect(gov.title).toBe("Michigan Governor 2026 Race — Polls & Campaign Finance | State Politics Tracker");
-    expect(gov.body).toContain('href="/mi/governor/candidates"');
-    expect(routeMeta("/tx/governor/", null)!.title).toContain("| State Politics Tracker");
+    expect(routeMeta("/mi/governor", null)!.body).toContain('href="/mi/governor/candidates"');
     expect(routeMeta("/mi/state-senate/11", null)!.body).toContain('href="/mi/state-senate/11/candidates"');
-    expect(routeMeta("/mi/governor/candidates/jocelyn-benson", null)!.title)
-      .toBe("Jocelyn Benson — Michigan Governor 2026 Candidate | State Politics Tracker");
+    expect(routeMeta("/oh/governor", null)!.title).toContain("| State Politics Tracker");
     expect(routeMeta("/mi/no-such-page", null)).toBeNull();
     // The dedicated site keeps its own titles and unprefixed links.
     expect(routeMeta("/governor", "mi")!.title).toContain("| Michigan Politics Tracker");
     expect(routeMeta("/", "mi")!.body).toContain('href="/governor"');
   });
 
-  it("points the dedicated site's canonical at the hub's copy", async () => {
-    const res = () => new Response(INDEX_HTML, { headers: { "content-type": "text/html" } });
+  it("keeps each dedicated site self-canonical", async () => {
     const mi = await (await applySeoRewrite(new Request("https://michiganpoliticstracker.com/governor/polling"), res(), "mi")).text();
-    expect(mi).toContain('<link rel="canonical" href="https://statepoliticstracker.com/mi/governor/polling">');
-    expect(mi).toContain('<meta property="og:url" content="https://statepoliticstracker.com/mi/governor/polling">');
-    const txHome = await (await applySeoRewrite(new Request("https://texaspoliticstracker.com/"), res(), "tx")).text();
-    expect(txHome).toContain('<link rel="canonical" href="https://statepoliticstracker.com/tx">');
-    const hub = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/mi/governor"), res(), null)).text();
-    expect(hub).toContain('<link rel="canonical" href="https://statepoliticstracker.com/mi/governor">');
-    expect(hub).not.toContain('name="site-state"');
-    // Other dedicated sites stay self-canonical.
-    const oh = await (await applySeoRewrite(new Request("https://ohiopoliticstracker.com/governor"), res(), "oh")).text();
-    expect(oh).toContain('<link rel="canonical" href="https://ohiopoliticstracker.com/governor">');
+    expect(mi).toContain('<link rel="canonical" href="https://michiganpoliticstracker.com/governor/polling">');
+    const tx = await (await applySeoRewrite(new Request("https://texaspoliticstracker.com/"), res(), "tx")).text();
+    expect(tx).toContain('<link rel="canonical" href="https://texaspoliticstracker.com/">');
   });
 
-  it("lists the hub's Michigan and Texas pages in the hub sitemap", () => {
-    const paths = sitemapEntries(null).map((e) => e.path);
+  it("points the hub's copy of a state with its own site at that site", async () => {
+    const hubMi = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/mi/governor"), res(), null, SITES)).text();
+    expect(hubMi).toContain('<link rel="canonical" href="https://michiganpoliticstracker.com/governor">');
+    expect(hubMi).toContain("| State Politics Tracker</title>");
+    expect(hubMi).not.toContain('name="site-state"');
+    const hubTx = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/tx"), res(), null, SITES)).text();
+    expect(hubTx).toContain('<link rel="canonical" href="https://texaspoliticstracker.com/">');
+    // A state without its own site is canonical on the hub.
+    const hubOr = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/or/governor"), res(), null, SITES)).text();
+    expect(hubOr).toContain('<link rel="canonical" href="https://statepoliticstracker.com/or/governor">');
+    const home = await (await applySeoRewrite(new Request("https://statepoliticstracker.com/"), res(), null, SITES)).text();
+    expect(home).toContain('<link rel="canonical" href="https://statepoliticstracker.com/">');
+  });
+
+  it("lists only states without their own site in the hub sitemap", () => {
+    const paths = sitemapEntries(null, SITES).map((e) => e.path);
     expect(paths[0]).toBe("/");
-    expect(paths).toContain("/mi");
-    expect(paths).toContain("/mi/governor/polling");
-    expect(paths).toContain("/tx/governor");
-    expect(paths).toContain("/mi/state-senate/11");
-    expect(paths.some((p) => p.startsWith("/oh"))).toBe(false);
+    expect(paths).toContain("/oh/governor");
+    expect(paths.some((p) => p.startsWith("/mi") || p.startsWith("/tx"))).toBe(false);
     expect(new Set(paths).size).toBe(paths.length);
   });
 
-  it("sends the dedicated sites' sitemap and robots to the hub", async () => {
-    const sm = sitemapResponse("https://michiganpoliticstracker.com", "mi");
-    expect(sm.status).toBe(301);
-    expect(sm.headers.get("location")).toBe("https://statepoliticstracker.com/sitemap.xml");
-    const robots = await robotsResponse("https://texaspoliticstracker.com", "tx").text();
-    expect(robots).toContain("Sitemap: https://statepoliticstracker.com/sitemap.xml");
-    const oh = await robotsResponse("https://ohiopoliticstracker.com", "oh").text();
-    expect(oh).toContain("Sitemap: https://ohiopoliticstracker.com/sitemap.xml");
+  it("keeps each dedicated site's sitemap and robots on its own origin", async () => {
+    const xml = await sitemapResponse("https://texaspoliticstracker.com", "tx").text();
+    expect(xml).toContain("<loc>https://texaspoliticstracker.com/governor</loc>");
+    const robots = await robotsResponse("https://texaspoliticstracker.com").text();
+    expect(robots).toContain("Sitemap: https://texaspoliticstracker.com/sitemap.xml");
   });
 });

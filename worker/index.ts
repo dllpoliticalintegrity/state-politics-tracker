@@ -15,7 +15,14 @@ import {
   robotsResponse,
   sitemapResponse,
 } from "../shared/seo";
-import { HUB_URL, makeStateSitesLookup, normalizeHost, resolveSiteStateAsync } from "../shared/site";
+import {
+  HUB_URL,
+  makePublishedSitesLookup,
+  makeStateSitesLookup,
+  normalizeHost,
+  resolveSiteStateAsync,
+  type PublishedSites,
+} from "../shared/site";
 
 interface Env {
   ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -42,6 +49,20 @@ function hostLookup(env: Env) {
     });
   }
   return lookup;
+}
+
+// The hub's list of published dedicated sites, for canonicals and the
+// sitemap; dedicated sites never need it.
+let sitesLookup: (() => Promise<PublishedSites>) | null = null;
+async function hubSites(env: Env, siteState: string | null): Promise<PublishedSites> {
+  if (siteState) return {};
+  if (!sitesLookup) {
+    sitesLookup = makePublishedSitesLookup({
+      supabaseUrl: env.SUPABASE_URL ?? DEFAULT_SUPABASE_URL,
+      anonKey: env.SUPABASE_ANON_KEY ?? DEFAULT_ANON_KEY,
+    });
+  }
+  return sitesLookup();
 }
 
 const HUB_HOST = HUB_URL ? new URL(HUB_URL).hostname : null;
@@ -72,8 +93,8 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
 
-    if (url.pathname === "/sitemap.xml") return sitemapResponse(url.origin, siteState);
-    if (url.pathname === "/robots.txt") return robotsResponse(url.origin, siteState);
+    if (url.pathname === "/sitemap.xml") return sitemapResponse(url.origin, siteState, await hubSites(env, siteState));
+    if (url.pathname === "/robots.txt") return robotsResponse(url.origin);
     if (url.pathname === "/llms.txt") {
       const generated = llmsResponse(siteState);
       if (generated) return generated;
@@ -84,6 +105,6 @@ export default {
     const response = await env.ASSETS.fetch(request);
 
     if (request.method !== "GET" && request.method !== "HEAD") return response;
-    return applySeoRewrite(request, response, siteState);
+    return applySeoRewrite(request, response, siteState, await hubSites(env, siteState));
   },
 };
