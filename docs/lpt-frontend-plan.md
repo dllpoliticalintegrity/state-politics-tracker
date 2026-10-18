@@ -190,10 +190,24 @@ unless the disposition says withdrew or lost, or an override says otherwise.
    candidates were seeded into `hub_candidate_overrides` (the tracker had no
    photos or bios for Georgia; LPT has photos for some). Every Georgia page
    was walked on the dev server against LPT.
-2. **The other in-scope states:** AZ, AK, FL, WI, OH (new on the site), OR
-   (new), then MI and TX. Each needs its races in the registry (or the
-   registry reading `races`) and the same page-by-page check. Michigan's
-   chambers map to `state-senate` and `state-representative`.
+2. **The other in-scope states.** Checked against the tracker 2026-10-18:
+   - **OH and OR: on LPT** (same PR). The tracker never had their filings,
+     so LPT is the only source; Ohio gets its four row offices and both
+     chambers, Oregon is new with its governor's race and both chambers.
+   - **AK, FL, WI, MI: hold.** LPT runs 5–10% behind the tracker's
+     (Kreiss-Tomkins $4.32M vs $4.49M, Donalds $16.8M vs $17.9M, Tiffany
+     $39.5M vs $42.0M): their loads are 4–9 days old and lack this week's
+     scraper fixes. Florida's Jay Collins ($1.84M) is missing from LPT.
+     Michigan lists Garlin Gilchrist twice (governor and secretary of
+     state) with different money. Switch each once Henry's push catches up.
+   - **AZ: hold.** LPT's Arizona contributions stop on 2026-07-21 (Hobbs
+     $10.6M vs $15.0M through Sept 30) — the paging fix in our SLCF copy
+     has not reached their pipeline.
+   - **TX: hold.** LPT loads election year 2026 only, from 2026-01-05
+     (Abbott $48.6M vs the TEC importer's $96.3M since June 2025), and
+     carries an $86.4M "interest_investment" line for Texans for Greg
+     Abbott that needs a look.
+   Michigan's chambers map to `state-senate` and `state-representative`.
 3. **California into LPT.** The CAL-ACCESS importer (`ca-finance-sync.yml`)
    writes LPT's tables: candidates, committees, contributions, expenditures,
    races and participants. Needs an LPT service key as a GitHub secret, and

@@ -97,7 +97,11 @@ export function surnameOf(name: string): string {
 /** LPT spells parties several ways; the site's chips and colours key on the first letter but display the word. */
 export function normalizeParty(p: string | null | undefined): string | null {
   if (!p) return null;
-  const s = p.trim();
+  // Fusion nominations arrive as one string ("Libertarian, Republican"):
+  // the major party is the one the site colours by.
+  const parts = p.split(",").map((x) => x.trim()).filter(Boolean);
+  const major = parts.find((x) => /^(democrat|republican)/i.test(x));
+  const s = major ?? parts[0] ?? p.trim();
   if (/^democrat/i.test(s)) return "Democrat";
   if (/^republican/i.test(s)) return "Republican";
   if (/^(independent|no party|non-?partisan|unaffiliated|nonpartisan)/i.test(s)) return "Independent";

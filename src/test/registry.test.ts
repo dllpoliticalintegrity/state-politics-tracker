@@ -12,8 +12,8 @@ import {
 
 describe("state registry", () => {
   it("covers the statemoney.us states plus Michigan and California, reading Georgia from LPT", () => {
-    expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "tx", "wi"]);
-    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ga"]);
+    expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "or", "tx", "wi"]);
+    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ga", "oh", "or"]);
     for (const s of STATES) expect(["lpt", "tracker"]).toContain(s.source);
     // Hidden states keep their dashboards and pipelines; the hub just does not list them as live.
     const hidden = hiddenStates().map((s) => s.code).sort();
@@ -108,7 +108,7 @@ describe("state registry", () => {
   });
 
   it("marks the live states live, hidden and other SLCF states ready, the rest planned", () => {
-    for (const code of ["fl", "mi", "ga", "az", "oh", "wi", "ak", "tx", "ca"]) {
+    for (const code of ["fl", "mi", "ga", "az", "oh", "or", "wi", "ak", "tx", "ca"]) {
       expect(getState(code)?.status).toBe("live");
     }
     // Hidden states with an SLCF pipeline read as ready; Nevada has no SLCF pipeline.

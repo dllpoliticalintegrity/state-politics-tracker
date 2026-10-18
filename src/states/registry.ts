@@ -137,7 +137,7 @@ const SLCF_READY = new Set([
 // (docs/lpt-frontend-plan.md, phase 1). VITE_LPT_STATES ("ga,az") overrides
 // the set at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga,oh,or")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
@@ -360,7 +360,7 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
 // Wave 3 (Aug 2026): the bulk-open-data states — governor races first,
 // down-ballot to follow as candidates are curated. Polling URLs are set only
 // where FiftyPlusOne has general-election polls for the race.
-const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
+const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   pa: {
     agency: {
       name: "Pennsylvania Dept. of State — Campaign Finance",
@@ -468,6 +468,8 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
       },
     ],
   },
+  // Ohio (Oct 2026): finance and polling come with the Local Politics
+  // Tracker data — the tracker never had Ohio filings.
   oh: {
     agency: {
       name: "Ohio Secretary of State — Campaign Finance",
@@ -479,8 +481,40 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "ohio-governor-2026",
-        pollingSourceUrl: fpoGovernor("Ohio"),
+        pollingSource: "lpt",
+        pollingSourceUrl: lptRace("oh", "governor-2026"),
       },
+      { office: "attorney-general", title: "Attorney General", generalDate: "2026-11-03", raceSlug: "ohio-attorney-general-2026" },
+      { office: "secretary-of-state", title: "Secretary of State", generalDate: "2026-11-03", raceSlug: "ohio-secretary-of-state-2026" },
+      { office: "auditor", title: "Auditor", generalDate: "2026-11-03", raceSlug: "ohio-auditor-2026" },
+      { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "ohio-treasurer-2026" },
+    ],
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 17, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 100, generalDate: "2026-11-03" },
+    ],
+  },
+  // Oregon (Oct 2026): new on the site, from the Local Politics Tracker
+  // data. Half the Senate (15 odd-numbered seats) and the whole House are
+  // on the 2026 ballot; LPT numbers the Senate races 1..15 as it lists them.
+  or: {
+    agency: {
+      name: "Oregon Secretary of State — ORESTAR",
+      url: "https://sos.oregon.gov/elections/Pages/orestar.aspx",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "oregon-governor-2026",
+        pollingSource: "lpt",
+        pollingSourceUrl: lptRace("or", "governor-2026"),
+      },
+    ],
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 15, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 60, generalDate: "2026-11-03" },
     ],
   },
   wi: {

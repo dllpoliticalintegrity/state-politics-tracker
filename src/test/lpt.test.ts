@@ -53,6 +53,8 @@ describe("LPT vocabulary", () => {
     expect(normalizeParty("Republican")).toBe("Republican");
     expect(normalizeParty("Non-Partisan")).toBe("Independent");
     expect(normalizeParty("Libertarian")).toBe("Libertarian");
+    expect(normalizeParty("Libertarian, Republican")).toBe("Republican");
+    expect(normalizeParty("Working Families, Democratic")).toBe("Democrat");
     expect(normalizeParty(null)).toBeNull();
   });
 });

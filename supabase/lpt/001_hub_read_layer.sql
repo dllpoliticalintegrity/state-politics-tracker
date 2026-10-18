@@ -122,16 +122,26 @@ as $$
   ) s
 $$;
 
+-- Filings that shout ('VIVEK RAMASWAMY') get title case; anything with a
+-- lower-case letter is left as filed. initcap handles hyphens and
+-- apostrophes; "Mc"/"Mac" names are a known rough edge for the overrides.
+create or replace function public.hub_title_case(n text)
+returns text
+language sql immutable
+as $$
+  select case when n is null or n <> upper(n) then n else initcap(lower(n)) end
+$$;
+
 -- Display name of a candidate: the curated one, else "First Last" from his
--- cased name parts, else the flipped filing name.
+-- cased name parts, else the flipped filing name; shouting names title-cased.
 create or replace function public.hub_display_name(raw text, first_name text, last_name text, override text)
 returns text
 language sql immutable
 as $$
   select coalesce(
     nullif(btrim(override), ''),
-    nullif(btrim(concat_ws(' ', nullif(btrim(first_name), ''), nullif(btrim(last_name), ''))), ''),
-    public.hub_flip_name(raw)
+    public.hub_title_case(nullif(btrim(concat_ws(' ', nullif(btrim(first_name), ''), nullif(btrim(last_name), ''))), '')),
+    public.hub_title_case(public.hub_flip_name(raw))
   )
 $$;
 
@@ -810,7 +820,7 @@ $$;
 -- ---------------------------------------------------------------------------
 
 grant execute on function
-  public.hub_flip_name(text), public.hub_display_name(text, text, text, text), public.hub_norm_name(text),
+  public.hub_flip_name(text), public.hub_title_case(text), public.hub_display_name(text, text, text, text), public.hub_norm_name(text),
   public.hub_contributor_type(text, text), public.hub_last_name(text, text), public.hub_first_name(text, text),
   public.hub_status(boolean, text, text), public.hub_is_named(text), public.hub_committee_norm(text),
   public.hub_candidates(text, text, int, int), public.hub_race_totals(text, text, int),
