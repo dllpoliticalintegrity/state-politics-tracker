@@ -61,6 +61,7 @@ COMMITTEES = [
                         # by states where committees are cycle-specific (e.g. CT, FL, AR)
     "candidate_name",
     "treasurer_name",
+    "chairperson_name", # sparse -- only states whose registry names a committee chair (FL)
     "city",
     "zip",
     "active",           # sparse — only written by states with official status; omit if unavailable
@@ -229,6 +230,7 @@ COLUMN_TYPES = {
     "committee_name":       "VARCHAR",
     "committee_type":       "VARCHAR",
     "treasurer_name":       "VARCHAR",
+    "chairperson_name":     "VARCHAR",
     "city":                 "VARCHAR",
     "zip":                  "VARCHAR",
     "active":               "BIGINT",

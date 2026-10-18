@@ -146,6 +146,48 @@ def find_table_csv(clean_dir: Path, table: str) -> Path | None:
     )
 
 
+def read_excel_rows(path: Path):
+    """Yield the rows of a spreadsheet's first sheet as lists of values.
+
+    The format is read from the file's first bytes, not its extension: a
+    site can switch from .xls to .xlsx while its export link and our saved
+    file names stay the same (ORESTAR did in 2026). Old .xls files go
+    through xlrd, .xlsx through openpyxl. openpyxl's values are made to
+    look like xlrd's text-export cells: a date becomes "MM/DD/YYYY", a
+    whole-number float becomes an int (so an ID reads "1234", not
+    "1234.0"), and an empty cell becomes "".
+    """
+    from datetime import date, datetime
+    with open(path, "rb") as fh:
+        magic = fh.read(4)
+    if magic == b"PK\x03\x04":
+        import openpyxl
+        with open(path, "rb") as fh:
+            wb = openpyxl.load_workbook(fh, read_only=True, data_only=True)
+            try:
+                for row in wb.worksheets[0].iter_rows(values_only=True):
+                    out = []
+                    for v in row:
+                        if v is None:
+                            v = ""
+                        elif isinstance(v, datetime):
+                            v = v.strftime("%m/%d/%Y")
+                        elif isinstance(v, date):
+                            v = v.strftime("%m/%d/%Y")
+                        elif isinstance(v, float) and v.is_integer():
+                            v = int(v)
+                        out.append(v)
+                    yield out
+            finally:
+                wb.close()
+        return
+    import xlrd
+    wb = xlrd.open_workbook(str(path))
+    sh = wb.sheet_by_index(0)
+    for i in range(sh.nrows):
+        yield sh.row_values(i)
+
+
 def clean_name(val: str) -> str:
     """Normalize a name for output: uppercase + collapse whitespace."""
     return re.sub(r"\s+", " ", (val or "").strip().upper())

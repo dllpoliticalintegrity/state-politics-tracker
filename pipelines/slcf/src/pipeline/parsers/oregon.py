@@ -6,6 +6,10 @@ scrapers/oregon.py — one .xls export per date window, or per date+amount-band
 window for windows that hit the 5,000-row cap) and writes normalized output to
 data/Oregon/cleaned/.
 
+Party comes from or_filings_{year}.xlsx, the Secretary of State's candidate
+filing export (see "Candidate filings" below); the finance exports carry
+none.
+
 Schema notes
 ────────────
   One transaction feed, two directions, one file
@@ -140,16 +144,18 @@ import gzip
 import re
 import sys
 import time
+import unicodedata
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-import xlrd
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "pipeline"))
 from src.reporting.logger import get_logger
+from src.aliases import canonical_party, expand_nickname
 import columns as C
 import utils
 
@@ -386,16 +392,197 @@ def entity_zip(address: str) -> str:
 
 def read_xls_rows(path: Path):
     """
-    Yield (row_num, dict) for every data row in an ORESTAR .xls export.
+    Yield (row_num, dict) for every data row in an ORESTAR export (.xls or,
+    since 2026, .xlsx content under the same .xls file name).
     row_num is 1-based counting the header as row 1, matching the
     enumerate(reader, start=2) convention every CSV-based parser uses.
     """
-    wb = xlrd.open_workbook(str(path))
-    sh = wb.sheet_by_index(0)
-    headers = [clean(h) for h in sh.row_values(0)]
-    for i in range(1, sh.nrows):
-        values = sh.row_values(i)
-        yield i + 1, dict(zip(headers, values))
+    rows = utils.read_excel_rows(path)
+    headers = [clean(h) for h in next(rows, [])]
+    for i, values in enumerate(rows, start=2):
+        yield i, dict(zip(headers, values))
+
+
+# ORESTAR reports small donations as one aggregated line per report, named
+# "Miscellaneous Cash Contributions $100 and under" (or In-Kind, Return/Refund,
+# Lost or Returned Check), with no Book Type. Labelled "Unitemized", as
+# Wisconsin's are, so they read as individuals' money rather than unknown.
+_UNITEMIZED_RE = re.compile(r"^miscellaneous\b.*\$100 and under\s*$", re.IGNORECASE)
+
+
+def contributor_type(row) -> str:
+    book = clean(row.get("Book Type", ""))
+    if not book and _UNITEMIZED_RE.match(clean(row.get("Contributor/Payee", ""))):
+        return "Unitemized"
+    return book
+
+
+# ========================= candidate filings ==========================
+#
+# or_filings_{year}.xlsx is the Secretary of State's candidate filing
+# search export for one election year: one row per filing, so a candidate
+# has a primary filing and, once nominated, one general filing per party
+# that nominated them (Oregon allows cross-nomination: a Republican can
+# also be the Libertarian nominee). Its "Office Group" and "Office" columns
+# are the same values as the entities registry's "Candidate Office Group"
+# and "Candidate Office", so the join is year + office + district + name.
+#
+# It has no committee ID, so the name decides:
+#   surname   the registry surname's last word appears in the filed surname
+#             or the ballot name, or the filed surname's last word appears
+#             in the registry surname. Covers "Neron" / "Neron Misslin" and
+#             a candidate who files under a legal name but runs under
+#             another ("Gowland" on file, "Rachel Armitage" on the ballot).
+#   given     'exact' when the first given names are equal; 'high' when the
+#             registry name equals the ballot name's first word or a
+#             nickname in parentheses ("James (Jim) A Crary"), or one is a
+#             known nickname of the other, including a nickname in
+#             parentheses in the registry name ("Joseph (Jack) Zika").
+# A surname match whose given name fits neither rule is not used. When two
+# filers fit, a single 'exact' one wins; otherwise nothing is filled.
+#
+# Party is every party the person filed under that year, own party first:
+# the primary filing's party, then general-election nominations in filing
+# order, pipe-delimited like New York's fusion lines
+# ("REPUBLICAN|LIBERTARIAN"). The site shows the first.
+
+FILINGS_PARTY_SOURCE = "or_sos_filings"
+_FILING_RE = re.compile(r"^or_filings_(\d{4})\.xlsx?$")
+_NAME_DROP = {"JR", "SR", "II", "III", "IV", "V", "DR", "MD", "PHD", "DVM",
+              "ESQ", "MR", "MRS", "MS", "HON", "PE", "RN"}
+_PAREN_RE = re.compile(r"\(([^)]*)\)")
+
+
+def _fold(text) -> str:
+    """Uppercase, accents removed."""
+    decomposed = unicodedata.normalize("NFKD", clean(text))
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).upper()
+
+
+def name_tokens(text) -> list[str]:
+    """Uppercase word tokens of a name, punctuation split, titles and
+    suffixes ('Dr.', 'Jr', 'III') dropped. Parenthesised nicknames are
+    removed; read them with ballot_nicknames()."""
+    toks = re.sub(r"[^A-Z ]", " ", _fold(_PAREN_RE.sub(" ", clean(text)))).split()
+    return [t for t in toks if t not in _NAME_DROP]
+
+
+def ballot_nicknames(ballot_name) -> list[str]:
+    """'James (Jim) A Crary' -> ['JIM']."""
+    out = []
+    for inner in _PAREN_RE.findall(clean(ballot_name)):
+        out += name_tokens(inner)
+    return out
+
+
+def _given_match(reg_first: str, filer: dict) -> str | None:
+    """'exact' / 'high' / None for a registry given name against a filer."""
+    if not reg_first:
+        return None
+    if reg_first == filer["first"]:
+        return "exact"
+    if reg_first in filer["alt_first"]:
+        return "high"
+    for name in (filer["first"], *filer["alt_first"]):
+        if not name:
+            continue
+        if name in expand_nickname(reg_first) or reg_first in expand_nickname(name):
+            return "high"
+    return None
+
+
+def _surname_match(reg_last: list[str], filer: dict) -> bool:
+    if not reg_last or not filer["last"]:
+        return False
+    if reg_last[-1] in filer["surnames"]:
+        return True
+    return filer["last"][-1] in reg_last
+
+
+class FilingsIndex:
+    """Candidate filings grouped by (year, office group, office) and then
+    by person. lookup() returns (party, outcome) for one registry candidate;
+    outcome is 'exact' or 'high' when party is filled, otherwise
+    'no_filing' (nobody filed for that seat under that name), 'name_conflict'
+    (same surname, different given name) or 'ambiguous'."""
+
+    def __init__(self, rows):
+        people: dict[tuple, dict] = {}
+        for r in rows:
+            seat = (clean(r.get("Election Year")), clean(r.get("Office Group")),
+                    clean(r.get("Office")))
+            last = name_tokens(r.get("Last Name"))
+            first = (name_tokens(r.get("First Name")) or [""])[0]
+            key = seat + (first, " ".join(last))
+            p = people.get(key)
+            if p is None:
+                ballot = clean(r.get("Cand Ballot Name Txt"))
+                btoks = name_tokens(ballot)
+                p = people[key] = {
+                    "seat": seat, "first": first, "last": last,
+                    "alt_first": {t for t in [*btoks[:1], *ballot_nicknames(ballot)]
+                                  if t and t != first},
+                    "surnames": {t for t in [*last, *btoks[1:]] if len(t) > 1},
+                    "filings": [],
+                }
+            p["filings"].append(r)
+        self.by_seat: dict[tuple, list[dict]] = defaultdict(list)
+        for p in people.values():
+            self.by_seat[p["seat"]].append(p)
+        self.years = {seat[0] for seat in self.by_seat}
+
+    @staticmethod
+    def party_of(person: dict) -> str:
+        def order(r):
+            election = _fold(r.get("Election Txt"))
+            method = _fold(r.get("Filetype Descr"))
+            filed = clean(r.get("Filed Date"))
+            mdy = filed.split("/")
+            filed_key = f"{mdy[2]}{mdy[0]}{mdy[1]}" if len(mdy) == 3 else filed
+            return ("PRIMARY" not in election, "NOMINATED" not in method, filed_key)
+        parties: list[str] = []
+        for r in sorted(person["filings"], key=order):
+            raw = clean(r.get("Party Descr"))
+            party = canonical_party(raw) if raw else ""
+            if party and party not in parties:
+                parties.append(party)
+        return "|".join(parties)
+
+    def lookup(self, year, office, jurisdiction, first, last) -> tuple[str, str]:
+        pool = self.by_seat.get((clean(year), clean(office), clean(jurisdiction)), [])
+        reg_last = name_tokens(last)
+        reg_first = (name_tokens(first) or [""])[0]
+        reg_nicks = ballot_nicknames(first)
+        same_surname = [p for p in pool if _surname_match(reg_last, p)]
+        if not same_surname:
+            return "", "no_filing"
+        scored = []
+        for p in same_surname:
+            conf = _given_match(reg_first, p)
+            if not conf:
+                conf = next((c and "high" for c in (_given_match(n, p) for n in reg_nicks) if c), None)
+            scored.append((p, conf))
+        scored = [(p, conf) for p, conf in scored if conf]
+        if not scored:
+            return "", "name_conflict"
+        if len(scored) > 1:
+            exact = [(p, conf) for p, conf in scored if conf == "exact"]
+            if len(exact) != 1:
+                return "", "ambiguous"
+            scored = exact
+        person, conf = scored[0]
+        return self.party_of(person), conf
+
+
+def load_filings(raw_dir: Path = RAW_DIR) -> FilingsIndex:
+    rows = []
+    for path in sorted(raw_dir.glob("or_filings_*")):
+        if not _FILING_RE.match(path.name) or path.stat().st_size == 0:
+            continue
+        it = utils.read_excel_rows(path)
+        headers = [clean(h) for h in next(it, [])]
+        rows += [dict(zip(headers, values)) for values in it]
+    return FilingsIndex(rows)
 
 
 # ============================ raw registries ===========================
@@ -524,6 +711,12 @@ def run():
         file_handles = [cont_fh, expn_fh, cand_fh, cmte_fh, loan_fh]
 
         registry = load_entity_registry(log)
+        filings = load_filings()
+        filing_outcomes: dict[str, int] = defaultdict(int)
+        filing_misses: list[str] = []
+        if not filings.years:
+            log.warning("no or_filings_*.xlsx in raw/ — candidates get no party "
+                        "(run the scraper's --filings step)")
 
         # Filer Ids seen in transactions but absent from the entities
         # registry — a fallback "orphans" pass, same pattern Wisconsin's
@@ -605,7 +798,7 @@ def run():
                         "date":             tx_date,
                         "transaction_type": sub_type,
                         "contributor_name": cp_name,
-                        "contributor_type": clean(row.get("Book Type", "")),
+                        "contributor_type": contributor_type(row),
                         "contributor_city": clean(row.get("City", "")),
                         "contributor_state": clean(row.get("State", "")),
                         "contributor_zip":  zipcode,
@@ -695,6 +888,19 @@ def run():
 
             if not ent["candidate_name"]:
                 continue
+            party = confidence = ""
+            if str(ent["election_year"]) in filings.years:
+                party, outcome = filings.lookup(
+                    ent["election_year"], ent["office"], ent["jurisdiction"],
+                    ent["candidate_first"], ent["candidate_last"],
+                )
+                filing_outcomes[outcome] += 1
+                if party:
+                    confidence = outcome
+                elif outcome != "no_filing":
+                    filing_misses.append(
+                        f'{ent["candidate_name"]} ({ent["election_year"]} '
+                        f'{ent["office"]} {ent["jurisdiction"]}: {outcome})')
             cand_w.writerow({
                 "state":           STATE,
                 "candidate_name":  ent["candidate_name"],
@@ -703,7 +909,9 @@ def run():
                 "office":          ent["office"],
                 "district":        ent["district"],
                 "jurisdiction":    ent["jurisdiction"],
-                "party":           "",
+                "party":            party,
+                "party_source":     FILINGS_PARTY_SOURCE if party else "",
+                "match_confidence": confidence,
                 "election_year":   ent["election_year"],
                 "incumbent":       "",
                 "state_filer_id":  filer_id,
@@ -730,6 +938,17 @@ def run():
             })
             committees_written += 1
 
+        if filings.years:
+            matched = filing_outcomes["exact"] + filing_outcomes["high"]
+            log.enrichment_summary(
+                relation="candidates",
+                matched=matched,
+                unmatched=sum(filing_outcomes.values()) - matched,
+                note="party from or_filings_*.xlsx: " + ", ".join(
+                    f"{k}={v}" for k, v in sorted(filing_outcomes.items())),
+            )
+            for miss in filing_misses[:20]:
+                log.info(f"  filing not used: {miss}")
         if orphans:
             log.enrichment_summary(
                 relation="committees",

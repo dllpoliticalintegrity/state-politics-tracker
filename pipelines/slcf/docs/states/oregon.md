@@ -16,7 +16,7 @@
 
 ## Raw Data Structure
 
-Two categories: transaction exports (`or_transactions_*.xls`) and entities registry exports (`or_entities_*.xls`), both real binary OLE2 `.xls` files (not `.xlsx`), read via `xlrd`.
+Three categories: transaction exports (`or_transactions_*.xls`), entities registry exports (`or_entities_*.xls`) and candidate filing exports (`or_filings_{year}.xlsx`). ORESTAR switched its Excel exports from binary `.xls` to `.xlsx` in 2026; the transaction and entities files keep their `.xls` names, and `utils.read_excel_rows()` reads either format by checking the file's first bytes, not its extension.
 
 ### Transactions — `or_transactions_{from}_{to}[_amt{lo}-{hi}].xls`
 
@@ -59,6 +59,22 @@ One file per (filerType bucket × year) combination — every bucket is swept bo
 
 No status/active-flag column exists anywhere in the export.
 
+### Candidate filings — `or_filings_{year}.xlsx`
+
+The Secretary of State's candidate filing search (`cfFilings.do`) for one election year, even years from 2018. One row per filing: a candidate has a primary filing and, once nominated, one general-election filing per party that nominated them. 52 columns; the ones the parser uses:
+
+| Field | Description |
+|---|---|
+| `Election Year` / `Election Txt` | e.g. 2026 / "2026 Primary Election" |
+| `Office Group` / `Office` | Same values as the entities registry's `Candidate Office Group` / `Candidate Office` ("State Representative" / "13th District") |
+| `First Name` / `Last Name` | Legal name as filed; may differ from the registry ("Neron Misslin" vs "Neron") |
+| `Cand Ballot Name Txt` | Name on the ballot, with nicknames in parentheses ("Forest (Fora) Alexander") |
+| `Party Descr` | Democrat, Republican, Nonpartisan, Independent, Working Families, Libertarian, Progressive, Pacific Green, Constitution, Nonaffiliated, ... |
+| `Filetype Descr` | How the filing got on the ballot: Fee, Completed Petition, Nominated (won the primary), Minor Party, Write In (nominated by write-in), Auto Nominated, Vacancy, Selected by Secretary of State. A trailing " **" marks automatic nomination to the general election (the search page's footnote) |
+| `Filed Date` | MM/DD/YYYY |
+
+Also present but unused: residence/mailing address, phone, email, website, occupation and education text, ballot order, `Judge Incbnt Ind`. Every row seen so far has `Qlf Ind` = Y and no withdrawal date: the search returns qualified filings only.
+
 ---
 
 ## Scraper
@@ -70,6 +86,8 @@ No status/active-flag column exists anywhere in the export.
 **Transactions:** `cneSearch.do` (GET) returns a results page whose "N records found" text gives the true match count for free before paying for the (much larger) export request. Export happens via clicking "Export To Excel Format" (`XcelCNESearch`) — located by link text, not href, since OWASP CSRFGuard's JS rewrites every href on page load. Hard-capped at 5,000 rows; capped windows are recursively split (month → half → day → amount band) without ever downloading the oversized export.
 
 **Entities:** `GotoSearchByElection.do` → `CommitteeSearchSecondPage.do` (POST form), same check-count-before-export pattern, capped at 999. Split axis is `filerType` (11 dropdown values) plus two special checkbox categories (Slate Mailer Organizations, Independent Expenditure Filers — the latter's name is a misnomer, see Data Notes), swept both blank and per-year. **The blank sweep alone is not a valid completeness signal** — an earlier version of this scraper only year-split a bucket when its blank count hit the 999 cap, but a real run proved that assumption wrong: CANDALL/CPCALL/PACALL all came back under-cap with `yearActive` unset, yet the resulting registry had essentially zero committees with 2013+ activity, missing well-known real 2022 candidates entirely. Every bucket is now swept per-year (1989–present) unconditionally in addition to the blank sweep; Committee Id dedup at parse time absorbs the resulting overlap.
+
+**Candidate filings:** `cfFilings.do` with `cfyearActive` set to the year; the same "N found for the above search criteria" count, then the results page's "Export" link. One request per even year from 2018 (about 600–720 rows each, under any cap so far; a file with fewer rows than the count is logged and marked truncated in the manifest). Past years are fetched once; the current cycle's election year on every run. Runs with the entities step, or alone with `--filings`.
 
 **Expected runtime:** Transactions, full history (1990–present): several hours. Entities, full history: tens of minutes (mostly search requests, not exports — only 5 of 13 buckets ever return real rows).
 
@@ -87,6 +105,12 @@ No status/active-flag column exists anywhere in the export.
 - `committee_name`/`candidate_name`/`office`/`election_year` on every contributions/expenditures/loans_debts row come from the entities registry (looked up by Filer Id), **not** the transaction feed's own `Filer` text — required because `committee_name` (not `state_filer_id`) is the join key `queries.py` and the aggregate DB use, and the two feeds sometimes disagree on a committee's name for the same ID (see Data Notes).
 - Transaction-derived data is a fallback "orphans" pass for any Filer Id that shows up in money but not in the registry — same pattern Wisconsin's parser uses.
 - ZIP is extracted via a trailing-digits regex off the single space-joined address blob; city is deliberately left blank rather than guessed (no reliable way to separate a multi-word city from a multi-word street with no delimiter).
+
+**Party from candidate filings.** The finance exports carry no party. `load_filings()` reads every `or_filings_*.xlsx` and each registry candidate in a filing year is looked up by election year + office group + office (district) + name:
+- surname: the registry surname's last word is in the filed surname or the ballot name, or the filed surname's last word is in the registry surname. Titles and suffixes (Dr., Jr, III) are ignored. Covers "Neron" / "Neron Misslin" and a candidate who files under a legal name but runs under another (Gowland on file, "Rachel Armitage" on the ballot).
+- given name: `exact` when equal; `high` for the ballot name's first word, a nickname in parentheses on either side, or a nickname from `src/aliases/nicknames.csv`. A surname match whose given name fits none of these is not used (Art Robinson and Noah Robinson both ran in Senate District 2 in 2024). With two fits, a single `exact` one wins, otherwise nothing.
+- `party` lists every party the person filed under that year, own party first (the primary filing's, then general nominations in filing order), pipe-delimited like New York's fusion lines: "DEMOCRAT|WORKING FAMILIES". A major party can nominate the other party's incumbent by write-in where it ran nobody, so "DEMOCRAT|REPUBLICAN" is real. `party_source` = `or_sos_filings`; `match_confidence` = `exact`/`high`.
+- Result on the 2026 data: 233 of 712 registry candidates matched (224 exact, 9 high); 478 had no filing for that seat (local offices, which file with counties, and committees that never filed); 1 name conflict. 48 people filed for the legislature or governor in 2026 with no finance committee and so have no candidate row.
 
 **person_id model:** `committee` — confirmed against real data, not assumed. The same candidate running in multiple cycles gets a new Committee Id each time (e.g. Shane Bemis for Mayor: ID 8465 in 2006, ID 14710 in 2010), so `state_filer_id` isn't a stable per-person key and must be grouped by `(name, office, district)`.
 
@@ -109,6 +133,6 @@ No status/active-flag column exists anywhere in the export.
 
 | Component | Date |
 |---|---|
-| Scraper | 2026-08-02 |
-| Parser | 2026-08-02 |
+| Scraper | 2026-10-11 |
+| Parser | 2026-10-11 |
 | Alias mappings | 2026-08-02 |
