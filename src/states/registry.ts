@@ -19,11 +19,19 @@ export type StateStatus =
  * 270toWin scrape it replaced left its rows under source '270towin', which
  * nothing reads any more. A second source would be a new key here.
  */
-export type PollingSourceKey = "fiftyplusone";
+export type PollingSourceKey = "fiftyplusone" | "lpt";
 
 export const POLLING_SOURCES: Record<PollingSourceKey, { label: string }> = {
   fiftyplusone: { label: "FiftyPlusOne" },
+  // The Local Politics Tracker's own poll table (one row per poll, no
+  // aggregate); the site averages the most recent polls itself — src/lib/lpt.ts.
+  lpt: { label: "Local Politics Tracker" },
 };
+
+/** A race's page on statemoney.us, the Local Politics Tracker's own site. */
+function lptRace(state: string, slug: string): string {
+  return `https://statemoney.us/${state}/races/${slug}`;
+}
 
 /** A race's FiftyPlusOne page: "Florida" → …/polls/governor/general/florida. */
 function fpoGovernor(stateName: string): string {
@@ -80,10 +88,20 @@ export interface ChamberConfig {
   map?: string;
 }
 
+/**
+ * Which database a live state's pages read. "tracker" is the site's own
+ * project (cf_* tables); "lpt" is the Local Politics Tracker project behind
+ * statemoney.us, the unified store every state is moving to one at a time —
+ * see docs/lpt-frontend-plan.md. Every data hook dispatches on this.
+ */
+export type DataSource = "lpt" | "tracker";
+
 export interface StateConfig {
   code: string; // lowercase two-letter code, used as the URL segment
   name: string;
   status: StateStatus;
+  /** Where the state's data is read from. Always set; "tracker" until a state is checked on LPT. */
+  source: DataSource;
   /**
    * Every tracked statewide race on the state's 2026 ballot — offices vary
    * per state. Required (non-empty) once status is "live". Races without
@@ -112,6 +130,26 @@ export interface StateConfig {
 const SLCF_READY = new Set([
   "al", "ak", "az", "ar", "co", "ct", "de", "fl", "ga", "hi", "id", "il",
   "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "pa",
+]);
+
+// States whose pages read the Local Politics Tracker project. A state moves
+// here only after its numbers have been checked against the tracker's
+// (docs/lpt-frontend-plan.md, phase 1). VITE_LPT_STATES ("ga,az") overrides
+// the set at build time, for previews and local checks.
+const LPT_STATES: Set<string> = new Set(
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga,oh,or")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+// The site covers the statemoney.us states plus Michigan and California
+// (decided 2026-10-18). These states have dashboards and nightly imports but
+// are hidden from the hub for now: their tiles read "coming soon" and their
+// routes render the coming-soon page. Their pipelines keep running, so
+// un-hiding one is a one-line change.
+const HIDDEN: Set<string> = new Set([
+  "al", "ar", "co", "ct", "hi", "ia", "id", "il", "ks", "ky", "ma", "md", "me", "mn", "nv", "pa",
 ]);
 
 // States tracked on a separate site, whose tiles link out. Empty since Oct
@@ -223,7 +261,9 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "georgia-governor-2026",
-        pollingSourceUrl: fpoGovernor("Georgia"),
+        // Polling comes with the LPT data (statemoney.us), not FiftyPlusOne.
+        pollingSource: "lpt",
+        pollingSourceUrl: lptRace("ga", "governor-2026"),
       },
       {
         office: "lt-governor",
@@ -243,6 +283,12 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         generalDate: "2026-11-03",
         raceSlug: "georgia-secretary-of-state-2026",
       },
+    ],
+    // Legislature (Oct 2026, from the Local Politics Tracker data): finance
+    // only; all 56 Senate and 180 House seats are on the 2026 ballot.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 56, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 180, generalDate: "2026-11-03" },
     ],
   },
 };
@@ -314,7 +360,7 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency">> = {
 // Wave 3 (Aug 2026): the bulk-open-data states — governor races first,
 // down-ballot to follow as candidates are curated. Polling URLs are set only
 // where FiftyPlusOne has general-election polls for the race.
-const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
+const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "chambers">> = {
   pa: {
     agency: {
       name: "Pennsylvania Dept. of State — Campaign Finance",
@@ -422,6 +468,8 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
       },
     ],
   },
+  // Ohio (Oct 2026): finance and polling come with the Local Politics
+  // Tracker data — the tracker never had Ohio filings.
   oh: {
     agency: {
       name: "Ohio Secretary of State — Campaign Finance",
@@ -433,8 +481,40 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency">> = {
         title: "Governor",
         generalDate: "2026-11-03",
         raceSlug: "ohio-governor-2026",
-        pollingSourceUrl: fpoGovernor("Ohio"),
+        pollingSource: "lpt",
+        pollingSourceUrl: lptRace("oh", "governor-2026"),
       },
+      { office: "attorney-general", title: "Attorney General", generalDate: "2026-11-03", raceSlug: "ohio-attorney-general-2026" },
+      { office: "secretary-of-state", title: "Secretary of State", generalDate: "2026-11-03", raceSlug: "ohio-secretary-of-state-2026" },
+      { office: "auditor", title: "Auditor", generalDate: "2026-11-03", raceSlug: "ohio-auditor-2026" },
+      { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "ohio-treasurer-2026" },
+    ],
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 17, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 100, generalDate: "2026-11-03" },
+    ],
+  },
+  // Oregon (Oct 2026): new on the site, from the Local Politics Tracker
+  // data. Half the Senate (15 odd-numbered seats) and the whole House are
+  // on the 2026 ballot; LPT numbers the Senate races 1..15 as it lists them.
+  or: {
+    agency: {
+      name: "Oregon Secretary of State — ORESTAR",
+      url: "https://sos.oregon.gov/elections/Pages/orestar.aspx",
+    },
+    races: [
+      {
+        office: "governor",
+        title: "Governor",
+        generalDate: "2026-11-03",
+        raceSlug: "oregon-governor-2026",
+        pollingSource: "lpt",
+        pollingSourceUrl: lptRace("or", "governor-2026"),
+      },
+    ],
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 15, generalDate: "2026-11-03" },
+      { office: "state-house", title: "State House", districts: 60, generalDate: "2026-11-03" },
     ],
   },
   wi: {
@@ -662,14 +742,18 @@ export const STATES: StateConfig[] = ALL_STATES.map(([code, name]) => ({
   name,
   status: EXTERNAL[code]
     ? "external"
-    : LIVE_CONFIG[code]
+    : LIVE_CONFIG[code] && !HIDDEN.has(code)
       ? "live"
       : SLCF_READY.has(code)
         ? "ready"
         : "planned",
+  source: LPT_STATES.has(code) ? "lpt" : "tracker",
   externalUrl: EXTERNAL[code],
   ...LIVE_CONFIG[code],
 }));
+
+/** Every state the hub currently hides although it has a dashboard. */
+export const hiddenStates = () => STATES.filter((s) => HIDDEN.has(s.code) && !!LIVE_CONFIG[s.code]);
 
 const byCode = new Map(STATES.map((s) => [s.code, s]));
 

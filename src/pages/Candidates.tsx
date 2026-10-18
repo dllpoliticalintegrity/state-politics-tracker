@@ -1,6 +1,6 @@
 import { useCandidates, useCandidateTotals } from "@/hooks/useCandidates";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
-import { isGeneralMatchup, useRacePolling, useRacePolls } from "@/hooks/usePolling";
+import { isGeneralMatchup, pollRowIsCandidate, readCandidatePct, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import { offBallotLast } from "@/lib/candidateStatus";
 
@@ -23,9 +23,8 @@ export default function Candidates() {
 
   const statsBySlug = new Map<string, CandidateCardStats>();
   for (const c of candidates ?? []) {
-    const surname = c.name.trim().split(/\s+/).pop() ?? "";
     const rawSeries = (racePolls ?? [])
-      .filter((r) => (r.candidate_name.trim().split(/\s+/).pop() ?? "") === surname)
+      .filter((r) => pollRowIsCandidate(r, c))
       .map((r) => {
         const iso = (r.field_end ?? "").slice(0, 10);
         const n = Number(r.pct);
@@ -35,9 +34,7 @@ export default function Candidates() {
       .filter((x): x is { iso: string; pct: number } => x !== null)
       .sort((a, b) => a.iso.localeCompare(b.iso));
     const pollSeries = rawSeries.map((r) => r.pct);
-    const avgRaw = polling?.average?.[surname];
-    const avgPct =
-      avgRaw !== undefined && avgRaw !== "" ? Number(avgRaw) : null;
+    const avgPct = readCandidatePct(polling?.average, c.name, c.id);
     const validAvg =
       avgPct !== null && Number.isFinite(avgPct) && avgPct > 0 ? avgPct : null;
 

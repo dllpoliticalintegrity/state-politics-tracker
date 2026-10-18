@@ -5,6 +5,7 @@ import {
   getChamber,
   getState,
   isValidDistrict,
+  type DataSource,
   type RaceConfig,
   type StateConfig,
 } from "./registry";
@@ -38,6 +39,11 @@ export function useStateConfig(): StateConfig {
   const ctx = useContext(StateContext);
   if (!ctx) throw new Error("useStateConfig must be used within a live state route");
   return ctx;
+}
+
+/** Which database the active state's pages read ("lpt" or "tracker"). */
+export function useDataSource(): DataSource {
+  return useStateConfig().source;
 }
 
 /** The active race's config. Only usable inside a race's routes. */

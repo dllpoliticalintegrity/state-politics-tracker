@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { useDataSource, useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import MoneyTabs from "@/components/MoneyTabs";
@@ -22,6 +22,9 @@ export default function IndependentExpenditures() {
   const { data: ieByCand, isLoading: ieLoading, error: ieError } = useIEByCandidate();
   const { data: topCommittees } = useTopIECommittees(20);
   const [cycleFilter, setCycleFilter] = useState<string>("all");
+  // The Local Politics Tracker data carries no primary/general split, so the
+  // cycle filter only makes sense for tracker-backed states.
+  const hasCycles = useDataSource() === "tracker";
 
   const candidateById = new Map((candidates ?? []).map((c) => [c.id, c]));
 
@@ -73,6 +76,7 @@ export default function IndependentExpenditures() {
         <MoneyTabs />
       </section>
 
+      {hasCycles && (
       <section className="container pb-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">Cycle</span>
@@ -91,6 +95,7 @@ export default function IndependentExpenditures() {
           ))}
         </div>
       </section>
+      )}
 
       <section className="container pb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x rounded-lg border bg-card">
