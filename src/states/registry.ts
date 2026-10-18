@@ -699,7 +699,7 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency" | "cham
 // import (scripts/data-import/tec, tx-finance-sync.yml) staged in tx_* and
 // published into cf_* nightly; polling is FiftyPlusOne, like every state's.
 // Primaries were Mar 3 with May 26 runoffs.
-const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
+const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths" | "chambers">> = {
   tx: {
     agency: {
       name: "Texas Ethics Commission",
@@ -740,13 +740,20 @@ const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "leg
         raceSlug: "texas-attorney-general-2026",
       },
     ],
+    // Legislature (Oct 2026): candidates seeded into tx_candidates from the
+    // Local Politics Tracker (pipelines/load/roster.py --texas), finance from
+    // the TEC import; 16 of 31 Senate seats and the whole House are up.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 31, generalDate: "2026-11-03", map: "/maps/tx-state-senate.json", seatsUp: [1, 2, 3, 4, 5, 9, 11, 13, 18, 19, 21, 22, 24, 26, 28, 31] },
+      { office: "state-house", title: "State House", districts: 150, generalDate: "2026-11-03", map: "/maps/tx-state-house.json" },
+    ],
   },
 };
 // California (Oct 2026): moved in from cagovtracker.com. Finance is the
 // CAL-ACCESS bulk import (scripts/data-import/cal-access, ca-finance-sync.yml)
 // staged in ca_* and published into cf_* nightly; polling is FiftyPlusOne. The
 // primary (Jun 2) was top-two, so the general can pit any two parties.
-const LIVE_CONFIG_CA: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths">> = {
+const LIVE_CONFIG_CA: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths" | "chambers">> = {
   ca: {
     agency: {
       name: "California Secretary of State (CAL-ACCESS)",

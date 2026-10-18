@@ -60,6 +60,14 @@ class Resolution(unittest.TestCase):
         self.assertIsNone(self.r.resolve("999", ["Unknown Committee"], "Nobody Here"))
 
 
+class Texas(unittest.TestCase):
+    def test_ident_resolver(self):
+        r = roster.IdentResolver()
+        self.assertEqual(r.resolve("00019652"), "19652")
+        self.assertIsNone(r.resolve("openstates:ocd-person/x"))
+        self.assertIsNone(r.resolve(None))
+
+
 class Build(unittest.TestCase):
     def test_build_roster(self):
         races = [{"race_id": "r1", "office": "state-senate", "office_num": 11},
@@ -84,12 +92,12 @@ class Build(unittest.TestCase):
         resolver = roster.FilerResolver([{"state_filer_id": "77", "committee_name": "BILL FOR SENATE"}])
         rows, stats = roster.build_roster("ak", races, participants, candidates, resolver)
         by_slug = {r["slug"]: r for r in rows}
-        self.assertEqual(set(by_slug), {"william-wielechowski-sd11", "ann-smith-hd3"})
-        w = by_slug["william-wielechowski-sd11"]
+        self.assertEqual(set(by_slug), {"william-wielechowski-ak-sd11", "ann-smith-ak-hd3"})
+        w = by_slug["william-wielechowski-ak-sd11"]
         self.assertEqual((w["office"], w["district"], w["party"], w["status"]), ("state-senate", "11", "Democrat", "active"))
         self.assertEqual(w["filer_refs"], ["ak:77"])
         self.assertEqual(w["committee_name"], "Bill for Senate")
-        a = by_slug["ann-smith-hd3"]
+        a = by_slug["ann-smith-ak-hd3"]
         self.assertEqual((a["office"], a["party"], a["status"], a["filer_refs"]), ("state-house", "Republican", "lost_primary", []))
         self.assertEqual(stats["resolved"], 2)   # c1 counted per listing
         self.assertEqual(stats["unresolved"], 1)

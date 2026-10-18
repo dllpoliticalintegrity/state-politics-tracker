@@ -16,7 +16,8 @@ keys filers by name. Order: LPT id (leading zeros ignored), then the
 candidate's committee name(s), then the candidate's own name (Alaska) --
 all against the scrape. Unresolved candidates are still added (no money).
 
-Idempotent by slug ("<first>-<last>-sd<N>" / "-hd<N>", Michigan's form).
+Idempotent by slug ("<first>-<last>-<st>-sd<N>" / "-hd<N>": the state is in
+the slug because cf_candidates.slug is unique across states).
 A new candidate is inserted; an existing one gets only its status, party and
 any missing committee ref updated -- never its name, photo or other fields an
 admin may have curated. Nothing is ever deleted.
@@ -189,7 +190,7 @@ def build_roster(st, races, participants, candidates, resolver):
             committees = [committees]
         fid = resolver.resolve(cand.get("state_filer_id"), committees, raw_name)
         stats["resolved" if fid else "unresolved"] += 1
-        slug = f"{name_slug(name)}-{prefix}{district}"
+        slug = f"{name_slug(name)}-{st}-{prefix}{district}"
         if slug in out:                       # same person listed twice
             if fid and f"{st}:{fid}" not in out[slug]["filer_refs"]:
                 out[slug]["filer_refs"].append(f"{st}:{fid}")
@@ -273,3 +274,71 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
                   headers=rest._headers({"Content-Type": "application/json",
                                          "Prefer": "return=minimal"}))
     return stats
+
+
+# ─── Texas ────────────────────────────────────────────────────────────────
+#
+# Texas candidates live in tx_candidates (the TEC importer's seed table;
+# publish_texas_to_cf() copies them to cf_candidates nightly). LPT's Texas ids
+# are TEC filer idents with leading zeros, which the importer normalises the
+# same way, so no scrape is needed to resolve them.
+
+TX_OFFICE = {"state-senate": "STATESEN", "state-house": "STATEREP"}
+
+
+class IdentResolver:
+    """TEC: the LPT id is the filer ident (leading zeros dropped)."""
+
+    def resolve(self, lpt_fid, committee_names=(), candidate_name=None):
+        v = (lpt_fid or "").strip()
+        return (v.lstrip("0") or v) if v.isdigit() else None
+
+
+def sync_texas(dry_run=False, log=print):
+    races, participants, candidates = fetch_lpt("tx")
+    rows, stats = build_roster("tx", races, participants, candidates, IdentResolver())
+    live = rest.get_all("tx_candidates?select=id,slug,party,status,filer_ident&order=id")
+    live_by_slug = {r["slug"]: r for r in live}
+    live_idents = {r["filer_ident"] for r in live if r.get("filer_ident")}
+    inserts, updates = [], []
+    for r in rows:
+        ident = r["filer_refs"][0].split(":", 1)[1] if r["filer_refs"] else None
+        cur = live_by_slug.get(r["slug"])
+        if cur is None:
+            if not ident or ident in live_idents:
+                stats["skipped_no_or_dup_ident"] = stats.get("skipped_no_or_dup_ident", 0) + 1
+                continue                       # the importer keys on the ident
+            inserts.append({
+                "slug": r["slug"], "name": r["name"], "party": r["party"],
+                "filer_ident": ident, "committee_name": r["committee_name"],
+                "office": TX_OFFICE[r["office"]], "district": r["district"],
+                "election_year": CYCLE, "status": r["status"], "featured": False,
+            })
+            live_idents.add(ident)
+            continue
+        patch = {k: r[k] for k in ("status", "party") if r[k] and r[k] != cur.get(k)}
+        if patch:
+            updates.append((cur["id"], patch))
+    log(f"   texas roster: {len(races)} LPT races, {len(rows)} candidates; "
+        f"{len(inserts)} new, {len(updates)} updated, "
+        f"{stats.get('skipped_no_or_dup_ident', 0)} skipped (no or duplicate TEC ident)"
+        f"{' (dry run)' if dry_run else ''}")
+    if dry_run:
+        return stats
+    for i in range(0, len(inserts), 200):
+        rest.upsert("tx_candidates", inserts[i:i + 200], conflict="slug", resolution="ignore")
+    for cid, patch in updates:
+        rest.http(f"{rest.SUPABASE_URL}/rest/v1/tx_candidates?id=eq.{parse.quote(cid)}",
+                  data=json.dumps(patch).encode(), method="PATCH",
+                  headers=rest._headers({"Content-Type": "application/json",
+                                         "Prefer": "return=minimal"}))
+    return stats
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="Seed Texas legislative candidates into tx_candidates from LPT.")
+    ap.add_argument("--texas", action="store_true", required=True)
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    sync_texas(dry_run=a.dry_run)
