@@ -50,6 +50,8 @@ Transactions (Playwright — /cgi-bin/*.exe blocks datacenter IPs at CDN):
 """
 
 import csv
+import hashlib
+import os
 import re
 import sys
 import time
@@ -741,13 +743,32 @@ def _get_election_options(page) -> list[tuple[str, str]]:
     return [(v, lbl) for v, lbl in options if v and v != ""]
 
 
+_OFFICES: dict[str, list[str]] = {}
+
+
+def _office_options(page, txn_type: str) -> list[str]:
+    """Office codes in the form's Candidate Search <select name="office">
+    (All excluded), read once per form."""
+    if txn_type not in _OFFICES:
+        page.goto(TRANSACTION_FORM_PAGES[txn_type], timeout=30_000)
+        page.wait_for_load_state("networkidle")
+        codes = page.evaluate("""
+            () => Array.from(
+                document.querySelectorAll('select[name="office"] option')
+            ).map(o => o.value)
+        """)
+        _OFFICES[txn_type] = [c for c in dict.fromkeys(codes) if c and c != "All"]
+    return _OFFICES[txn_type]
+
+
 def _fill_txn_form(page, txn_type: str,
                    date_from: date | None = None,
                    date_to:   date | None = None,
                    election_id: str = "All",
                    amount_min: str = "",
                    amount_max: str = "",
-                   search_on_override: str | None = None) -> None:
+                   search_on_override: str | None = None,
+                   office: str = "") -> None:
     """Fill the transaction search form in the current Playwright page.
 
     For contributions/transfers/other:
@@ -792,6 +813,11 @@ def _fill_txn_form(page, txn_type: str,
         radio = page.locator(f'input[name="search_on"][value="{search_on_val}"]')
         if radio.count() > 0:
             radio.first.click()
+
+    # Candidate Search's Office filter -- set only when a capped query is
+    # split by office (_fetch_and_append).
+    if office:
+        page.select_option('select[name="office"]', value=office)
 
     # Date range — only fill if provided (expenditures by election don't need it
     # unless sub-chunking within a dense election).
@@ -841,7 +867,8 @@ def _fetch_chunk_playwright(page, txn_type: str,
                             election_id: str = "All",
                             amount_min: str = "",
                             amount_max: str = "",
-                            search_on_override: str | None = None) -> int:
+                            search_on_override: str | None = None,
+                            office: str = "") -> int:
     """Navigate the form, submit, save the download to tmp_path.
 
     Retries up to max_retries times with a fresh page.goto() on each attempt —
@@ -880,7 +907,8 @@ def _fetch_chunk_playwright(page, txn_type: str,
             _fill_txn_form(page, txn_type, date_from, date_to,
                            election_id=election_id,
                            amount_min=amount_min, amount_max=amount_max,
-                           search_on_override=search_on_override)
+                           search_on_override=search_on_override,
+                           office=office)
 
             # Try the standard submit button; fall back to any submit input or button
             submit_selectors = [
@@ -934,13 +962,42 @@ def _fetch_chunk_playwright(page, txn_type: str,
     raise last_exc
 
 
+# Lines already appended to each year file: {year_path: {md5 of line: copies}}.
+# Reset whenever a year file is rebuilt (download_transactions).
+_WRITTEN: dict[Path, dict[bytes, int]] = {}
+
+
 def _append_chunk(src: Path, dst: Path, first: bool) -> None:
-    """Append src to the year file dst, skipping src's header if not first."""
+    """Append src to the year file dst, skipping src's header if not first.
+
+    2026-10: de-duplicates per download, not per line. A line already in dst
+    is appended again only as many more times as src itself holds it, so per
+    distinct line the year file keeps the most copies any ONE download
+    returned. That drops what a second download repeats -- overlapping
+    election queries, a window re-fetched after a browser restart (the
+    duplication _year_file_rows' note describes) -- but keeps transactions
+    that are genuinely identical within one download. Florida's export has
+    many: the same donor giving the same amount twice on one day, e.g. a
+    statewide candidate's separate primary and general checks. The
+    line-level _dedup_year_file pass this replaces deleted every second copy
+    (31,383 rows of fl_contributions_2025.txt; $198k of Jay Collins's
+    governor account alone, checked against the Division's own per-candidate
+    query on 2026-10-15)."""
     lines = src.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
     if not lines:
         return
+    written = _WRITTEN.setdefault(dst, {})
+    seen: dict[bytes, int] = {}
+    keep = [lines[0]] if first else []
+    for line in lines[1:]:
+        key = hashlib.md5(line.rstrip("\r\n").encode("utf-8", "replace")).digest()
+        n = seen.get(key, 0) + 1
+        seen[key] = n
+        if n > written.get(key, 0):
+            written[key] = n
+            keep.append(line if line.endswith("\n") else line + "\n")
     with open(dst, "a", encoding="utf-8") as f:
-        f.writelines(lines if first else lines[1:])
+        f.writelines(keep)
     src.unlink(missing_ok=True)
 
 
@@ -956,7 +1013,8 @@ def _fetch_and_append(page, txn_type: str,
                       election_id: str = "All",
                       amount_min: str = "",
                       amount_max: str = "",
-                      search_on_override: str | None = None) -> tuple[int, int]:
+                      search_on_override: str | None = None,
+                      office: str = "") -> tuple[int, int]:
     """Recursively fetch a date window, sub-chunking if ROW_LIMIT is hit.
 
     `first` is a one-element list so the mutable flag survives recursion.
@@ -976,6 +1034,7 @@ def _fetch_and_append(page, txn_type: str,
             election_id=election_id,
             amount_min=amount_min, amount_max=amount_max,
             search_on_override=search_on_override,
+            office=office,
         )
     except Exception as e:
         tmp_path.unlink(missing_ok=True)
@@ -997,6 +1056,58 @@ def _fetch_and_append(page, txn_type: str,
 
     if row_count >= ROW_LIMIT:
         _next_level = level + 1
+        # 2026-10: once dates can't be split further, split by account before
+        # amount. Amount bands start at $0 -- the form refuses a negative
+        # bound -- so every refund in an amount-split query was lost: in the
+        # 2026 general's expenditures, all 203 of Byron Donalds's vendor
+        # refunds (-$81k), and contribution refunds dated on a quarter's last
+        # day. A contributions day splits into Candidate Search (search_on 2)
+        # and Committee Search (4), which together are exactly search_on 1;
+        # a candidate-side query splits by Office, whose options partition it
+        # exactly (both checked against live queries, 2026-10-15). Only what
+        # is still over the limit after that -- payroll-dues PACs -- falls
+        # through to amount bands.
+        if (chunk_start is None or _next_level >= len(_CHUNK_LEVELS)) \
+                and not office and not (amount_min or amount_max):
+            if txn_type == "contributions" and search_on_override is None:
+                tmp_path.unlink(missing_ok=True)
+                log.warning(
+                    f"    [!] {chunk_key} ({row_count} rows) still at limit "
+                    f"— splitting into candidate and committee searches"
+                )
+                total_rows = total_err = 0
+                for search_on in ("2", "4"):
+                    rows, errs = _fetch_and_append(
+                        page, txn_type, chunk_start, chunk_end,
+                        year_path, first, log, level=_next_level,
+                        election_id=election_id,
+                        search_on_override=search_on,
+                    )
+                    total_rows += rows
+                    total_err  += errs
+                return total_rows, total_err
+            candidate_side = (search_on_override == "2" if txn_type == "contributions"
+                              else txn_type in ("expenditures", "transfers")
+                              and search_on_override is None)
+            if candidate_side:
+                offices = _office_options(page, txn_type)
+                tmp_path.unlink(missing_ok=True)
+                log.warning(
+                    f"    [!] {chunk_key} ({row_count} rows) still at limit "
+                    f"— splitting candidate search by office ({len(offices)})"
+                )
+                total_rows = total_err = 0
+                for office_code in offices:
+                    rows, errs = _fetch_and_append(
+                        page, txn_type, chunk_start, chunk_end,
+                        year_path, first, log, level=_next_level,
+                        election_id=election_id,
+                        search_on_override=search_on_override,
+                        office=office_code,
+                    )
+                    total_rows += rows
+                    total_err  += errs
+                return total_rows, total_err
         if _next_level >= len(_CHUNK_LEVELS):
             if amount_min or amount_max:
                 # Already inside an amount-range split and still at the limit —
@@ -1023,6 +1134,7 @@ def _fetch_and_append(page, txn_type: str,
                     election_id=election_id,
                     amount_min=amin, amount_max=amax,
                     search_on_override=search_on_override,
+                    office=office,
                 )
                 total_rows += rows
                 total_err  += errs
@@ -1048,6 +1160,7 @@ def _fetch_and_append(page, txn_type: str,
                     election_id=election_id,
                     amount_min=amin, amount_max=amax,
                     search_on_override=search_on_override,
+                    office=office,
                 )
                 total_rows += rows
                 total_err  += errs
@@ -1067,6 +1180,7 @@ def _fetch_and_append(page, txn_type: str,
                 election_id=election_id,
                 amount_min=amount_min, amount_max=amount_max,
                 search_on_override=search_on_override,
+                office=office,
             )
             total_rows += rows
             total_err  += errs
@@ -1079,55 +1193,41 @@ def _fetch_and_append(page, txn_type: str,
 
 
 def _new_page(p):
-    """Create a fresh browser context and page with accept_downloads=True."""
-    browser = p.chromium.launch(headless=False)
+    """Create a fresh browser context and page with accept_downloads=True.
+
+    2026-10: headless when there is no display (GitHub's runners, where a
+    headed launch fails outright). The Division's forms answer a headless
+    browser the same -- a full 2025-26 sync ran headless on 2026-10-18."""
+    browser = p.chromium.launch(headless=not os.environ.get("DISPLAY"))
     context = browser.new_context(accept_downloads=True)
     return browser, context.new_page()
 
 
-def _dedup_year_file(path: Path, log) -> int:
-    """Remove exact-duplicate data rows from a downloaded year file in place.
+def _year_file_rows(path: Path) -> int:
+    """Data rows in a downloaded year file.
 
-    2026-09-07: confirmed live that FL's transaction search forms don't
-    cleanly scope results the way their parameters imply -- this affects
-    ALL transaction types, not just the Committee Search / expenditures
-    case documented above. Evidence: after fixing the committee-scoped
-    pass to query a single election, fl_expenditures_2026.txt still came
-    back ~46% duplicate rows (264,945 raw / 141,799 unique), and the
-    duplication hit ordinary candidates too (e.g. "Nocco, Chris", not a
-    PAC) -- so Candidate Search's own 5-elections-per-year loop is ALSO
-    returning overlapping/duplicate data, not just Committee Search.
-    fl_contributions_2025/2026.txt (date-chunked, not election-based at
-    all) showed a smaller but nonzero ~4-5% duplicate rate too, likely
-    from adaptive sub-chunking / retry-after-restart appending the same
-    rows twice. Rather than chase down each form's specific scoping quirk,
-    dedupe every year file unconditionally after all fetch passes finish
-    -- this is a superset fix that's correct regardless of which pass(es)
-    produced the duplicates, and is a no-op (returns immediately, rewrites
-    nothing) for any file that turns out to already be clean.
+    Until 2026-10 this was _dedup_year_file, which removed exact-duplicate
+    lines from the finished file. Its note, still the reason downloads are
+    de-duplicated at all: 2026-09-07: confirmed live that FL's transaction
+    search forms don't cleanly scope results the way their parameters
+    imply -- this affects ALL transaction types, not just the Committee
+    Search / expenditures case documented above. Evidence: after fixing the
+    committee-scoped pass to query a single election,
+    fl_expenditures_2026.txt still came back ~46% duplicate rows (264,945
+    raw / 141,799 unique), and the duplication hit ordinary candidates too
+    (e.g. "Nocco, Chris", not a PAC) -- so Candidate Search's own
+    5-elections-per-year loop is ALSO returning overlapping/duplicate data,
+    not just Committee Search. fl_contributions_2025/2026.txt (date-chunked,
+    not election-based at all) showed a smaller but nonzero ~4-5% duplicate
+    rate too, likely from adaptive sub-chunking / retry-after-restart
+    appending the same rows twice. -- That last rate was mostly not
+    repetition: it was genuinely identical transactions, which a line-level
+    dedupe deletes. _append_chunk now de-duplicates per download instead.
     """
     if not path.exists() or path.stat().st_size == 0:
         return 0
     with open(path, encoding="utf-8", newline="") as f:
-        lines = f.readlines()
-    if not lines:
-        return 0
-    header, rows = lines[0], lines[1:]
-    seen: set[str] = set()
-    kept: list[str] = []
-    for line in rows:
-        if line in seen:
-            continue
-        seen.add(line)
-        kept.append(line)
-    removed = len(rows) - len(kept)
-    if removed:
-        with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(header)
-            f.writelines(kept)
-        log.info(f"    deduped {path.name}: {len(rows):,} -> {len(kept):,} rows "
-                  f"({removed:,} exact-duplicate rows removed)")
-    return len(kept)
+        return max(0, sum(1 for _ in f) - 1)
 
 
 def download_transactions(p, log,
@@ -1200,6 +1300,7 @@ def download_transactions(p, log,
                 # Current year (or force): delete existing file and rebuild
                 if year_path.exists():
                     year_path.unlink()
+                _WRITTEN.pop(year_path, None)
                 # Also clear any manifest entries for this year's chunks
                 strip_manifest(
                     lambda r, t=txn_type, y=year: not (
@@ -1358,7 +1459,7 @@ def download_transactions(p, log,
                     log.info(f"    1 election ({gen_election}) for {year} (committee-scoped pass)")
                     _run_items([(None, None, gen_election)], search_on_override="4")
 
-                year_rows = _dedup_year_file(year_path, log)
+                year_rows = _year_file_rows(year_path)
 
                 if year_path.exists() and year_path.stat().st_size > 0:
                     log.file_download_ok(
@@ -1460,6 +1561,13 @@ def run(force: bool = False, entities: bool = False,
 
         # ── Transactions (Playwright) ────────────────────────────────
         if do_transactions:
+            # 2026-10: the transaction exports name the committee but carry
+            # no account number; the parser looks candidate committees' up in
+            # the candidate bulk files (parsers/florida.py, _FilerIds), so a
+            # transactions-only run fetches those too -- one POST per
+            # election, seconds, unlike the committee sweep.
+            if not do_entities:
+                download_candidate_bulk(session, log, recent_only=True)
             try:
                 from playwright.sync_api import sync_playwright
             except ImportError:

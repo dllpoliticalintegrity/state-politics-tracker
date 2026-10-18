@@ -107,6 +107,7 @@ def rows_for_state(st, entry, clean_dir, refs):
     category_field = entry.get("category_field", "category")     # null = no category
     inkind_types = {v.lower() for v in entry.get("inkind_types", [])}
     entity_words = entry.get("entity_words")
+    type_from_name_parts = bool(entry.get("type_from_name_parts"))
     unitemized = entry.get("unitemized")
     # skip_types: per SLCF table, transaction types the pilot never imported
     # (AL's Other Receipts extract: bank interest, vendor refunds).
@@ -156,7 +157,8 @@ def rows_for_state(st, entry, clean_dir, refs):
                 continue
             out = mapping.to_cf(t, row, individual_types, category_field, unitemized,
                                 loan_record=t != table, inkind_types=inkind_types,
-                                entity_words=entity_words)
+                                entity_words=entity_words,
+                                type_from_name_parts=type_from_name_parts)
             if out is None:
                 counts["unmapped"] += 1
                 continue
