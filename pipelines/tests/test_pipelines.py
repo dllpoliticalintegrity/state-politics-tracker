@@ -158,6 +158,13 @@ class MappingTest(unittest.TestCase):
                                                "contributor_name": "PAT SMITH"},
                              entity_words=["PA"])
         self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # whole words only
+        for first, want in (("Tom", "INDIVIDUAL"), ("", "ENTITY")):
+            _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_type": "",
+                                                   "contributor_name": "EVERAGE TOM",
+                                                   "contributor_first": first,
+                                                   "contributor_last": "Everage"},
+                                 ["individual"], type_from_name_parts=True)
+            self.assertEqual(r["contributor_type"], want)
         t, _ = mapping.to_cf("loans_debts", {"original_amount": "500", "record_type": "Loan Payable",
                                              "counterparty_name": "MIKE LINDELL"})
         self.assertEqual(t, "cf_loans")
