@@ -356,7 +356,8 @@ def main(argv=None):
     if entry.get("ie"):
         cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name&order=id")
         ie.load_ie(st, entry, clean_dir, cands, args.dry_run, since, entry.get("cycle", "2026"),
-                   mapping.TxnIds(st, entry.get("id_format")), open_table)
+                   mapping.TxnIds(st, entry.get("id_format")), open_table,
+                   do_prune=do_prune, min_share=entry.get("prune_min_share", PRUNE_MIN_SHARE))
     return 0
 
 
