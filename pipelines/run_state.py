@@ -20,11 +20,20 @@ Run one SLCF state end to end — what each finance-sync.yml matrix job does:
 
 A state with `soft_fail` in states.json reports a failure as a warning and
 exits 0, as the pilot importer does for Kansas.
+
+Prune guard: a scraper that loses a file or a date window logs the error and
+carries on (Wisconsin skips a window that fails all retries), so a run can
+look complete while a month is missing — and the loader's prune would delete
+that month's live rows. When the run's log holds any scrape error, the load
+goes ahead without prune, with a warning; the next clean run prunes.
 """
 
 import argparse
+import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PIPELINES = Path(__file__).resolve().parent
@@ -44,20 +53,43 @@ def cleaned_rows(clean_dir, table):
     return sum(1 for _ in reader)
 
 
+def scrape_errors(run_id):
+    """file_download / page_scrape errors in SLCF's log for this run."""
+    log = PIPELINES / "slcf" / "logs" / "prod" / run_id / "log.jsonl"
+    if not log.exists():
+        return ["no SLCF run log at " + str(log)]
+    errors = []
+    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("operation") == "scrape" and ev.get("status") == "error":
+            errors.append(f"{ev.get('filename') or ev.get('entity') or '?'}: {ev.get('error', '')}")
+    return errors
+
+
 def sync(st, entry):
+    """Run SLCF for the state; return the run's scrape errors."""
     if entry.get("playwright"):
         if run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"]):
             raise RuntimeError("playwright install failed")
     start_year = load_cf.since_of(entry)[:4]
+    # A known run id, so this run's log can be read back (orc keeps one that
+    # is already set; logs/prod/<run id>/log.jsonl).
+    run_id = f"run_state_{st}_{time.strftime('%Y%m%d_%H%M%S')}"
+    env = dict(os.environ, CF_RUN_ID=run_id)
+    env.pop("CF_DAEMON", None)
     run([sys.executable, str(PIPELINES / "slcf" / "src" / "main.py"), "--no-report",
          "sync", st.upper(), "--start-year", start_year, "--no-aggregate", "--no-fec-ie",
-         "--transactions", *entry.get("slcf_args", [])], cwd=PIPELINES / "slcf")
+         "--transactions", *entry.get("slcf_args", [])], cwd=PIPELINES / "slcf", env=env)
     clean_dir = load_cf.cleaned_dir(st, load_cf.SLCF_DATA)
     n = cleaned_rows(clean_dir, "contributions")
     if not n:
         raise RuntimeError(f"SLCF wrote no contributions for {st.upper()} — the scrape or "
                            f"parse failed; see the log above")
     print(f"   SLCF: {n:,} contributions in {clean_dir}", flush=True)
+    return scrape_errors(run_id)
 
 
 def main(argv=None):
@@ -74,8 +106,13 @@ def main(argv=None):
     if not args.dry_run and entry.get("dry_run_only"):
         sys.exit(f"{st}: dry_run_only in states.json — run with --dry-run")
     try:
-        sync(st, entry)
+        errors = sync(st, entry)
         load_args = ["--state", st]
+        if errors and not args.dry_run:
+            print(f"::warning::{st}: {len(errors)} scrape error(s) — loading without prune "
+                  f"this run, so a missing file can't delete live rows. First: {errors[0]}",
+                  flush=True)
+            load_args.append("--no-prune")
         if args.dry_run:
             load_args.append("--dry-run")
         if args.report:

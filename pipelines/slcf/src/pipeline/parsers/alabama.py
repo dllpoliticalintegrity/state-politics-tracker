@@ -4,6 +4,18 @@ parsers/alabama.py — Transform Alabama raw CSVs into the 5 normalized relation
 Alabama is a flat-file state: committee and candidate info appears on every
 transaction row and is synthesized here. OtherReceipts splits into loans_debts
 (ReceiptType == 'Loan') and contributions (everything else).
+
+In-kind gifts are read from the Cash extract, which carries every row of the
+In-Kind extract under the same id (ContributionID = InKindContributionID); the
+In-Kind extract only adds the few rows the Cash one lacks. Its State column is
+a numeric code ("2" for AL), translated through the pairs both extracts share.
+
+Transaction rows carry state_filer_id (CommitteeId) and txn_id (the FCPA
+ContributionID / InKindContributionID / ReceiptID / ExpenditureID — one id
+sequence across the receipt extracts) for state-politics-tracker's loader
+(columns.py, TRANSACTION_IDS). FCPA's `Amended` = 'Y' marks a row filed on an
+amended report — the current version, not a replaced one — so nothing here
+is `superseded`.
 """
 
 import csv
@@ -26,8 +38,10 @@ csv.field_size_limit(sys.maxsize)  # Alabama CSVs can have very long fields
 
 # paths and file prep
 
-RAW_DIR   = PROJECT_ROOT / "data" / "alabama" / "raw"
-CLEAN_DIR = PROJECT_ROOT / "data" / "alabama" / "cleaned"
+# "Alabama", as the scraper writes it: the lower-case path only resolved on a
+# case-insensitive filesystem (macOS) and parsed nothing on Linux runners.
+RAW_DIR   = PROJECT_ROOT / "data" / "Alabama" / "raw"
+CLEAN_DIR = PROJECT_ROOT / "data" / "Alabama" / "cleaned"
 CLEAN_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -97,6 +111,24 @@ def raw_files(pattern: str) -> list[Path]:
     return sorted(RAW_DIR.glob(pattern), key=lambda p: p.name)
 
 
+def inkind_state_codes(cash_states: dict[str, str]) -> dict[str, str]:
+    """In-Kind extract State code -> postal abbreviation ("2" -> "AL"),
+    learned from the rows the Cash extract also carries (cash_states: id ->
+    the Cash row's State). The codes number the postal abbreviations in
+    alphabetical order, territories included; reading them off the data
+    avoids hard-coding that list."""
+    pairs: dict[str, dict[str, int]] = {}
+    for path in raw_files("*_InKindContributionsExtract1.csv"):
+        with open(path, newline="", encoding="utf-8", errors="replace") as f:
+            for row in csv.DictReader(f):
+                abbr = cash_states.get(clean(row.get("InKindContributionID", "")))
+                code = clean(row.get("State", ""))
+                if abbr and code:
+                    seen = pairs.setdefault(code, {})
+                    seen[abbr] = seen.get(abbr, 0) + 1
+    return {code: max(seen, key=seen.get) for code, seen in pairs.items()}
+
+
 # ============================== writers ===============================
 def open_writer(filename: str, fieldnames: list[str]):
     """Open a gzipped CSV writer in CLEAN_DIR. Extra fields are silently dropped,
@@ -150,8 +182,16 @@ def run():
                 candidates.add(name)
 
         # cash + inkind contributions
+        # In-kind rows come from the Cash extract (module docstring): the
+        # In-Kind extract repeats them with a numeric State code, so it only
+        # contributes the rows whose id the Cash extract doesn't have.
+        cash_ids: set[str] = set()
+        cash_inkind_state: dict[str, str] = {}   # in-kind id -> Cash State
+        state_codes: dict[str, str] = {}
         for pattern in ("*_CashContributionsExtract1.csv",
                         "*_InKindContributionsExtract1.csv"):
+            if pattern.startswith("*_InKind"):
+                state_codes = inkind_state_codes(cash_inkind_state)
             for path in raw_files(pattern):
                 is_cash_file = "CashContributions" in path.name
                 year = year_from_filename(path)
@@ -162,15 +202,24 @@ def run():
                         for row_num, row in enumerate(csv.DictReader(f), start=2):
                             filer_id   = clean(row.get("CommitteeId", ""))
                             amount_raw = clean(row.get("ContributionAmount", ""))
-
-                            if is_cash_file and "in-kind" in clean(
-                                    row.get("ContributionType", "")).lower():
-                                skipped += 1
-                                continue
+                            txn_id     = clean(row.get("ContributionID"
+                                                       if is_cash_file else "InKindContributionID", ""))
 
                             if not filer_id or not filer_id.isdigit() or not is_numeric(amount_raw):
                                 skipped += 1
                                 continue
+
+                            state = clean(row.get("State", ""))
+                            if is_cash_file:
+                                if txn_id:
+                                    cash_ids.add(txn_id)
+                                    if "in-kind" in clean(row.get("ContributionType", "")).lower():
+                                        cash_inkind_state[txn_id] = state
+                            elif txn_id and txn_id in cash_ids:
+                                skipped += 1      # already read from the Cash extract
+                                continue
+                            else:
+                                state = state_codes.get(state, state)
 
                             cmte_name  = utils.clean_name(row.get("CommitteeName", ""))
                             cmte_type  = clean(row.get("CommitteeType", ""))
@@ -196,13 +245,21 @@ def run():
                                 "date":              parse_date(row.get("ContributionDate", "")),
                                 "transaction_type":  clean(row.get("ContributionType", "")),
                                 "contributor_type":  clean(row.get("ContributorType", "")),
-                                "contributor_city":  utils.clean_name(row.get("City", "")),
-                                "contributor_state": clean(row.get("State", "")),
+                                # City as filed (stripped), not upper-cased: the
+                                # site's Alabama rows keep the filer's spelling,
+                                # as Georgia's and Ohio's parsers do too.
+                                "contributor_city":  clean(row.get("City", "")),
+                                "contributor_state": state,
                                 "contributor_zip":   utils.clean_zip(row.get("Zip", "")),
+                                # The source's own name parts, as filed (the
+                                # site keeps last and first name apart).
+                                "contributor_first": clean(row.get("FirstName", "")),
+                                "contributor_last":  clean(row.get("LastName", "")),
                                 "candidate_name":    cand_name,
                                 "election_year":     year,
-                                "filing_id":         clean(row.get("ContributionID",
-                                                           row.get("InKindContributionID", ""))),
+                                "filing_id":         txn_id,
+                                "state_filer_id":    filer_id,
+                                "txn_id":            txn_id,
                                 "amended":           yn_to_int(row.get("Amended", "N")),
                                 "raw_file":          path.name,
                                 "row_num":           row_num,
@@ -253,7 +310,7 @@ def run():
                                 "committee_name":     resolved_cmte,
                                 "record_type":        "loan",
                                 "counterparty_name":  name,
-                                "counterparty_city":  utils.clean_name(row.get("City", "")),
+                                "counterparty_city":  clean(row.get("City", "")),
                                 "counterparty_state": clean(row.get("State", "")),
                                 "counterparty_zip":   utils.clean_zip(row.get("Zip", "")),
                                 "original_amount":    clean(row.get("ReceiptAmount", "")),
@@ -261,6 +318,8 @@ def run():
                                 "candidate_name":     cand_name,
                                 "election_year":      year,
                                 "filing_id":          clean(row.get("ReceiptID", "")),
+                                "state_filer_id":     filer_id,
+                                "txn_id":             clean(row.get("ReceiptID", "")),
                                 "amended":            yn_to_int(row.get("Amended", "N")),
                                 "raw_file":           path.name,
                                 "row_num":            row_num,
@@ -275,12 +334,18 @@ def run():
                                 "date":              parse_date(row.get("ReceiptDate", "")),
                                 "transaction_type":  receipt_type,
                                 "contributor_type":  clean(row.get("ReceiptSourceType", "")),
-                                "contributor_city":  utils.clean_name(row.get("City", "")),
+                                "contributor_city":  clean(row.get("City", "")),
                                 "contributor_state": clean(row.get("State", "")),
                                 "contributor_zip":   utils.clean_zip(row.get("Zip", "")),
+                                "contributor_first": clean(row.get("FirstName", "")),
+                                "contributor_last":  clean(row.get("LastName", "")),
                                 "candidate_name":    cand_name,
                                 "election_year":     year,
                                 "filing_id":         clean(row.get("ReceiptID", "")),
+                                # ReceiptID shares the ContributionID sequence,
+                                # so it can't collide with a cash gift's id.
+                                "state_filer_id":    filer_id,
+                                "txn_id":            clean(row.get("ReceiptID", "")),
                                 "amended":           yn_to_int(row.get("Amended", "N")),
                                 "raw_file":          path.name,
                                 "row_num":           row_num,
@@ -341,17 +406,25 @@ def run():
                                                     row.get("MI", ""),
                                                     row.get("Suffix", ""),
                                                 )),
+                            "payee_first":      clean(row.get("FirstName", "")),
+                            "payee_last":       clean(row.get("LastName", "")),
                             "amount":           amount_raw,
                             "date":             parse_date(row.get("ExpenditureDate", "")),
                             "transaction_type": clean(row.get("ExpenditureType", "")),
-                            "purpose":          clean(row.get("Purpose", "")),
-                            "category":         clean(row.get("Explanation", "")),
-                            "payee_city":       utils.clean_name(row.get("City", "")),
+                            # FCPA's Purpose is the spending category picked
+                            # from a list (Administrative, Advertising,
+                            # Fundraising, Refund ...); Explanation is the
+                            # filer's free text — SLCF's purpose.
+                            "purpose":          clean(row.get("Explanation", "")),
+                            "category":         clean(row.get("Purpose", "")),
+                            "payee_city":       clean(row.get("City", "")),
                             "payee_state":      clean(row.get("State", "")),
                             "payee_zip":        utils.clean_zip(row.get("Zip", "")),
                             "candidate_name":   cand_name,
                             "election_year":    year,
                             "filing_id":        clean(row.get("ExpenditureID", "")),
+                            "state_filer_id":   filer_id,
+                            "txn_id":           clean(row.get("ExpenditureID", "")),
                             "amended":          yn_to_int(row.get("Amended", "N")),
                             "raw_file":         path.name,
                             "row_num":          row_num,

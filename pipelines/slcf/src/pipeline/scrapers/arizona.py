@@ -525,22 +525,28 @@ def fetch_transactions_page(session: req_lib.Session, cycle_id_str: str,
                              category_type: str, filer_type_id: str,
                              start: int = 0,
                              length: int = TABLE_LENGTH,
-                             start_date: str | None = None) -> tuple[list[dict], int]:
+                             start_date: str | None = None,
+                             end_date: str | None = None,
+                             low_amount: str = "",
+                             high_amount: str = "") -> tuple[list[dict], int]:
     """POST to AdvancedSearch and return (rows, total_records).
 
     Request structure (confirmed from browser network capture):
       - Search params go in the URL query string
       - POST body is DataTables format: draw, columns[N][data], start, length, order
       - Pagination: start=0 for first page, start+=length for each subsequent page
+        (unreliable past the first page -- see iter_window_rows)
 
-    start_date (ISO date) narrows the search window within the cycle — used by
-    incremental runs to fetch only the current calendar year. Defaults to the
-    cycle's own start date.
+    start_date / end_date (ISO dates) narrow the search window within the
+    cycle. Default to the cycle's own dates. low_amount / high_amount bound
+    the amount's absolute value, both inclusive (a refund of -5500 matches
+    5500 to 5500); blank means unbounded, and the server ignores 0 or less.
     """
     from urllib.parse import urlencode
 
-    cycle_start, end_date = parse_cycle_dates(cycle_id_str)
+    cycle_start, cycle_end = parse_cycle_dates(cycle_id_str)
     start_date = start_date or cycle_start
+    end_date   = end_date or cycle_end
 
     query_params = {
         "CommiteeReportId": "",
@@ -566,8 +572,8 @@ def fetch_transactions_page(session: req_lib.Session, cycle_id_str: str,
         "CandidateName":    "",
         "CandidateFilerId": "",
         "Position":         "Support",
-        "LowAmount":        "",
-        "HighAmount":       "",
+        "LowAmount":        low_amount,
+        "HighAmount":       high_amount,
     }
 
     # DataTables POST body — mirrors exactly what the SPA sends
@@ -631,6 +637,126 @@ def normalize_tx_row(raw: dict) -> dict:
     }
 
 
+# AdvancedSearch pages with an offset over an ORDER BY that isn't unique (it
+# sorts on one column and ignores any further order[] columns), so consecutive
+# pages overlap and skip rows at random. Confirmed 2026-10-15: a statewide pull
+# of the 2026 cycle's candidate expenditures (11 pages) repeated 23 rows and
+# lost 8 of nine governor-race committees' 8,025, against each committee's own
+# one-page result -- multi-column ordering didn't help. So transactions are
+# fetched in date windows small enough to come back as ONE page: no offset, so
+# each window returns exactly its rows.
+WINDOW_TARGET_ROWS = 2000   # size each window for ~2/3 of a page
+WINDOW_MAX_DAYS    = 62
+DAY_PAGE_LENGTH    = 3500   # one day over TABLE_LENGTH: one bigger page; the
+                            # server's maxJsonLength (2M chars) caps a page at
+                            # ~3,800 rows (HTTP 500 past it)
+AMOUNT_EDGES       = (10, 25, 50, 100, 250, 1000)   # dollars: the first amount
+                            # bands of a day too big for DAY_PAGE_LENGTH
+
+
+def _window_page(session, cycle_id_str, category_type, filer_type_id,
+                 lo: str, hi: str, length: int, start: int = 0,
+                 low_amount: str = "", high_amount: str = ""):
+    """fetch_transactions_page for [lo, hi], rebuilding the session on an
+    empty response and retrying dropped connections. -> (rows, total, session)"""
+    for attempt in range(4):
+        try:
+            rows, total = fetch_transactions_page(session, cycle_id_str, category_type,
+                                                  filer_type_id, start, length,
+                                                  start_date=lo, end_date=hi,
+                                                  low_amount=low_amount,
+                                                  high_amount=high_amount)
+            return rows, total, session
+        except RuntimeError as e:
+            if "empty response" not in str(e) or attempt == 3:
+                raise
+            session = build_session()   # session likely expired
+            time.sleep(10)
+        except (req_lib.ConnectionError, req_lib.Timeout):
+            if attempt == 3:
+                raise
+            time.sleep(10 * (attempt + 1))
+
+
+def iter_window_rows(log, session, filename: str, cycle_id_str: str,
+                     category_type: str, filer_type_id: str,
+                     start_date: str, end_date: str):
+    """Yield every raw row dated [start_date, end_date], one single-page date
+    window at a time (see WINDOW_TARGET_ROWS above). Window length follows the
+    row density; a window that overflows its page is halved, down to a single
+    day (_one_day_rows)."""
+    from datetime import date, timedelta
+
+    lo, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    span = 7
+    while lo <= last:
+        hi = min(lo + timedelta(days=span - 1), last)
+        rows, total, session = _window_page(session, cycle_id_str, category_type,
+                                            filer_type_id, lo.isoformat(), hi.isoformat(),
+                                            TABLE_LENGTH)
+        if len(rows) < total and hi > lo:
+            span = max(1, ((hi - lo).days + 1) // 2)   # overflow: halve, retry
+            continue
+        if len(rows) < total:
+            rows = _one_day_rows(log, session, filename, cycle_id_str, category_type,
+                                 filer_type_id, lo.isoformat())
+        yield from rows
+        days = (hi - lo).days + 1
+        span = max(1, min(WINDOW_MAX_DAYS, days * WINDOW_TARGET_ROWS // max(len(rows), 1)))
+        lo = hi + timedelta(days=1)
+
+
+def _one_day_rows(log, session, filename, cycle_id_str, category_type,
+                  filer_type_id, day: str) -> list[dict]:
+    """Every row of one day with more rows than TABLE_LENGTH: one
+    DAY_PAGE_LENGTH page if it fits, else bands of the amount in whole cents
+    (the server filters on its absolute value, both ends inclusive, so the
+    bands cover refunds too), each halved until it comes back in one page.
+    Only a single amount with more rows than a page is paged with offsets,
+    with a warning."""
+    def page(lo_c, hi_c, length, start=0):         # cents; None = unbounded
+        nonlocal session
+        rows, total, session = _window_page(
+            session, cycle_id_str, category_type, filer_type_id, day, day, length, start,
+            low_amount="" if lo_c is None else f"{lo_c / 100:.2f}",
+            high_amount="" if hi_c is None else f"{hi_c / 100:.2f}")
+        return rows, total
+
+    try:
+        rows, total = page(None, None, DAY_PAGE_LENGTH)
+        if len(rows) >= total:
+            return rows
+    except req_lib.HTTPError:                      # past maxJsonLength
+        _, total = page(None, None, 1)
+    edges = [d * 100 for d in AMOUNT_EDGES]
+    bands = list(zip([None] + edges, [e - 1 for e in edges] + [None]))
+    out = []
+    while bands:
+        lo_c, hi_c = bands.pop()
+        rows, n = page(lo_c, hi_c, TABLE_LENGTH)
+        if len(rows) >= n:
+            out += rows
+        elif hi_c is None:                         # open top band: double it
+            bands += [(lo_c, 2 * lo_c - 1), (2 * lo_c, None)]
+        elif lo_c != hi_c:
+            mid = ((lo_c or 0) + hi_c) // 2
+            bands += [(lo_c, mid), (mid + 1, hi_c)]
+        else:
+            log.warning(f"    {filename}: {day} has {n:,} rows of {hi_c / 100:.2f}; "
+                        f"paging them (rows may repeat or go missing)")
+            start = len(rows)
+            while start < n:
+                more, _ = page(lo_c, hi_c, TABLE_LENGTH, start)
+                if not more:
+                    break
+                rows += more
+                start += TABLE_LENGTH
+            out += rows
+    if len(out) != total:
+        log.warning(f"    {filename}: {day}: {len(out):,} rows by amount band, {total:,} counted")
+    return out
+
+
 def download_one_api(log, session: req_lib.Session,
                      cycle_label: str, cycle_id_str: str,
                      filer_type_id: str, filer_type_label: str,
@@ -660,9 +786,9 @@ def download_one_api(log, session: req_lib.Session,
                          if (r.get("TransactionDate") or "") < year_floor]
 
     new_rows = 0   # rows written from this fetch
-    fetched  = 0   # raw rows returned by the API (drives pagination)
-    start = 0
-    worker_session = session
+    fetched  = 0   # raw rows returned by the API
+    cycle_start, cycle_end = parse_cycle_dates(cycle_id_str)
+    window_start = year_floor or cycle_start
     try:
         # Write to a temp file and replace on success so a mid-download failure
         # can't truncate an existing good file (matters for the merge path).
@@ -672,47 +798,28 @@ def download_one_api(log, session: req_lib.Session,
             writer.writeheader()
             writer.writerows(preserved)
 
-            while True:
-                try:
-                    rows, total = fetch_transactions_page(worker_session, cycle_id_str,
-                                                          category_type, filer_type_id,
-                                                          start, TABLE_LENGTH,
-                                                          start_date=year_floor)
-                except RuntimeError as e:
-                    if "empty response" in str(e):
-                        # Session likely expired — rebuild and retry this page once
-                        log.info(f"    {filename}: session expired at offset {start}, rebuilding...")
-                        worker_session = build_session()
-                        time.sleep(10)
-                        rows, total = fetch_transactions_page(worker_session, cycle_id_str,
-                                                              category_type, filer_type_id,
-                                                              start, TABLE_LENGTH,
-                                                              start_date=year_floor)
-                    else:
-                        raise
+            # The whole range's count, to check the windows add up to it.
+            _, total, session = _window_page(session, cycle_id_str, category_type,
+                                             filer_type_id, window_start, cycle_end, 1)
+            log.info(f"    {filename}: {total:,} total records")
 
-                if not rows:
-                    break
+            for raw in iter_window_rows(log, session, filename, cycle_id_str,
+                                        category_type, filer_type_id,
+                                        window_start, cycle_end):
+                fetched += 1
+                rec = normalize_tx_row(raw)
+                # Client-side guard — don't trust the server to honor
+                # StartDate; without this a merge could duplicate rows
+                # already preserved from the existing file.
+                if year_floor and rec["TransactionDate"] < year_floor:
+                    continue
+                writer.writerow(rec)
+                new_rows += 1
 
-                for raw in rows:
-                    rec = normalize_tx_row(raw)
-                    # Client-side guard — don't trust the server to honor
-                    # StartDate; without this a merge could duplicate rows
-                    # already preserved from the existing file.
-                    if year_floor and rec["TransactionDate"] < year_floor:
-                        continue
-                    writer.writerow(rec)
-                    new_rows += 1
-                fetched += len(rows)
-
-                if start == 0:
-                    log.info(f"    {filename}: {total:,} total records")
-
-                if fetched >= total or len(rows) < TABLE_LENGTH:
-                    break   # last page
-
-                start += TABLE_LENGTH
-                time.sleep(0.1)
+            if fetched != total:
+                # Rows filed while the download ran, usually; never silent.
+                log.warning(f"    {filename}: {fetched:,} rows fetched, "
+                            f"{total:,} counted at the start")
 
     except Exception as e:
         tmp_path.unlink(missing_ok=True)

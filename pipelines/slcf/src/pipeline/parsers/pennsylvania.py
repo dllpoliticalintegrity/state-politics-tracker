@@ -102,6 +102,24 @@ lost):
       receipt.txt rows are folded into contributions.csv.gz with
       transaction_type="Other Receipt" so the dollar amounts aren't lost,
       just the description text.
+
+Loader ids (columns.py, TRANSACTION_IDS), for state-politics-tracker:
+    - state_filer_id = the transaction row's own FILERID (contrib.txt spells
+      it FilerID) -- the committee, as cf_candidates.filer_refs store it
+      ("pa:20160016").
+    - txn_id is left blank: DOS publishes no per-transaction id
+      (CampaignFinanceID is the report's), so the loader hashes the row.
+    - superseded = "1" on every row of a report a later re-filing replaced.
+      The export keeps both versions when DOS hasn't dropped the original
+      (it usually has: most AMMEND = Y reports stand alone). Cycles 1-7 are
+      filed once a year each, so a later report (higher CampaignFinanceID)
+      for the same FILERID, EYEAR and CYCLE replaces the earlier one -- the
+      pilot importer's rule. Cycles 8/9 (pre-/post-special election) recur,
+      one per special election, so there a re-filing must also carry the
+      same BEGINNING balance. See _superseded_reports.
+    - contributor_first / contributor_last: CONTRIBUTOR is one "First M
+      Last" string; split as the pilot importer stored it, name suffixes and
+      "Friends of" committees aside (see ORG_NAME, _contributor_parts).
 """
 
 import csv
@@ -135,6 +153,24 @@ EARLIEST_YEAR  = 2000          # earliest year DOS publishes a full export for
 MAX_VALID_YEAR = date.today().year + 1
 
 FILER_TYPE_LABEL = {"1": "Candidate", "2": "Committee", "3": "Lobbyist"}
+
+# DOS report cycles that recur within a year: 8 = 2nd Friday Pre-Special,
+# 9 = 30-Day Post Special (one pair per special election). 1-7 (primary,
+# general/municipal and annual reports) are filed once a year each.
+SPECIAL_CYCLES = {"8", "9"}
+
+# The pilot importer's organisation-name words, plus the "Friends of X" /
+# "Citizens for X" committees the live rows already store whole: such a
+# contributor goes whole into contributor_last (see _contributor_parts).
+ORG_NAME = re.compile(
+    r"\b(INC|LLC|LLP|L\.L\.C|PAC|COMMITTEE|PARTY|CORP|CORPORATION|ASSN|"
+    r"ASSOCIATION|COMPANY|FUND|GROUP|TRUST|BANK|ENTERPRISES|PARTNERS|"
+    r"HOLDINGS|FLORIDA|AMERICA|USA|PA|PLLC|FARMS|SERVICES|CONSULTING|"
+    r"REALTY|PROPERTIES|CLUB|COALITION|ALLIANCE|FEDERATION|UNION|CHAMBER|"
+    r"FRIENDS\s+OF|CITIZENS\s+FOR)\b",
+    re.I,
+)
+NAME_SUFFIXES = {"JR", "SR", "II", "III", "IV", "V"}
 
 # ======================== Date / amount helpers =======================
 
@@ -207,6 +243,56 @@ def _pick_latest(rows: list[dict]) -> dict:
             cycle = 0
         return (r.get("SubmittedDate") or "", cycle)
     return max(rows, key=_key)
+
+
+# ========================= Loader id helpers ==========================
+
+def _superseded_reports(filer_rows: list[dict]) -> set[str]:
+    """CampaignFinanceIDs of the reports a later re-filing replaced: every
+    report but the latest (highest CampaignFinanceID) of a filer's EYEAR and
+    CYCLE -- and, for the recurring special-election cycles, BEGINNING
+    balance (see the module docstring, "Loader ids")."""
+    by_period: dict[tuple, list[int]] = {}
+    for row in filer_rows:
+        try:
+            cfid  = int(_clean(row.get("CampaignfinanceID", "")))
+            cycle = str(int(_clean(row.get("CYCLE", ""))))
+        except ValueError:
+            continue
+        key = (_clean(row.get("FILERID", "")), _clean(row.get("EYEAR", "")), cycle)
+        if cycle in SPECIAL_CYCLES:
+            key += (_parse_amount(row.get("BEGINNING", "")),)
+        by_period.setdefault(key, []).append(cfid)
+    return {str(c) for cfids in by_period.values() for c in cfids if c != max(cfids)}
+
+
+def _filer_id(txn: dict, rep: dict) -> str:
+    """state_filer_id: the transaction row's own FILERID (FilerID in
+    contrib.txt), which the pilot importer keyed on; the cover sheet's when
+    blank."""
+    return _clean(txn.get("FILERID") or txn.get("FilerID") or "") or rep["filer_id"]
+
+
+def _contributor_parts(name: str) -> tuple[str, str]:
+    """(first, last) for contributor_first / contributor_last, as the pilot
+    importer split CONTRIBUTOR: an organisation (ORG_NAME) whole into last;
+    "Last, First" on the comma; otherwise the last word is the last name --
+    except that a trailing suffix stays with it ("John Mucka Jr" -> "John" /
+    "Mucka Jr", where the pilot stored last name "Jr")."""
+    if not name or ORG_NAME.search(name):
+        return "", name
+    if "," in name:
+        last, _, first = (p.strip() for p in name.partition(","))
+        if first.upper().rstrip(".") not in NAME_SUFFIXES:
+            return first, last
+        name = f"{last} {first}"                 # "Edward T Moore, Jr"
+    tokens = name.split()
+    i = len(tokens) - 1
+    while i > 0 and tokens[i].upper().rstrip(".") in NAME_SUFFIXES:
+        i -= 1
+    if i == 0:
+        return "", name
+    return " ".join(tokens[:i]), " ".join(tokens[i:])
 
 
 # ========================== Zip / CSV helpers ==========================
@@ -478,6 +564,8 @@ def _run(log, t0: float, years: list[int] | None):
             if not filer_rows:
                 log.warning(f"  ✗ {filer_name}: not found or empty, skipping {year}")
                 continue
+            # Reports a later re-filing replaced (loader-only `superseded`).
+            superseded = _superseded_reports(filer_rows)
 
             by_filer_id: dict[str, list[dict]] = {}
             report_by_cfid: dict[str, dict] = {}
@@ -571,12 +659,15 @@ def _run(log, t0: float, years: list[int] | None):
                     unmatched += 1
                     continue
                 contributor_name = _clean(txn.get("CONTRIBUTOR", ""))
+                contributor_first, contributor_last = _contributor_parts(contributor_name)
                 section = _clean(txn.get("Section", ""))
                 base = {
                     "state":             STATE,
                     "committee_name":    rep["filer_name"],
                     "transaction_type":  section,
                     "contributor_name":  contributor_name,
+                    "contributor_first": contributor_first,
+                    "contributor_last":  contributor_last,
                     "contributor_city":  _clean(txn.get("CITY", "")),
                     "contributor_state": _clean(txn.get("STATE", "")),
                     "contributor_zip":   utils.clean_zip(txn.get("ZIPCODE", "")),
@@ -587,6 +678,9 @@ def _run(log, t0: float, years: list[int] | None):
                     "election_year":     rep["election_year"],
                     "amended":           rep["amended"],
                     "filing_id":         cfid,
+                    # Loader ids (module docstring): no txn_id -- DOS has none.
+                    "state_filer_id":    _filer_id(txn, rep),
+                    "superseded":        "1" if cfid in superseded else "",
                     "raw_file":          raw_prefix + contrib_name,
                 }
                 for n in (1, 2, 3):
@@ -618,13 +712,17 @@ def _run(log, t0: float, years: list[int] | None):
                 if not amount or not txn_date:
                     continue
                 contrib_rownum += 1
+                rec_name = _clean(txn.get("RECNAME", ""))
+                rec_first, rec_last = _contributor_parts(rec_name)
                 contrib_w.writerow({
                     "state":             STATE,
                     "committee_name":    rep["filer_name"],
                     "amount":            amount,
                     "date":              txn_date,
                     "transaction_type":  "Other Receipt",
-                    "contributor_name":  _clean(txn.get("RECNAME", "")),
+                    "contributor_name":  rec_name,
+                    "contributor_first": rec_first,
+                    "contributor_last":  rec_last,
                     "contributor_city":  _clean(txn.get("CITY", "")),
                     "contributor_state": _clean(txn.get("STATE", "")),
                     "contributor_zip":   utils.clean_zip(txn.get("ZIPCODE", "")),
@@ -633,6 +731,8 @@ def _run(log, t0: float, years: list[int] | None):
                     "election_year":     rep["election_year"],
                     "amended":           rep["amended"],
                     "filing_id":         cfid,
+                    "state_filer_id":    _filer_id(txn, rep),
+                    "superseded":        "1" if cfid in superseded else "",
                     "raw_file":          raw_prefix + receipt_name,
                     "row_num":           contrib_rownum,
                 })
@@ -664,6 +764,8 @@ def _run(log, t0: float, years: list[int] | None):
                     "election_year":  rep["election_year"],
                     "amended":        rep["amended"],
                     "filing_id":      cfid,
+                    "state_filer_id": _filer_id(txn, rep),
+                    "superseded":     "1" if cfid in superseded else "",
                     "raw_file":       raw_prefix + expense_name,
                     "row_num":        expend_rownum,
                 })
@@ -694,6 +796,8 @@ def _run(log, t0: float, years: list[int] | None):
                     "election_year":      rep["election_year"],
                     "amended":            rep["amended"],
                     "filing_id":          cfid,
+                    "state_filer_id":     _filer_id(txn, rep),
+                    "superseded":         "1" if cfid in superseded else "",
                     "raw_file":           raw_prefix + debt_name,
                     "row_num":            debt_rownum,
                 })

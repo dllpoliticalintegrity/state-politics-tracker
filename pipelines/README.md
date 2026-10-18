@@ -70,8 +70,11 @@ those columns.
    - `superseded`: set when a later amendment replaced the row.
 2. **Ids.** If the pilot used the source's own ids, set `id_format` in
    `states.json` to the pilot's format, so the load lands on the existing rows.
-   If the pilot hashed rows, back up and delete that state's `source = 'slcf'`
-   rows first.
+   If the pilot hashed rows, the first run loads every row under new ids and
+   its prune deletes the pilot's rows. Either way, back up the state's
+   `source = 'slcf'` rows first (`private.cf_*_backup_YYYYMMDD_<st>`). Where
+   the pilot stored many duplicates, so that the load is under 90% of the live
+   rows, set a one-off `prune_min_share` for that run and remove it after.
 3. **Dry run.** Dispatch Finance sync with `states` = the code and `dry_run` on.
    Download `finance-<state>` from the run's artifacts.
 4. **Switch.** Set `"pipeline": "slcf"`, and `"prune": true` once the dry run's

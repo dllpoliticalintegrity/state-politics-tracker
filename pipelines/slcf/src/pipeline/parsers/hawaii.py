@@ -23,6 +23,20 @@ for both candidates and committees. Per Henry: CC committee_name falls back to
 candidate_name; NC committee_name falls back to noncandidate_committee_name
 (neither side has a separate committee-name field in the source data).
 
+Transaction rows for state-politics-tracker's loader (2026-10; columns.py,
+TRANSACTION_IDS): state_filer_id = the filing committee's reg_no, the "hi:CC10174"
+cf_candidates.filer_refs hold. txn_id stays blank, so the loader hashes rows:
+the CSC publishes no transaction id. Socrata's own :id is re-minted every time
+the commission re-publishes a dataset (every row's :created_at is the publish
+time, checked 2026-10-15), as is the _id of the opendata.hawaii.gov CKAN mirror
+the pilot importer used; loan_id / unpaid_expenditure_id / durable_asset_id
+name a loan, debt or asset that its later repayment or disposal rows share. No
+`superseded`: the datasets hold only the current version of amended reports.
+contributor_first / contributor_last split a person's "Last, First" on its
+first comma, an organisation whole in the last name, as the pilot did; cities,
+employers and occupations stay in source case, and non-monetary (in-kind)
+gifts are labelled so in transaction_type.
+
 SOI + Affidavits are processed first to seed the candidate/committee registry
 with office/district/county/election_year for every registrant, regardless of
 whether they have any transactions yet — this is what gives the candidates
@@ -119,6 +133,30 @@ def format_name(raw: str) -> str:
     if first and last:
         return f"{first} {last}"
     return last or first
+
+
+# Contributor / source types whose names the CSC files as "Last, First" (the
+# pilot importer's individual rule); every other type is an organisation.
+PERSON_TYPES = {"individual", "immediate family", "candidate"}
+
+
+def name_parts(raw: str, party_type: str) -> tuple[str, str]:
+    """(first, last) in source case for the loader-only contributor_first /
+    contributor_last: a person's 'Last, First M' split on its first comma,
+    anything else whole as the last name -- as the pilot importer stored them."""
+    raw = clean(raw)
+    if clean(party_type).lower() in PERSON_TYPES and "," in raw:
+        last, _, first = raw.partition(",")
+        return first.strip(), last.strip()
+    return "", raw
+
+
+def contribution_type(row: dict) -> str:
+    """'Non-Monetary Contribution' for an in-kind gift (Non-Monetary = Y), so
+    the loader books it as in-kind; 'Contribution' otherwise."""
+    if clean(row.get("non_monetary_yes_or_no", "")).upper() == "Y":
+        return "Non-Monetary Contribution"
+    return "Contribution"
 
 
 def raw_files(pattern: str) -> list[Path]:
@@ -290,24 +328,30 @@ def run():
                                 district=row.get("district", ""), county=row.get("county", ""),
                                 party=row.get("party", ""), election_year=ey,
                                 raw_file=path.name, row_num=row_num)
+                    c_first, c_last = name_parts(row.get("contributor_name", ""),
+                                                 row.get("contributor_type", ""))
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cname,
                         "amount":            amount,
                         "date":              parse_date(row.get("date", "")),
-                        "transaction_type":  "Contribution",
+                        "transaction_type":  contribution_type(row),
                         "contributor_name":  utils.clean_name(row.get("contributor_name", "")),
                         "contributor_type":  clean(row.get("contributor_type", "")),
-                        "contributor_city":  utils.clean_name(row.get("city", "")),
+                        "contributor_city":  clean(row.get("city", "")),
                         "contributor_state": clean(row.get("state", "")),
                         "contributor_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
-                        "employer":          utils.clean_name(row.get("employer", "")),
-                        "occupation":        utils.clean_name(row.get("occupation", "")),
+                        "employer":          clean(row.get("employer", "")),
+                        "occupation":        clean(row.get("occupation", "")),
+                        "contributor_first": c_first,
+                        "contributor_last":  c_last,
                         "candidate_name":    cname,
                         "office":            clean(row.get("office", "")),
                         "election_year":     ey,
                         "amended":           "",
                         "filing_id":         "",
+                        # Loader-only (see the module docstring): no txn_id.
+                        "state_filer_id":    reg_no,
                         "raw_file":          path.name,
                         "row_num":           row_num,
                     })
@@ -338,9 +382,11 @@ def run():
                         "date":             parse_date(row.get("date", "")),
                         "transaction_type": clean(row.get("authorized_use", "")),
                         "payee_name":       utils.clean_name(row.get("vendor_name", "")),
+                        # The vendor whole, in source case, as the pilot stored it.
+                        "payee_last":       clean(row.get("vendor_name", "")),
                         "purpose":          clean(row.get("purpose_of_expenditure", "")),
                         "category":         clean(row.get("expenditure_category", "")),
-                        "payee_city":       utils.clean_name(row.get("city", "")),
+                        "payee_city":       clean(row.get("city", "")),
                         "payee_state":      clean(row.get("state", "")),
                         "payee_zip":        utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":   cname,
@@ -348,6 +394,7 @@ def run():
                         "election_year":    ey,
                         "amended":          "",
                         "filing_id":        "",
+                        "state_filer_id":   reg_no,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })
@@ -370,6 +417,8 @@ def run():
                     ey       = parse_election_year(row.get("election_period", ""))
                     register_cc(reg_no, raw_name, office=row.get("office", ""),
                                 election_year=ey, raw_file=path.name, row_num=row_num)
+                    c_first, c_last = name_parts(row.get("source_name", ""),
+                                                 row.get("source_type", ""))
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cname,
@@ -378,16 +427,19 @@ def run():
                         "transaction_type":  clean(row.get("other_receipt_category", "")) or "Other Receipt",
                         "contributor_name":  utils.clean_name(row.get("source_name", "")),
                         "contributor_type":  clean(row.get("source_type", "")),
-                        "contributor_city":  utils.clean_name(row.get("city", "")),
+                        "contributor_city":  clean(row.get("city", "")),
                         "contributor_state": clean(row.get("state", "")),
                         "contributor_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "employer":          "",
                         "occupation":        "",
+                        "contributor_first": c_first,
+                        "contributor_last":  c_last,
                         "candidate_name":    cname,
                         "office":            clean(row.get("office", "")),
                         "election_year":     ey,
                         "amended":           "",
                         "filing_id":         "",
+                        "state_filer_id":    reg_no,
                         "raw_file":          path.name,
                         "row_num":           row_num,
                     })
@@ -412,20 +464,32 @@ def run():
                                 district=row.get("district", ""), county=row.get("county", ""),
                                 party=row.get("party", ""), election_year=ey,
                                 raw_file=path.name, row_num=row_num)
+                    # A loan's later rows (same loan_id, amount 0) repay or
+                    # forgive it: repay_amount holds what was repaid or
+                    # forgiven. Labelled as such, not as $0 loans received.
+                    record_type = "Loan Received"
+                    repaid = parse_amount(row.get("repay_amount", ""))
+                    if float(amount) == 0 and repaid and float(repaid) != 0:
+                        forgiven = clean(row.get("forgiven", "")).upper() == "Y"
+                        record_type = "Loan Forgiven" if forgiven else "Loan Repayment"
+                        amount = repaid
                     loan_w.writerow({
                         "state":              STATE,
                         "committee_name":     cname,
                         "original_amount":    amount,
                         "date":               parse_date(row.get("date", "")),
-                        "record_type":        "Loan Received",
+                        "record_type":        record_type,
                         "counterparty_name":  utils.clean_name(row.get("lender_name", "")),
-                        "counterparty_city":  utils.clean_name(row.get("city", "")),
+                        "counterparty_city":  clean(row.get("city", "")),
                         "counterparty_state": clean(row.get("state", "")),
                         "counterparty_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":     cname,
                         "election_year":      ey,
                         "amended":            "",
+                        # loan_id names the loan, not the transaction (its
+                        # repayments share it), so it is no txn_id.
                         "filing_id":          clean(row.get("loan_id", "")),
+                        "state_filer_id":     reg_no,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })
@@ -455,13 +519,14 @@ def run():
                         "date":               parse_date(row.get("date", "")),
                         "record_type":        "Unpaid Expenditure",
                         "counterparty_name":  utils.clean_name(row.get("vendor_name", "")),
-                        "counterparty_city":  utils.clean_name(row.get("city", "")),
+                        "counterparty_city":  clean(row.get("city", "")),
                         "counterparty_state": clean(row.get("state", "")),
                         "counterparty_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":     cname,
                         "election_year":      ey,
                         "amended":            "",
                         "filing_id":          clean(row.get("unpaid_expenditure_id", "")),
+                        "state_filer_id":     reg_no,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })
@@ -493,13 +558,14 @@ def run():
                         "date":               parse_date(row.get("date", "")),
                         "record_type":        "Durable Asset",
                         "counterparty_name":  utils.clean_name(row.get("vendor_name", "")),
-                        "counterparty_city":  utils.clean_name(row.get("city", "")),
+                        "counterparty_city":  clean(row.get("city", "")),
                         "counterparty_state": clean(row.get("state", "")),
                         "counterparty_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":     cname,
                         "election_year":      ey,
                         "amended":            "",
                         "filing_id":          clean(row.get("durable_asset_id", "")),
+                        "state_filer_id":     reg_no,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })
@@ -521,24 +587,29 @@ def run():
                     ey     = parse_election_year(row.get("election_period", ""))
                     register_nc(reg_no, row.get("noncandidate_committee_name", ""),
                                 election_year=ey, raw_file=path.name, row_num=row_num)
+                    c_first, c_last = name_parts(row.get("contributor_name", ""),
+                                                 row.get("contributor_type", ""))
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cname,
                         "amount":            amount,
                         "date":              parse_date(row.get("date", "")),
-                        "transaction_type":  "Contribution",
+                        "transaction_type":  contribution_type(row),
                         "contributor_name":  utils.clean_name(row.get("contributor_name", "")),
                         "contributor_type":  clean(row.get("contributor_type", "")),
-                        "contributor_city":  utils.clean_name(row.get("city", "")),
+                        "contributor_city":  clean(row.get("city", "")),
                         "contributor_state": clean(row.get("state", "")),
                         "contributor_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "employer":          "",
                         "occupation":        "",
+                        "contributor_first": c_first,
+                        "contributor_last":  c_last,
                         "candidate_name":    "",
                         "office":            "",
                         "election_year":     ey,
                         "amended":           "",
                         "filing_id":         "",
+                        "state_filer_id":    reg_no,
                         "raw_file":          path.name,
                         "row_num":           row_num,
                     })
@@ -582,7 +653,7 @@ def run():
                         "payee_name":       payee,
                         "purpose":          clean(row.get("non_monetary_category", "")),
                         "category":         "Contribution to Candidate",
-                        "payee_city":       utils.clean_name(row.get("city", "")),
+                        "payee_city":       clean(row.get("city", "")),
                         "payee_state":      clean(row.get("state", "")),
                         "payee_zip":        utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":   format_name(cand_raw),
@@ -590,6 +661,7 @@ def run():
                         "election_year":    ey,
                         "amended":          "",
                         "filing_id":        "",
+                        "state_filer_id":   reg_no,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })
@@ -620,7 +692,7 @@ def run():
                         "payee_name":       utils.clean_name(row.get("vendor_name", "")),
                         "purpose":          clean(row.get("purpose_of_expenditure", "")),
                         "category":         clean(row.get("expenditure_category", "")),
-                        "payee_city":       utils.clean_name(row.get("city", "")),
+                        "payee_city":       clean(row.get("city", "")),
                         "payee_state":      clean(row.get("state", "")),
                         "payee_zip":        utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":   utils.clean_name(row.get("candidate_name_s", "")),
@@ -628,6 +700,7 @@ def run():
                         "election_year":    ey,
                         "amended":          "",
                         "filing_id":        "",
+                        "state_filer_id":   reg_no,
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })
@@ -649,6 +722,8 @@ def run():
                     ey     = parse_election_year(row.get("election_period", ""))
                     register_nc(reg_no, row.get("noncandidate_committee_name", ""),
                                 election_year=ey, raw_file=path.name, row_num=row_num)
+                    c_first, c_last = name_parts(row.get("source_name", ""),
+                                                 row.get("source_type", ""))
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cname,
@@ -657,16 +732,19 @@ def run():
                         "transaction_type":  clean(row.get("other_receipt_category", "")) or "Other Receipt",
                         "contributor_name":  utils.clean_name(row.get("source_name", "")),
                         "contributor_type":  clean(row.get("source_type", "")),
-                        "contributor_city":  utils.clean_name(row.get("city", "")),
+                        "contributor_city":  clean(row.get("city", "")),
                         "contributor_state": clean(row.get("state", "")),
                         "contributor_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "employer":          "",
                         "occupation":        "",
+                        "contributor_first": c_first,
+                        "contributor_last":  c_last,
                         "candidate_name":    "",
                         "office":            "",
                         "election_year":     ey,
                         "amended":           "",
                         "filing_id":         "",
+                        "state_filer_id":    reg_no,
                         "raw_file":          path.name,
                         "row_num":           row_num,
                     })
@@ -695,13 +773,14 @@ def run():
                         "date":               parse_date(row.get("date", "")),
                         "record_type":        "Unpaid Expenditure",
                         "counterparty_name":  utils.clean_name(row.get("vendor_name", "")),
-                        "counterparty_city":  utils.clean_name(row.get("city", "")),
+                        "counterparty_city":  clean(row.get("city", "")),
                         "counterparty_state": clean(row.get("state", "")),
                         "counterparty_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":     "",
                         "election_year":      ey,
                         "amended":            "",
                         "filing_id":          clean(row.get("unpaid_expenditure_id", "")),
+                        "state_filer_id":     reg_no,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })
@@ -730,13 +809,14 @@ def run():
                         "date":               parse_date(row.get("date", "")),
                         "record_type":        "Durable Asset",
                         "counterparty_name":  utils.clean_name(row.get("vendor_name", "")),
-                        "counterparty_city":  utils.clean_name(row.get("city", "")),
+                        "counterparty_city":  clean(row.get("city", "")),
                         "counterparty_state": clean(row.get("state", "")),
                         "counterparty_zip":   utils.clean_zip(clean(row.get("zip_code", ""))),
                         "candidate_name":     "",
                         "election_year":      ey,
                         "amended":            "",
                         "filing_id":          clean(row.get("durable_asset_id", "")),
+                        "state_filer_id":     reg_no,
                         "raw_file":           path.name,
                         "row_num":            row_num,
                     })

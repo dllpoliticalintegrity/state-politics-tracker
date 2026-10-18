@@ -46,6 +46,19 @@ Schema notes
   Entity JSON fallback
     • If entity JSON files are absent (entity sweep not yet run), committee_name and
       candidate_name fall back to the raw transaction column values.
+
+  Loader columns (columns.py, TRANSACTION_IDS; state-politics-tracker, 2026-10)
+    • state_filer_id = the filing committee's reg num (Recipient reg num /
+      Committee reg num / Spender Reg Num) — cf_candidates.filer_refs hold "mn:<reg num>".
+    • txn_id stays blank: the CFB publishes no transaction id, so the loader
+      hashes each row (as the pilot importer did). No superseded either: the
+      downloads hold only the current version of each report, with no amendment flag.
+    • contributor_first / contributor_last: a person (PERSON_CONTRIB_TYPES)
+      is filed "Last, First M" and splits on the first comma; anything else
+      goes whole into last — the split the pilot importer stored.
+    • Regular expenditures: category = the CFB's Type (Campaign Expenditure,
+      Non-Campaign Disbursement, Contribution), in-kind rows included, whose
+      transaction_type reads "In-Kind" instead.
 """
 
 import csv
@@ -130,6 +143,9 @@ CLEAN_DIR.mkdir(parents=True, exist_ok=True)
 STATE          = "MN"
 MAX_VALID_YEAR = date.today().year + 2
 
+# Contrib types that name a person, written "Last, First M" in Contributor.
+PERSON_CONTRIB_TYPES = {"individual", "self", "candidate"}
+
 
 # ============================== helpers ==============================
 
@@ -196,6 +212,17 @@ def _split_candidate_name(full: str) -> tuple[str, str]:
         last, first = full.split(", ", 1)
         return last.strip(), first.strip()
     return "", full
+
+
+def name_parts(contributor: str, contrib_type: str) -> tuple[str, str]:
+    """(first, last) for the loader's contributor_first / contributor_last.
+    A person (PERSON_CONTRIB_TYPES) with a comma splits on the first one
+    ('Cotchett, Joseph W, Jr' → 'Joseph W, Jr' / 'Cotchett'); anything else
+    goes whole into last."""
+    if contrib_type.lower() in PERSON_CONTRIB_TYPES and "," in contributor:
+        last, _, first = contributor.partition(",")
+        return first.strip(), last.strip()
+    return "", contributor
 
 
 def _parse_json_cache(path: Path) -> dict:
@@ -397,30 +424,40 @@ def run():
                             "election_year":      elec_year,
                             "amended":            "",
                             "filing_id":          "",
+                            "state_filer_id":     reg_num,
                             "raw_file":           cont_path.name,
                             "row_num":            row_num,
                         })
                         loans += 1
                         continue
 
+                    contributor  = clean(row.get("Contributor", ""))
+                    contrib_type = clean(row.get("Contrib type", ""))
+                    contributor_first, contributor_last = name_parts(contributor, contrib_type)
+
                     cont_w.writerow({
                         "state":             STATE,
                         "committee_name":    cmte_name,
-                        "contributor_name":  clean(row.get("Contributor", "")),
+                        "contributor_name":  contributor,
                         "amount":            amount,
                         "date":              contrib_date,
                         "transaction_type":  tx_type,
-                        "contributor_type":  clean(row.get("Contrib type", "")),
+                        "contributor_type":  contrib_type,
                         "contributor_city":  "",
                         "contributor_state": _zip_to_state(zip_val),
                         "contributor_zip":   zip_val,
                         "employer":          clean(row.get("Contrib Employer name", "")),
                         "occupation":        "",
+                        "contributor_first": contributor_first,
+                        "contributor_last":  contributor_last,
                         "candidate_name":    cand_full,
                         "office":            office,
                         "election_year":     elec_year,
                         "amended":           "",
                         "filing_id":         "",
+                        # Recipient reg num, for the state-politics-tracker
+                        # loader (columns.py, TRANSACTION_IDS); no txn_id.
+                        "state_filer_id":    reg_num,
                         "raw_file":          cont_path.name,
                         "row_num":           row_num,
                     })
@@ -469,7 +506,9 @@ def run():
                         "date":             parse_date(row.get("Date", "")),
                         "transaction_type": tx_type,
                         "purpose":          clean(row.get("Purpose", "")),
-                        "category":         "",
+                        # The CFB's Type, in-kind rows included (their
+                        # transaction_type says In-Kind instead).
+                        "category":         clean(row.get("Type", "")),
                         "payee_city":       clean(row.get("Vendor city", "")),
                         "payee_state":      clean(row.get("Vendor state", "")),
                         "payee_zip":        clean(row.get("Vendor zip", "")),
@@ -478,6 +517,7 @@ def run():
                         "election_year":    elec_year,
                         "amended":          "",
                         "filing_id":        "",
+                        "state_filer_id":   reg_num,
                         "raw_file":         expn_path.name,
                         "row_num":          row_num,
                     })
@@ -549,6 +589,7 @@ def run():
                         "election_year":    elec_year,
                         "amended":          "",
                         "filing_id":        "",
+                        "state_filer_id":   reg_num,
                         "raw_file":         ie_path.name,
                         "row_num":          row_num,
                     })

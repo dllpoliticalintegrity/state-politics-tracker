@@ -22,6 +22,7 @@ import load_cf  # noqa: E402
 import mapping  # noqa: E402
 import plan_matrix  # noqa: E402
 import rest  # noqa: E402
+import run_state  # noqa: E402
 
 SLCF_PIPELINE = PIPELINES / "slcf" / "src" / "pipeline"
 sys.path.insert(0, str(SLCF_PIPELINE))
@@ -96,6 +97,34 @@ class MappingTest(unittest.TestCase):
         _, r = mapping.to_cf("expenditures", co_exp, category_field="transaction_type")
         self.assertEqual(r["category"], "Fundraising Expenses")
 
+    def test_loan_records_map_as_receipts_or_spending(self):
+        rec = {"original_amount": "500000", "date": "2025-12-31", "txn_id": "12569596",
+               "state_filer_id": "11948157", "record_type": "Loan Forgiven",
+               "counterparty_name": "Bill Berrien", "counterparty_city": "New Berlin",
+               "counterparty_state": "WI", "counterparty_zip": "53151"}
+        routes = {"loan forgiven": "contributions", "personal loan payment": "expenditures"}
+        self.assertEqual(mapping.loan_record_target(rec, routes), "contributions")
+        self.assertIsNone(mapping.loan_record_target(dict(rec, record_type="Incurred Obligation"),
+                                                     routes))
+        self.assertIsNone(mapping.loan_record_target(rec, None))
+        row = mapping.loan_record_as("contributions", rec)
+        self.assertEqual((row["txn_id"], row["state_filer_id"], row["amount"]),
+                         ("12569596", "11948157", "500000"))
+        # Without the flag "Loan Forgiven" hits the loan rule and is dropped.
+        self.assertIsNone(mapping.to_cf("contributions", row, ["individual"]))
+        t, r = mapping.to_cf("contributions", row, ["individual"], loan_record=True)
+        self.assertEqual((t, r["contributor_type"], r["contributor_first_name"],
+                          r["contributor_last_name"], r["amount"], r["city"], r["zip"]),
+                         ("cf_contributions", "INDIVIDUAL", "Bill", "Berrien", 500000.0,
+                          "New Berlin", "53151"))
+        pay = dict(rec, record_type="Personal Loan Payment", original_amount="8013.57")
+        t, r = mapping.to_cf("expenditures", mapping.loan_record_as("expenditures", pay),
+                             category_field="purpose", loan_record=True)
+        self.assertEqual((t, r["payee_last_name"], r["category"], r["description"],
+                          r["payee_state"], r["amount"]),
+                         ("cf_expenditures", "Bill Berrien", "Personal Loan Payment", None,
+                          "WI", 8013.57))
+
     def test_unitemized_lumps_keep_the_pilots_label_and_type(self):
         ga = {"label": "Unitemized (small-dollar) contributions", "type": None}
         _, r = mapping.to_cf("contributions", {"amount": "900", "contributor_type": "",
@@ -113,6 +142,38 @@ class MappingTest(unittest.TestCase):
                                                "transaction_type": "Unitemized"},
                              ["individual"], unitemized=ar)
         self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # a named row is a person
+
+    def test_category_none_inkind_types_entity_words_and_loan_types(self):
+        _, r = mapping.to_cf("expenditures", {"amount": "9", "category": "8B",
+                                              "transaction_type": "8B"}, category_field=None)
+        self.assertIsNone(r["category"])
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_name": "X",
+                                               "transaction_type": "5A"}, inkind_types={"5a"})
+        self.assertEqual(r["source_form_type"], "INKIND")
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_type": "",
+                                               "contributor_name": "SEIU HEALTHCARE PA COPE"},
+                             entity_words=["PA", "FRIENDS OF"])
+        self.assertEqual(r["contributor_type"], "ENTITY")
+        _, r = mapping.to_cf("contributions", {"amount": "9", "contributor_type": "",
+                                               "contributor_name": "PAT SMITH"},
+                             entity_words=["PA"])
+        self.assertEqual(r["contributor_type"], "INDIVIDUAL")   # whole words only
+        t, _ = mapping.to_cf("loans_debts", {"original_amount": "500", "record_type": "Loan Payable",
+                                             "counterparty_name": "MIKE LINDELL"})
+        self.assertEqual(t, "cf_loans")
+        for rt in ("Unpaid Expenditure", "Durable Asset"):
+            self.assertIsNone(mapping.to_cf("loans_debts", {"original_amount": "5",
+                                                            "record_type": rt}), rt)
+
+    def test_unitemized_form_type(self):
+        al = {"form_type": "NON-ITEMIZED"}
+        _, r = mapping.to_cf("contributions", {"amount": "20", "contributor_type": "Individual",
+                                               "transaction_type": "Non-Itemized"}, unitemized=al)
+        self.assertEqual(r["source_form_type"], "NON-ITEMIZED")
+        _, r = mapping.to_cf("contributions", {"amount": "20", "contributor_type": "Individual",
+                                               "transaction_type": "Non-Itemized In-Kind"},
+                             unitemized=al)
+        self.assertEqual(r["source_form_type"], "INKIND")
 
     def test_nonmoney_payee_parts_and_loan_balances(self):
         _, r = mapping.to_cf("contributions", {"amount": "5", "contributor_name": "X",
@@ -171,6 +232,22 @@ class PlanTest(unittest.TestCase):
                            (["mi"], True), ([], True)):
             with self.assertRaises(ValueError):
                 self.plan(codes, dry)
+
+
+class RunStateTest(unittest.TestCase):
+    def test_scrape_errors_read_from_the_run_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(run_state, "PIPELINES", Path(tmp)):
+                d = Path(tmp) / "slcf" / "logs" / "prod" / "r1"
+                d.mkdir(parents=True)
+                (d / "log.jsonl").write_text("\n".join(json.dumps(e) for e in [
+                    {"operation": "scrape", "type": "file_download", "status": "ok"},
+                    {"operation": "scrape", "type": "file_download", "status": "error",
+                     "filename": "2026-09.csv", "error": "HTTP 500"},
+                    {"operation": "parse", "status": "error"},
+                ]))
+                self.assertEqual(run_state.scrape_errors("r1"), ["2026-09.csv: HTTP 500"])
+                self.assertTrue(run_state.scrape_errors("missing"))   # no log = not clean
 
 
 class ManifestTest(unittest.TestCase):
@@ -253,6 +330,38 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual((r["candidate_id"], r["committee_id"], r["source"], r["cycle"]),
                          ("uuid-weiser", "co:1", "slcf", "2026"))
 
+    def test_skip_types(self):
+        entry = dict(self.ENTRY, skip_types={"contributions": ["Interest"]})
+        write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
+            {"state_filer_id": "1", "date": "2026-02-01", "amount": "9", "txn_id": "1",
+             "transaction_type": "interest", "contributor_name": "CHAIN BRIDGE BANK"},
+            {"state_filer_id": "1", "date": "2026-02-01", "amount": "9", "txn_id": "2",
+             "transaction_type": "Individual", "contributor_name": "JANE DOE"}])
+        got = [r["source_txn_id"] for _, _, r in
+               load_cf.rows_for_state("co", entry, self.clean, self.REFS)]
+        self.assertEqual(got[0], "co:2")
+
+    def test_loan_records(self):
+        l = lambda txn, rt: {"state_filer_id": "1", "date": "2026-02-01",
+                             "original_amount": "100", "txn_id": txn, "record_type": rt,
+                             "counterparty_name": "PHIL WEISER"}
+        write_gz(self.clean / "loans_debts.csv.gz", C.LOANS_DEBTS, [
+            l("300", "Personal Loan"), l("301", "Loan Forgiven"),
+            l("302", "personal loan payment"), l("303", "Incurred Obligation")])
+        entry = dict(self.ENTRY, loan_records={"Loan Forgiven": "contributions",
+                                               "Personal Loan Payment": "expenditures"},
+                     id_format={"expenditures": "co:e{id}"})
+        got = {r["source_txn_id"]: t for t, _, r in
+               load_cf.rows_for_state("co", entry, self.clean, self.REFS)}
+        # Ids follow the target table's format; the unlisted obligation is
+        # still dropped, the loan still lands in cf_loans.
+        self.assertEqual({k: v for k, v in got.items() if k.startswith(("co:3", "co:e3"))},
+                         {"co:300": "cf_loans", "co:301": "cf_contributions",
+                          "co:e302": "cf_expenditures"})
+        with self.assertRaises(SystemExit):
+            list(load_cf.rows_for_state("co", dict(entry, loan_records={"Loan Forgiven": "loans"}),
+                                        self.clean, self.REFS))
+
     def test_missing_loader_columns_is_an_error(self):
         write_gz(self.clean / "contributions.csv.gz", ["state", "amount"], [{"amount": "1"}])
         with self.assertRaises(SystemExit):
@@ -271,6 +380,14 @@ class LoaderTest(unittest.TestCase):
                            (k, 187687.85, "2026-08-31", "co:1702268"),   # superseded
                            (k, 7, "2024-06-01", "co:1")])               # before since
         self.assertEqual(load_cf.stale_ids(new, live, "2025-01-01"), {k: {"co:1702268": 187687.85}})
+
+    def test_prune_min_share_override(self):
+        k = ("victor-marx", "cf_expenditures")
+        live = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(10)])
+        half = self.stats([(k, 1, "2026-03-01", f"co:{i}") for i in range(5)])
+        with mock.patch.object(rest, "delete") as delete:
+            load_cf.prune("co", self.REFS, half, live, "2025-01-01", min_share=0.45)
+        self.assertTrue(delete.called)
 
     def test_prune_deletes_stale_rows_and_refuses_a_truncated_load(self):
         k = ("victor-marx", "cf_expenditures")

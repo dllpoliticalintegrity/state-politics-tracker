@@ -39,6 +39,13 @@ Opposing direction.
 FiledDocs.txt is out of scope (see scrapers/illinois.py docstring): filing_id
 is the raw FiledDocID passthrough; election_year/amended are left blank.
 
+For state-politics-tracker's loader (columns.py, TRANSACTION_IDS): every
+transaction row carries state_filer_id = CommitteeID (the same ID as
+Committees.txt) and txn_id = the row's own ID, tagged 'r'/'e' by file (see
+txn_id()). FiledDocID is a REPORT id, shared by every row on a report, so it
+is not a key. superseded stays blank: the replaced copies are the Archived
+rows, which are dropped below and never written.
+
 ~33 of 6.48M Receipts.txt rows and ~2 of 4.82M Expenditures.txt rows have
 embedded newlines/tabs in free-text fields that break column alignment —
 these are detected (field count != header count) and skipped.
@@ -137,6 +144,18 @@ def join_name(first, last) -> str:
     if first and last:
         return f"{first} {last}"
     return last or first
+
+
+def txn_id(file_tag: str, val) -> str:
+    """ISBE's own row ID, tagged with the file it comes from: 'r<ID>' for
+    Receipts.txt, 'e<ID>' for Expenditures.txt. The two files number their
+    rows independently (the same ID exists in both), and loans_debts holds
+    rows from each (3A receipts, 7B expenditures), so the bare ID is not
+    unique per output table. The tag reproduces the pilot importer's
+    il:r<ID> / il:e<ID> source_txn_id under the loader's default
+    '{st}:{id}' format (columns.py, TRANSACTION_IDS)."""
+    v = clean(val)
+    return f"{file_tag}{v}" if v else ""
 
 
 def open_writer(filename: str, fieldnames: list):
@@ -316,13 +335,17 @@ def run(limit=None):
                 cmte   = committee_info.get(committee_id, {})
                 d2part = clean(row["D2Part"])
 
-                contributor_name = utils.clean_name(join_name(row["FirstName"], row["LastOnlyName"]))
+                # Names, places, employer and occupation keep ISBE's own
+                # (mixed) case, stripped only: what the pilot importer stored,
+                # so state-politics-tracker's donor and payee lists don't
+                # change at the cutover to this parser (2026-10).
+                contributor_name = join_name(row["FirstName"], row["LastOnlyName"])
                 # No explicit contributor-type field in the source; ISBE's D-2
                 # forms only collect First/Last name for individuals — PACs and
                 # other organizations are recorded in LastOnlyName alone.
                 contributor_type = "Individual" if clean(row["FirstName"]) else "Organization"
 
-                city = utils.clean_name(row["City"])
+                city = clean(row["City"])
                 st   = clean(row["State"])
                 zipc = utils.clean_zip(clean(row["Zip"]))
 
@@ -343,13 +366,23 @@ def run(limit=None):
                     "counterparty_city":  city,
                     "counterparty_state": st,
                     "counterparty_zip":   zipc,
-                    "employer":       utils.clean_name(row["Employer"]),
-                    "occupation":     utils.clean_name(row["Occupation"]),
+                    "employer":       clean(row["Employer"]),
+                    "occupation":     clean(row["Occupation"]),
+                    # The source's own name parts, as ISBE files them (the
+                    # pilot importer stored them unchanged; columns.py,
+                    # TRANSACTION_IDS). Organisations fill LastOnlyName only.
+                    "contributor_first": clean(row["FirstName"]),
+                    "contributor_last":  clean(row["LastOnlyName"]),
                     "candidate_name": cmte.get("candidate_name", ""),
                     "office":         cmte.get("office", ""),
                     "election_year":  "",
                     "amended":        "",
                     "filing_id":      clean(row["FiledDocID"]),
+                    # Filing committee + ISBE row ID for the state-politics-
+                    # tracker loader. No superseded flag: Archived rows (the
+                    # replaced copies) never reach the output, see above.
+                    "state_filer_id": committee_id,
+                    "txn_id":         txn_id("r", row["ID"]),
                     "raw_file":       "Receipts.txt",
                     "row_num":        row_num,
                 }
@@ -389,8 +422,9 @@ def run(limit=None):
                 cmte   = committee_info.get(committee_id, {})
                 d2part = clean(row["D2Part"])
 
-                payee_name = utils.clean_name(join_name(row["FirstName"], row["LastOnlyName"]))
-                city = utils.clean_name(row["City"])
+                # Source case, as for receipts above.
+                payee_name = join_name(row["FirstName"], row["LastOnlyName"])
+                city = clean(row["City"])
                 st   = clean(row["State"])
                 zipc = utils.clean_zip(clean(row["Zip"]))
 
@@ -420,6 +454,9 @@ def run(limit=None):
                     "transaction_type": d2part,
                     "record_type":      "Loan Made",
                     "payee_name":  payee_name,
+                    # Source name parts, as for contributor_first/_last above.
+                    "payee_first": clean(row["FirstName"]),
+                    "payee_last":  clean(row["LastOnlyName"]),
                     "purpose":     clean(row["Purpose"]),
                     "category":    category,
                     "payee_city":  city,
@@ -434,6 +471,8 @@ def run(limit=None):
                     "election_year":  "",
                     "amended":        "",
                     "filing_id":      clean(row["FiledDocID"]),
+                    "state_filer_id": committee_id,
+                    "txn_id":         txn_id("e", row["ID"]),
                     "raw_file":       "Expenditures.txt",
                     "row_num":        row_num,
                 }

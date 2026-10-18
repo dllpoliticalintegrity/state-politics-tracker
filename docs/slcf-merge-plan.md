@@ -21,47 +21,55 @@ Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec
 
 ---
 
-## Status (2026-10-15)
+## Status (2026-10-18)
 
-Built on branch `claude/slcf-pipelines`. Nothing in production changed.
+Phases 1–3 are merged (PR #23). Phase 4 is under way: the goal is every
+reachable state on SLCF before the 2026-11-03 election, because every state
+the pilot feeds carries rows it should have deleted.
 
-- **Phase 1 done.** SLCF is in `pipelines/slcf/` with all 150 commits of its
-  history. `pipelines/requirements.txt` holds one Python 3.12 environment.
-  SLCF's tests pass from the new path, and the site's build and tests are
-  unchanged.
-- **Phase 2, for Colorado and Ohio.** `columns.py` gained `state_filer_id`,
-  `txn_id` and `superseded` on the transaction tables; none of them enters
-  SLCF's master database.
-- **Phase 3 built:**
-  - `states.json`;
-  - `load/load_cf.py`, with `--dry-run` reconciliation and a guarded `--prune`;
-  - `run_state.py` and `plan_matrix.py`;
-  - `finance-sync.yml`, now with a pilot job, an SLCF matrix and a `dry_run`
-    input. The schedule still runs exactly today's 20 pilot states.
-  - `pipelines-ci.yml`, plus 17 offline tests.
-- **Colorado reconciles end to end against the live rows.** This was a real
-  SLCF run plus a dry run against production, read-only:
-  - every SLCF row's id is already live, so the old importer's
-    `co:<RecordID>` ids are reproduced exactly;
-  - every dollar of difference is a live row SLCF no longer has.
+**Why it matters.** The pilot upserts with `ignore-duplicates` and never
+deletes, so a row the source amended, re-filed or removed stays live next to
+its replacement. States with hashed ids are worse: an edit to any hashed field
+gives the row a new id, and the old copy stays. Each state's reconciliation
+found this; the cutover's `prune` fixes it.
 
-  Those stale rows are a production bug today. The old importer upserts with
-  `ignore-duplicates` and never deletes, so a Colorado record that an amendment
-  later replaced stays live next to its replacement. For example, Victor Marx's
-  spending shows $4,410,822 where the source's current total is $3,975,238
-  ($435,584 of superseded rows), and his contributions are $93,023 high. A
-  Colorado cutover with `prune` fixes this.
-- **Ohio blocks datacenter IPs.** ohiosos.gov's Cloudflare answers 403 to the
-  Claude sandbox and to GitHub's runners alike; a `dry_run` dispatch on
-  2026-10-15 got 403 on every listing, despite SLCF's browser impersonation.
-  Like Maine, Ohio needs a runner outside a datacenter (a self-hosted runner),
-  or a different source. `oh` stays `slcf` + `dry_run_only` + `nightly: false`
-  in the manifest until then.
-- **Colorado's dry run from Actions** (run 38664932934, about 90 seconds)
-  reproduced the local reconciliation exactly. The workflow path works end to
-  end.
+| State | On SLCF | What the cutover corrects |
+|---|---|---|
+| CO | 2026-10-15 | Victor Marx's spending $4.41M → $3.98M (superseded rows); Kirkmeyer's loans 15 → 3 |
+| GA, AR, ID | 2026-10-15 | GA contributions $190.3M → $157.0M (47 loans, $32.5M, move to `cf_loans`) |
+| MD, AL, WI | cutover PR | WI adds 49,114 missing rows ($26.2M) and drops Rodriguez's duplicates; AL one stale row; MD none |
+| IL | cutover PR | 2,247 ISBE `Archived` copies: Pritzker $117.3M → $91.8M raised, Heidner's re-filed report (1,426 rows) |
+| AZ | cutover PR | 27,063 copies from the pilot's overlapping pages (Robson −$2.26M contributions, −$2.2M loans); the scraper now fetches one-page date windows |
+| KY | cutover PR | one amended expenditure (Coleman, $5,415) |
+| PA | cutover PR | none in dollars; names, zips and `&amp;` cleaned; Other Receipts stay skipped |
+| MN | cutover PR | 505 renamed or re-filed copies ($290k), mostly Klobuchar's |
+| CT | cutover PR | none; zips lose eCRIS's trailing dash |
+| AK | cutover PR | Kreiss-Tomkins appears ($4.49M raised; the pilot's Office filter dropped his filings); Wilson, Bronson and Walker gain their pre-ticket filings |
+| HI | cutover PR | the pilot re-inserted every CKAN reload: Green $7.83M → $3.64M raised, $5.21M → $2.52M spent; Cordery likewise |
+| FL, IA | in progress | — |
+| MA | pilot until after the election (decided 2026-10-18) | contributions and loans reconcile (Healey's $2.9M savings transfer is booked as a gift today); spending differs by model: OCPF's search shows itemized line items where SLCF's bulk export has the bank payment, and transfers to savings count as spending. The parser work (swap a payment for its itemization, drop savings transfers) is prototyped in the reconciliation notes |
+| KS | pilot, soft-fail | CAPTCHA |
+| OH, ME | — | Cloudflare blocks datacenter IPs, GitHub's runners included; need a runner outside a datacenter |
+| NV | — | SLCF has no parser |
+| MI, TX | permanent | — |
+
+Each state's reconciliation matched SLCF rows to live rows by id where the
+pilot used source ids (CO, GA, AR, ID, MD, AL, WI, IL), and by content (date,
+cents, normalised name, as a multiset) where it hashed. Every unmatched dollar
+was traced to an amendment, a deletion at the source, a pilot duplicate or a
+pilot filter; field changes on matched rows are source corrections the pilot
+never picked up, plus format fixes (zips, decoded entities).
+
+Loader options added for these states (`states.json` `_doc`): `inkind_types`,
+`entity_words`, `category_field: null`, `loan_records`, and a one-off
+`prune_min_share` for a first run that deletes many pilot duplicates (AZ, IL,
+HI). Remove the latter once that run is done.
+
+Earlier findings that still hold:
 - **SLCF's CLI exits 0 even when a state fails.** `run_state.py` judges success
-  by the rows SLCF wrote instead.
+  by the rows SLCF wrote, and loads without prune when the scrape logged errors.
+- **Colorado's dry run from Actions** (run 38664932934) reproduced the local
+  reconciliation exactly, so the workflow path matches a local run.
 
 ## 1. Where we end up
 
@@ -507,7 +515,7 @@ the other 20 states are still on the pilot.
 | Batch | States | Why grouped | Cutover |
 |---|---|---|---|
 | **1 — same ids** | GA, WI, CO, MD, AL, AR, ID, IL | The pilot keys on the source's own transaction id, so the loader can emit the identical `source_txn_id` (confirm per state that SLCF's parser keeps those source fields). | **No delete.** Upserts land on the existing rows; uuids are kept. |
-| **2 — hashed ids, same source** | AZ, KY, PA, MN, CT | The pilot hashes its rows; SLCF's hash inputs will differ. | **Replace:** back up, delete the state's legacy rows, load (§8.3). |
+| **2 — hashed ids, same source** | AZ, KY, PA, MN, CT | The pilot hashes its rows; SLCF's hash inputs will differ. | **Replace:** back up, load; the same run's prune deletes the legacy rows (§8.3). |
 | **3 — different source or fetch** | FL, AK, IA, HI, MA | The two codebases pull from different places (§2 fact 6); HI's pilot id is a CKAN row number, not a transaction id. | Reconcile first. If the pilot's source is better, **port its fetch into the SLCF scraper**, so it becomes SLCF code. Then replace. |
 | **4 — blocked** | KS | Both are broken: the pilot by the CAPTCHA since 2026-10-01, SLCF's `kansas_v2` still in development. | Port the pilot's CFR-viewer scrape into `kansas_v2`; migrate when the CAPTCHA allows. It stays `pilot` + `soft_fail` until then. |
 
@@ -542,25 +550,26 @@ moves:
 
 1. Open a PR that flips `"pipeline": "pilot"` → `"slcf"` for the state, and
    attach the reconciliation report.
-2. **Batch 2–4 only:** run a dated SQL snippet off-peak (after the nightly, not
-   near the 09:15 refresh):
+2. **Merge, back up, dispatch.** Right after the merge, before the state's
+   first SLCF run (the next nightly would run it too), copy its rows to the
+   `private` schema:
    ```sql
-   create table cf_contributions_backup_YYYYMMDD_XX as
-     select * from cf_contributions
-     where source = 'slcf' and candidate_id in (select id from cf_candidates where state = 'xx');
-   -- same for cf_expenditures and cf_loans, then:
-   delete from cf_contributions
-     where source = 'slcf' and candidate_id in (select id from cf_candidates where state = 'xx');
+   create table private.cf_contributions_backup_YYYYMMDD_xx as
+     select * from public.cf_contributions
+     where source = 'slcf' and candidate_id in (select id from public.cf_candidates where state = 'xx');
+   -- same for cf_expenditures and cf_loans
    ```
-   Always filter on `source = 'slcf'`, so Texas's `'tec'` rows can never be
-   touched. Then dispatch Finance sync for that state from the console. The
-   site's summary pages read matviews, which change only at the end-of-run
-   refresh, so they keep showing the old numbers until the new ones land.
-3. Merge, then watch two nightlies. Re-run the reconciliation against the new
-   rows.
+   Then dispatch Finance sync for the state. For hashed-id states the run
+   loads every row under new ids and its prune deletes the pilot's rows, so
+   there is no empty window (set a one-off `prune_min_share` where the pilot
+   stored so many duplicates that the load is under 90% of the live rows).
+   Prune filters on `source = 'slcf'` and the state's candidates, so Texas's
+   `'tec'` rows can never be touched. The site's summary pages read matviews,
+   which change only at the end-of-run refresh.
+3. Compare the state's totals with the backup, then watch two nightlies.
 
-**Rollback:** flip the manifest back to `pilot`. For batches 2–4, also delete
-the state's `source = 'slcf'` rows and dispatch the state. The pilot re-pulls
+**Rollback:** flip the manifest back to `pilot`, delete the state's
+`source = 'slcf'` rows and dispatch the state (or restore the backup). The pilot re-pulls
 the whole cycle each night (Wisconsin needs `WI_SINCE=2025-01-01`), so a re-run
 restores everything. The backup tables are a second safety net.
 

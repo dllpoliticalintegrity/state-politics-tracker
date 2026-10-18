@@ -5,6 +5,11 @@ Input:  data/Maryland/raw/
   committees.csv              — all registered committees (TCMD, filingYear=0)
   contributions_{year}.csv    — contributions + loans received (TCON, 2021–present)
   expenditures_{year}.csv     — expenditures + outstanding obligations (TEXP, 2021–present)
+  grid_contributions_{year}.csv / grid_expenditures_{year}.csv
+                              — the scraper's --grid mode: the PublicGrid export
+                                by transaction-date year, with TransactionIDs.
+                                When a table has grid files, they replace that
+                                table's bulk files (see "Grid mode" below).
 
 Output: data/Maryland/cleaned/
   contributions.csv.gz, expenditures.csv.gz, committees.csv.gz,
@@ -28,6 +33,27 @@ Notes
     committee registration; the same candidate gets a different ID each cycle.
     assign_person_ids groups by (state, candidate_name, office, district) and
     assigns person_id = min(state_filer_id) across all registrations.
+  • Transaction rows also carry state_filer_id = the row's own Filing Entity
+    Id (the filing registration, not the person_id above), which is what
+    state-politics-tracker's cf_candidates.filer_refs hold ("md:<id>"), for
+    its loader (columns.py, TRANSACTION_IDS).
+
+Grid mode (scraper --grid)
+──────────────────────────
+  The bulk files carry no transaction id, so the tracker's loader — which
+  upserts on the source's own id (md:con:<TransactionID> /
+  md:exp:<TransactionID>, the ids its old pilot importer wrote from this same
+  grid) — needs the PublicGrid export. Its rows map like the pilot's:
+  • txn_id = TransactionID; superseded stays blank (the grid has no
+    amendment flag, and the pilot dropped nothing).
+  • Contributions whose Contribution Type is a "(Return)" export positive and
+    are negated. Expenditure returns stay positive, as the pilot stored them.
+  • One "Contributor Name": an Individual's reads "Last, First" and is split at
+    the first comma into contributor_last / contributor_first; any other
+    contributor type keeps the whole name as contributor_last.
+  • Contribution / Expenditure Type ("Monetary - Check", "In-Kind",
+    "Monetary (Return)", "Reimbursement") becomes transaction_type.
+  • No loans: the TCON grid holds none (loans have their own grid).
 """
 
 import csv
@@ -275,11 +301,21 @@ def run():
         committees_written = cmte_count
         log.info(f"  committees: {cmte_count:,}  candidate committees: {candidates_written:,}")
 
+        # Grid files (scraper --grid), when a table has them, replace its bulk
+        # files: the two cover the same transactions, keyed by different years.
+        grid_cont_files = raw_files("grid_contributions_*.csv")
+        grid_expn_files = raw_files("grid_expenditures_*.csv")
+        bulk_cont_files = [] if grid_cont_files else raw_files("contributions_*.csv")
+        bulk_expn_files = [] if grid_expn_files else raw_files("expenditures_*.csv")
+        if grid_cont_files or grid_expn_files:
+            log.info(f"  grid mode: {len(grid_cont_files)} contribution / "
+                     f"{len(grid_expn_files)} expenditure grid files")
+
         # ── Contributions & Loans ──────────────────────────────────────
         # TCON files contain both contribution and loan transaction types.
         # Rows whose Transaction Type matches the loan pattern go to loans_debts;
         # everything else goes to contributions.
-        for path in raw_files("contributions_*.csv"):
+        for path in bulk_cont_files:
             file_year = year_from_filename(path)
             ft = time.perf_counter()
             cont_count = loan_count = skipped = 0
@@ -330,6 +366,7 @@ def run():
                             "election_year":      elec_year,
                             "amended":            "",
                             "filing_id":          clean(row.get("Report Name", "")),
+                            "state_filer_id":     fid,
                             "raw_file":           path.name,
                             "row_num":            row_num,
                         })
@@ -348,11 +385,17 @@ def run():
                             "contributor_zip":   zipcode,
                             "employer":          "",
                             "occupation":        "",
+                            # The source's own name parts, for the loader (columns.py,
+                            # TRANSACTION_IDS); blank on company rows. The bulk export
+                            # has no transaction id, so txn_id stays blank here.
+                            "contributor_first": contrib_first,
+                            "contributor_last":  contrib_last,
                             "candidate_name":    cand_name,
                             "office":            office,
                             "election_year":     elec_year,
                             "amended":           "",
                             "filing_id":         clean(row.get("Report Name", "")),
+                            "state_filer_id":    fid,
                             "raw_file":          path.name,
                             "row_num":           row_num,
                         })
@@ -366,8 +409,75 @@ def run():
             total_contributions += cont_count
             total_loans         += loan_count
 
+        # ── Contributions (grid mode) ──────────────────────────────────
+        # Mapped like the pilot importer's rows from this same export (module
+        # docstring, "Grid mode"), so the loader's upserts land on them unchanged.
+        for path in grid_cont_files:
+            file_year = year_from_filename(path)
+            ft = time.perf_counter()
+            cont_count = skipped = 0
+
+            raw_fh, reader = open_md_csv(path)
+            try:
+                for row_num, row in enumerate(reader, start=3):
+                    amount = parse_amount(row.get("Transaction Amount", ""))
+                    if not amount:
+                        skipped += 1
+                        continue
+                    con_type = clean(row.get("Contribution Type", ""))
+                    if "(Return)" in con_type and float(amount) > 0:
+                        amount = "-" + amount     # refunds export positive
+
+                    fid  = clean(row.get("Filing EntityID", ""))
+                    kind = clean(row.get("Contributor Type", ""))
+                    name = clean(row.get("Contributor Name", ""))
+                    if kind == "Individual" and "," in name:
+                        last, _, first = name.partition(",")
+                        contrib_last, contrib_first = last.strip(), first.strip()
+                    else:                         # organisations keep their commas
+                        contrib_last, contrib_first = name, ""
+
+                    reg = cmte_registry.get(fid, {})
+                    cand_name = reg.get("candidate_name") or build_name(
+                        row.get("Candidate Last Name", ""), row.get("Candidate First Name", ""),
+                        row.get("Candidate Middle Name", ""), row.get("Candidate Suffix", ""))
+
+                    cont_w.writerow({
+                        "state":             STATE,
+                        "committee_name":    clean(row.get("Committee Name", "")),
+                        "amount":            amount,
+                        "date":              parse_date(row.get("Transaction Date", "")),
+                        "transaction_type":  con_type,
+                        "contributor_name":  name,
+                        "contributor_type":  kind,
+                        "contributor_city":  clean(row.get("Contributor City", "")),
+                        "contributor_state": clean(row.get("Contributor State", "")),
+                        "contributor_zip":   _unquote(row.get("Contributor Zip Code", "")),
+                        "employer":          "",
+                        "occupation":        "",
+                        "contributor_first": contrib_first,
+                        "contributor_last":  contrib_last,
+                        "candidate_name":    cand_name,
+                        "office":            reg.get("office", ""),
+                        "election_year":     reg.get("election_year", file_year),
+                        "amended":           "",
+                        "filing_id":         clean(row.get("Report", "")),
+                        "state_filer_id":    fid,
+                        "txn_id":            clean(row.get("TransactionID", "")),
+                        "raw_file":          path.name,
+                        "row_num":           row_num,
+                    })
+                    cont_count += 1
+            finally:
+                raw_fh.close()
+
+            log.file_parsed(path.name, "contributions", cont_count, skipped,
+                            duration_s=round(time.perf_counter() - ft, 2),
+                            bytes=path.stat().st_size)
+            total_contributions += cont_count
+
         # ── Expenditures ───────────────────────────────────────────────
-        for path in raw_files("expenditures_*.csv"):
+        for path in bulk_expn_files:
             file_year = year_from_filename(path)
             ft = time.perf_counter()
             count = skipped = 0
@@ -432,6 +542,64 @@ def run():
                         "election_year":    elec_year,
                         "amended":          "",
                         "filing_id":        clean(row.get("Report Name", "")),
+                        "state_filer_id":   fid,
+                        "raw_file":         path.name,
+                        "row_num":          row_num,
+                    })
+                    count += 1
+            finally:
+                raw_fh.close()
+
+            log.file_parsed(path.name, "expenditures", count, skipped,
+                            duration_s=round(time.perf_counter() - ft, 2),
+                            bytes=path.stat().st_size)
+            total_expenditures += count
+
+        # ── Expenditures (grid mode) ───────────────────────────────────
+        for path in grid_expn_files:
+            file_year = year_from_filename(path)
+            ft = time.perf_counter()
+            count = skipped = 0
+
+            raw_fh, reader = open_md_csv(path)
+            try:
+                for row_num, row in enumerate(reader, start=3):
+                    amount = parse_amount(row.get("Transaction Amount", ""))
+                    if not amount:
+                        skipped += 1
+                        continue
+
+                    fid = clean(row.get("Filing EntityID", ""))
+                    reg = cmte_registry.get(fid, {})
+                    # Candidate Or Ballot Question Name is the candidate an
+                    # independent expenditure is about; else the filer's own.
+                    cand_name = (clean(row.get("Candidate Or Ballot Question Name", ""))
+                                 or reg.get("candidate_name") or build_name(
+                                     row.get("Candidate Last Name", ""),
+                                     row.get("Candidate First Name", ""),
+                                     row.get("Candidate Middle Name", ""),
+                                     row.get("Candidate Suffix", "")))
+
+                    expn_w.writerow({
+                        "state":            STATE,
+                        "committee_name":   clean(row.get("Committee Name", "")),
+                        "amount":           amount,
+                        "date":             parse_date(row.get("Transaction Date", "")),
+                        "transaction_type": clean(row.get("Expenditure Type", "")),
+                        "payee_name":       (clean(row.get("Payee Name", ""))
+                                             or clean(row.get("Vendor Name", ""))),
+                        "purpose":          clean(row.get("Purpose", "")),
+                        "category":         clean(row.get("Category", "")),
+                        "payee_city":       clean(row.get("Payee City", "")),
+                        "payee_state":      clean(row.get("Payee State", "")),
+                        "payee_zip":        _unquote(row.get("Payee Zip Code", "")),
+                        "candidate_name":   cand_name,
+                        "office":           reg.get("office", ""),
+                        "election_year":    reg.get("election_year", file_year),
+                        "amended":          "",
+                        "filing_id":        clean(row.get("Report Name", "")),
+                        "state_filer_id":   fid,
+                        "txn_id":           clean(row.get("TransactionID", "")),
                         "raw_file":         path.name,
                         "row_num":          row_num,
                     })

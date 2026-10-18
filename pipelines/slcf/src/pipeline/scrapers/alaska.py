@@ -17,10 +17,29 @@ signal DataDome checks for) and uses a persistent Playwright profile
 instead of being thrown away every time — same fix already proven for
 Missouri's Incapsula CAPTCHA elsewhere in this repo. See
 _wait_out_datadome() below and docs/states/alaska.md.
+
+--grid (transactions only): no browser. Income and expenditures come over
+plain HTTP from the same CDIncome / CDExpenditures search grids -- the fetch
+state-politics-tracker's old pilot importer ran nightly from GitHub's runners,
+which have neither a display for the headful Chromium above nor a human for
+DataDome's slider. Per report year, statewide, in a fresh cookie session:
+GET the page, POST Search (the filter is stored server-side), POST Export,
+then page through the visible-page CSV link the export dialog returns
+(GRID_PAGE_SIZE rows a request -- a whole-year export-all request gets its
+connection dropped). Status "Complete, Not Amended" (the page's default and the
+pilot's): only the current version of each report, where the browser path
+takes "All Complete Forms". Connections are reset routinely (F5/DataDome):
+every request retries with backoff, and a year is kept only if its row count
+equals the "N items" the search reported. Output:
+grid_CDIncome_<year>.csv / grid_CDExpense_<year>.csv, which the parser reads in
+place of the bulk files. A failed year raises (exit 1), so nothing partial is
+parsed.
 """
 
 import csv
+import io
 import random
+import re
 import sys
 import time
 from datetime import datetime
@@ -437,6 +456,210 @@ def download_year(page, context, relation_type: str, year: str, log) -> tuple[st
     return filename, row_count
 
 
+# ===================== transactions: --grid mode =====================
+# See the module docstring. relation -> (page, file stem, ddlField value).
+GRID_PAGES = {
+    "income":       ("CDIncome",       "CDIncome",  "IncomeTypes"),
+    "expenditures": ("CDExpenditures", "CDExpense", "ExpenditureTypes"),
+}
+GRID_BASE        = "https://aws.state.ak.us/ApocReports/CampaignDisclosure"
+GRID_STATUS      = "Default"   # "Complete, Not Amended"
+GRID_PAGE_SIZE   = 5000        # ~30 s a request statewide
+GRID_TRIES       = 8           # per request
+GRID_YEAR_TRIES  = 3           # per year (a fresh session each time)
+GRID_PAUSE_S     = 3           # between requests; resets come in bursts
+GRID_USER_AGENT  = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+_GRID_COUNT_RE   = re.compile(r"<strong>([\d,]+)</strong>\s*items in")   # the pager's total
+_GRID_ROW_RE     = re.compile(r'<tr class="rg(?:Alt)?Row"')               # a grid row
+# Only a search's own answer: the unsearched page has an empty grid too.
+_GRID_EMPTY_RE   = re.compile(r"Your Search Returned No Results", re.I)
+
+
+def _grid_request(session, url: str, log, data: dict | None = None) -> str:
+    """GET (or POST `data`) with the pilot's retry-everything handling: resets,
+    timeouts, 5xx and DataDome pages all retry, with a longer wait each time."""
+    import requests
+    last = None
+    for attempt in range(GRID_TRIES):
+        if attempt:
+            time.sleep(min(60, 5 * attempt))
+        try:
+            resp = (session.post(url, data=data, timeout=300) if data is not None
+                    else session.get(url, timeout=300))
+            if resp.status_code >= 500:
+                last = f"HTTP {resp.status_code}"
+                continue
+            resp.raise_for_status()
+            text = resp.content.decode("utf-8", "replace")
+            # HTML only: a CSV's free text could quote a marker phrase.
+            if "html" in resp.headers.get("Content-Type", "") and _content_has_datadome(text):
+                last = "DataDome block page"
+                log.warning(f"  [!] DataDome page from {url.split('?')[0]} -- backing off")
+                time.sleep(30)
+                continue
+            return text
+        except requests.RequestException as e:
+            last = e
+    raise RuntimeError(f"{url.split('?')[0]}: failed after {GRID_TRIES} tries: {last}")
+
+
+def _grid_form(html: str, prefix: str, field: str, year: str, button: str, value: str) -> dict:
+    """The search form as the page posts it: any filer, any type, one report
+    year, GRID_STATUS, plus the button pressed."""
+    def hidden(name):
+        m = re.search(rf'id="{name}" value="([^"]*)"', html)
+        if not m:
+            raise RuntimeError(f"no {name} on the page")
+        return m.group(1)
+    f = f"{prefix}$csfFilter$"
+    return {"__EVENTTARGET": "", "__EVENTARGUMENT": "", "__LASTFOCUS": "",
+            "__VIEWSTATE": hidden("__VIEWSTATE"),
+            "__VIEWSTATEGENERATOR": hidden("__VIEWSTATEGENERATOR"),
+            f + "ddlNameType": "CandidateName", f + "txtName": "",
+            f + "ddlField": field, f + "ddlValue": "-1",
+            f + "txtBeginDate": "", f + "txtEndDate": "",
+            f + "ddlReportYear": year, f + "ddlStatus": GRID_STATUS,
+            f + button: value}
+
+
+def _grid_year_once(relation_type: str, year: str, log) -> tuple[list[str], list[list[str]]] | None:
+    """(header, rows) of one statewide report year, or None when the search
+    returns no results. Raises when the export doesn't add up."""
+    import requests
+    page, _, field = GRID_PAGES[relation_type]
+    url = f"{GRID_BASE}/{page}.aspx"
+    session = requests.Session()
+    session.headers["User-Agent"] = GRID_USER_AGENT
+
+    html = _grid_request(session, url, log)
+    m = re.search(r'name="(M\$C\$[^"$]+)\$csfFilter\$txtName"', html)
+    if not m:
+        raise RuntimeError(f"{page}: search form not found")
+    prefix = m.group(1)
+    time.sleep(GRID_PAUSE_S)
+    found = _grid_request(session, url, log,
+                          _grid_form(html, prefix, field, year, "btnSearch", "Search"))
+    m = _GRID_COUNT_RE.search(found)
+    if m:
+        expected = int(m.group(1).replace(",", ""))
+    elif _GRID_EMPTY_RE.search(found):
+        return None
+    elif "rgPager" not in found and _GRID_ROW_RE.search(found):
+        # One screen of results (2027's handful of early gifts) has no pager.
+        expected = len(_GRID_ROW_RE.findall(found))
+    else:
+        raise RuntimeError(f"{page} {year}: search returned neither rows nor 'No Results'")
+
+    # The export dialog's links carry the session's stored search.
+    time.sleep(GRID_PAUSE_S)
+    dialog = _grid_request(session, url, log,
+                           _grid_form(found, prefix, field, year, "btnExport", "Export"))
+    links = [l.replace("&amp;", "&") for l in re.findall(r'href="([^"]*isExport[^"]*)"', dialog)]
+    page_link = next((l for l in links if "exportFormat=CSV" in l and "exportAll=False" in l), None)
+    if not page_link:
+        raise RuntimeError(f"{page} {year}: no CSV export link in the export dialog")
+    page_link = "https://aws.state.ak.us" + page_link if page_link.startswith("/") else page_link
+
+    header, rows = None, []
+    for index in range(-(-expected // GRID_PAGE_SIZE)):
+        u = re.sub(r"pageSize=\d+", f"pageSize={GRID_PAGE_SIZE}",
+                   re.sub(r"pageIndex=\d+", f"pageIndex={index}", page_link))
+        time.sleep(GRID_PAUSE_S)
+        records = list(csv.reader(io.StringIO(_grid_request(session, u, log))))
+        if not records:
+            break
+        if header is None:
+            header = records[0]
+            if "Result" not in header or "Amount" not in header:
+                raise RuntimeError(f"{page} {year}: unexpected export header {header[:5]}")
+        elif records[0] != header:
+            raise RuntimeError(f"{page} {year}: export header changed on page {index}")
+        rows.extend(records[1:])
+        log.info(f"  {page} {year}: page {index}: {len(records) - 1} rows")
+        if len(records) - 1 < GRID_PAGE_SIZE:
+            break
+    if len(rows) != expected:
+        raise RuntimeError(f"{page} {year}: exported {len(rows)} rows, the search "
+                           f"reported {expected}")
+    return header, rows
+
+
+def download_grid_year(relation_type: str, year: str, log) -> tuple[str, int] | None:
+    """One report year of income or expenditures via the grid export, into
+    grid_<stem>_<year>.csv (written to .part, renamed when complete). None when
+    the year has no rows. Retries the whole year GRID_YEAR_TRIES times."""
+    _, stem, _ = GRID_PAGES[relation_type]
+    filename = f"grid_{stem}_{year}.csv"
+    last = None
+    for attempt in range(GRID_YEAR_TRIES):
+        if attempt:
+            log.warning(f"  [!] {filename}: {last} -- retrying the year")
+            time.sleep(30 * attempt)
+        try:
+            result = _grid_year_once(relation_type, year, log)
+            break
+        except RuntimeError as e:
+            last = e
+    else:
+        raise RuntimeError(f"{filename}: {last}")
+    if result is None:
+        return None
+    header, rows = result
+    out_path = RAW_DIR / filename
+    part = RAW_DIR / (filename + ".part")
+    with open(part, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+    part.replace(out_path)
+    return filename, len(rows)
+
+
+def run_grid(log, start_year: int | None, end_year: int | None,
+             do_income: bool, do_expend: bool) -> tuple[int, int]:
+    """--grid: income / expenditures per report year over plain HTTP.
+    Returns (files_ok, files_err); raises after logging when a year fails."""
+    import requests
+    session = requests.Session()
+    session.headers["User-Agent"] = GRID_USER_AGENT
+    html = _grid_request(session, f"{GRID_BASE}/CDIncome.aspx", log)
+    sel = re.search(r'<select[^>]*name="[^"]*ddlReportYear"[^>]*>(.*?)</select>', html, re.S)
+    years = sorted({y for y in re.findall(r'value="(\d{4})"', sel.group(1) if sel else "")})
+    if not years:
+        raise RuntimeError("CDIncome: no report years in the search form")
+    years = [y for y in years
+             if (start_year is None or int(y) >= start_year)
+             and (end_year is None or int(y) <= end_year)]
+    files_ok = files_err = 0
+    for relation_type in ("income", "expenditures"):
+        if not (do_income if relation_type == "income" else do_expend):
+            continue
+        log.info(f"\nAlaska {relation_type} (grid): report years {', '.join(years)}")
+        for year in years:
+            filename = f"grid_{GRID_PAGES[relation_type][1]}_{year}.csv"
+            log.file_download_start(filename=filename)
+            t_file = time.perf_counter()
+            try:
+                result = download_grid_year(relation_type, year, log)
+            except Exception as e:
+                log.file_download_error(filename=filename, error=str(e))
+                raise
+            if result is None:
+                # A year with no reports yet: drop a stale file from an
+                # earlier run rather than parse it.
+                (RAW_DIR / filename).unlink(missing_ok=True)
+                log.info(f"  {filename}: no reports for {year}")
+                continue
+            filename, row_count = result
+            log.file_download_ok(filename=filename, bytes=(RAW_DIR / filename).stat().st_size,
+                                 rows=row_count, duration_s=time.perf_counter() - t_file)
+            files_ok += 1
+            upsert_manifest({"relation_type": f"{relation_type}_grid", "year": year,
+                             "filename": filename, "row_count": row_count})
+    return files_ok, files_err
+
+
 # ============================ orchestrator ============================
 def run(
     force: bool = False,
@@ -449,6 +672,7 @@ def run(
     candidates: bool = False,
     committees: bool = False,
     independent_expenditures: bool = False,
+    grid: bool = False,
 ):
     """Orchestrate download of transaction CSVs and/or candidate/group entities.
 
@@ -465,6 +689,10 @@ def run(
         candidates              — CDCandidates + CRForms bulk only (implies entities)
         committees              — GRForms bulk only (implies entities)
         independent_expenditures — IE (Form 15-6) bulk exports only (its own filing track, own manifest vertical -- not folded into entities/transactions so an --entities/--transactions caller doesn't unexpectedly pick it up). Uses the same year-based bulk Search/Export flow as income/expenditures/groups, not a per-ID detail sweep.
+
+    grid=True: income and expenditures come over plain HTTP by report year
+    (grid_*_<year>.csv, see the module docstring) and need no browser; a
+    failed year raises (exit 1). Other relations still use Playwright.
     """
     log = get_logger("alaska", "scrape")
     t0  = time.perf_counter()
@@ -473,16 +701,7 @@ def run(
               start_year=start_year, end_year=end_year,
               contributions=contributions, expenditures=expenditures,
               candidates=candidates, committees=committees,
-              independent_expenditures=independent_expenditures)
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("[!] Playwright not installed. Run: pip install playwright && playwright install chromium")
-        log._emit("scrape_completed", status="error", duration_s=0.0,
-                  files_ok=0, files_err=0, pages_ok=0, pages_err=0,
-                  error="playwright not installed")
-        return
+              independent_expenditures=independent_expenditures, grid=grid)
 
     # ── Resolve granular scope ────────────────────────────────────────
     # Any horizontal flag set → only the named types; none → everything.
@@ -501,6 +720,35 @@ def run(
 
     files_ok = files_err = pages_ok = pages_err = 0
     current_year = str(datetime.today().year)
+
+    # ── --grid: income / expenditures over plain HTTP, no browser ─────
+    if grid and (do_income or do_expend):
+        try:
+            files_ok, files_err = run_grid(log, start_year, end_year, do_income, do_expend)
+        except Exception as e:
+            log._emit("scrape_completed", status="error",
+                      duration_s=round(time.perf_counter() - t0, 1),
+                      files_ok=files_ok, files_err=files_err + 1,
+                      pages_ok=pages_ok, pages_err=pages_err,
+                      error_type=type(e).__name__, error=str(e))
+            raise
+        do_income = do_expend = False
+        if not (do_candidates_dl or do_groups_dl or do_ie):
+            duration = round(time.perf_counter() - t0, 1)
+            log.info(f"Done in {duration}s")
+            log._emit("scrape_completed", status="completed", duration_s=duration,
+                      files_ok=files_ok, files_err=files_err,
+                      pages_ok=pages_ok, pages_err=pages_err)
+            return
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("[!] Playwright not installed. Run: pip install playwright && playwright install chromium")
+        log._emit("scrape_completed", status="error", duration_s=0.0,
+                  files_ok=0, files_err=0, pages_ok=0, pages_err=0,
+                  error="playwright not installed")
+        return
 
     # ── Scoped manifest clearing ──────────────────────────────────────
     if force:
@@ -787,6 +1035,9 @@ if __name__ == "__main__":
     ap.add_argument("--independent-expenditures", action="store_true",
                     dest="independent_expenditures",
                     help="IE (Form 15-6) bulk exports only -- separate filing track from everything else this scraper covers")
+    ap.add_argument("--grid", action="store_true",
+                    help="income / expenditures over plain HTTP (no browser), status "
+                         "'Complete, Not Amended', into grid_*_<year>.csv")
 
     args, _ = ap.parse_known_args()
 
@@ -814,6 +1065,7 @@ if __name__ == "__main__":
             candidates=args.candidates,
             committees=args.committees,
             independent_expenditures=args.independent_expenditures,
+            grid=args.grid,
         )
     except KeyboardInterrupt:
         sys.exit(130)

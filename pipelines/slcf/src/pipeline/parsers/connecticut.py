@@ -28,6 +28,19 @@ Notes:
   - id_model="committee": CT assigns one Committee ID per registration cycle, so the
     same candidate gets a different ID each cycle. assign_person_ids groups by
     (state, candidate_name, office, district) across cycles.
+  - "Public Grants" receipts (Citizens' Election Program grants, Contributor Name
+    "CEP") are named CEP_GRANT_NAME -- the pilot importer's relabel, moved here per
+    docs/slcf-merge-plan.md so every consumer gets it.
+  - Loader ids (columns.py, TRANSACTION_IDS): state_filer_id = Committee ID (the
+    pilot importer's ct:<Committee ID>, as cf_candidates.filer_refs hold it).
+    eCRIS publishes no transaction id, so txn_id stays blank and the loader hashes
+    the row. superseded is never set: an amended report's rows sit beside the
+    original report's rather than replacing them (no row of a later report repeats
+    one of an earlier report's, checked 2026-10-15), and disbursement Status =
+    Amendment marks a row filed on an amendment -- the current version.
+    contributor_first / contributor_last = the source's First / Last Name (middle
+    initial left out), or the whole Contributor Name in last when the split is
+    empty (committees, the candidate's personal funds) -- as the pilot stored them.
 """
 
 import csv
@@ -53,6 +66,10 @@ CLEAN_DIR = PROJECT_ROOT / "data" / "Connecticut" / "cleaned"
 CLEAN_DIR.mkdir(parents=True, exist_ok=True)
 
 STATE = "CT"
+
+# Contributor name for a Public Grants receipt (the CEP's grant to a qualifying
+# candidate), which the source names "CEP".
+CEP_GRANT_NAME = "Citizens' Election Program (public grant)"
 
 # ============================== helpers ===============================
 
@@ -295,6 +312,13 @@ def run():
                                    parse_date(row.get("File To State", ""))
 
                         receipt_type = clean(row.get("Receipt Type", ""))
+                        # Source name parts for the loader: last name, or the
+                        # whole Contributor Name when the split is empty.
+                        contributor_first = contrib_first
+                        contributor_last  = contrib_last or clean(row.get("Contributor Name", ""))
+                        if receipt_type == "Public Grants":
+                            contributor = contributor_last = CEP_GRANT_NAME
+                            contributor_first = ""
                         cont_w.writerow({
                             "state":             STATE,
                             "committee_name":    clean(row.get("Committee", "")),
@@ -310,11 +334,16 @@ def run():
                             "contributor_zip":   clean_zip(row.get("zip", "")),
                             "employer":          clean(row.get("Employer", "")),
                             "occupation":        clean(row.get("Occupation", "")),
+                            "contributor_first": contributor_first,
+                            "contributor_last":  contributor_last,
                             "candidate_name":    candidate_name,
                             "office":            clean(row.get("Office Sought", "")),
                             "election_year":     parse_year(row.get("ElectionYear", "")),
                             "amended":           yn_amended(row.get("Refiled Electronically", "")),
                             "filing_id":         clean(row.get("Report ID", "")),
+                            # Committee ID, for the state-politics-tracker loader
+                            # (columns.py, TRANSACTION_IDS); no txn_id -- see Notes.
+                            "state_filer_id":    clean(row.get("Committee ID", "")),
                             "raw_file":          path.name,
                             "row_num":           row_num,
                         })
@@ -371,6 +400,7 @@ def run():
                             "election_year":  parse_year(row.get("Election Year", "")),
                             "amended":        status_amended(row.get("Status", "")),
                             "filing_id":      clean(row.get("Report ID", "")),
+                            "state_filer_id": clean(row.get("Committee ID", "")),
                             "raw_file":       path.name,
                             "row_num":        row_num,
                         })

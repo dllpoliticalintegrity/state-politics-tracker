@@ -68,6 +68,27 @@ Column mapping:
     Office Sought                   → office
     Election Date                   → election_year
     Is Independent Expenditure      → category ("Independent Expenditure" if Yes)
+
+Loader columns (columns.py, TRANSACTION_IDS; state-politics-tracker, 2026-10):
+    state_filer_id  KREF has no filer ids, so the committee is a name key:
+                    "LAST,FIRST" (recipient / From Candidate last name and
+                    first word of the first name, upper-cased) — what
+                    cf_candidates.filer_refs hold ("ky:ADKINS,ROCKY"). Bare
+                    only for STATEWIDE_OFFICES, where a name is unique in a
+                    cycle; other offices get "|OFFICE" appended so a local
+                    namesake can't match (26 of ~2,400 name keys in 2025-26
+                    span two offices or counties). Organizations: the name,
+                    upper-cased. The election date is not part of the key:
+                    a campaign's primary and general share it, and the
+                    loader's `since` drops older campaigns' rows.
+    txn_id          blank: KREF publishes no transaction id (the loader hashes).
+    superseded      never set: the exports hold only the current version of
+                    each statement; nothing marks a row as replaced.
+    contributor_first / contributor_last, payee_first / payee_last
+                    the source's name parts; an organization goes whole into
+                    last, as the pilot importer stored it.
+    In-kind gifts are the rows with an In kind Description; their
+    transaction_type gets " (IN-KIND)" after the Contribution Mode.
 """
 
 import csv
@@ -121,6 +142,27 @@ _EXPEND_SKIP_PAYEES = {
     "IN-KIND GIVEN TOTAL",
     "BALANCE TRANSFER TO GENERAL",
 }
+
+# Kentucky's statewide offices (SLATE = a governor / lieutenant governor
+# ticket). A candidate's name key is bare only for these — see the docstring.
+STATEWIDE_OFFICES = {
+    "GOVERNOR", "SLATE", "LIEUTENANT GOVERNOR", "ATTORNEY GENERAL",
+    "SECRETARY OF STATE", "AUDITOR OF PUBLIC ACCOUNTS", "STATE TREASURER",
+    "COMMISSIONER OF AGRICULTURE",
+}
+
+
+def _filer_key(cand_last: str, cand_first: str, office: str, org: str) -> str:
+    """state_filer_id for the loader: "LAST,FIRST" (+ "|OFFICE" off the
+    statewide ballot) for a candidate's campaign, else the organization."""
+    last  = _clean(cand_last).upper()
+    first = (_clean(cand_first).upper().split() or [""])[0]
+    if last or first:
+        key = f"{last},{first}"
+        office = _clean(office).upper()
+        return key if office in STATEWIDE_OFFICES else f"{key}|{office}"
+    return _clean(org).upper()
+
 
 def _clean_state(val: str) -> str:
     """Return a 2-letter US state abbreviation or empty string.
@@ -392,8 +434,10 @@ def _run(log, t0: float):
                         from_org = ""
                     if from_org:
                         contributor_name = from_org
+                        name_parts = ("", from_org)
                     else:
                         contributor_name = _join_name(cont_first, cont_last)
+                        name_parts = (cont_first, cont_last)
                     # When from_org and individual name are both absent, fall back to
                     # OtherText (used by older KREF entries to label the source):
                     #   BALANCE_CARRYFORWARD → committee itself (own prior-period funds)
@@ -414,6 +458,11 @@ def _run(log, t0: float):
 
                     election_year = _parse_year(row.get("Election Date", "")) or year_tag
 
+                    # In-kind gifts are marked only by their description.
+                    txn_type = _clean(row.get("Contribution Mode", ""))
+                    if _clean(row.get("In kind Description", "")):
+                        txn_type = f"{txn_type} (IN-KIND)".strip()
+
                     contrib_count += 1
                     rows_out += 1
                     w.writerow({
@@ -421,7 +470,7 @@ def _run(log, t0: float):
                         "committee_name":    committee_name,
                         "amount":            amount,
                         "date":              dt,
-                        "transaction_type":  _clean(row.get("Contribution Mode", "")),
+                        "transaction_type":  txn_type,
                         "contributor_name":  _clean(contributor_name),
                         "contributor_type":  _clean(row.get("Contribution Type", "")),
                         "contributor_city":  "" if _clean(row.get("City", "")) in ("N/A", "NA") else _clean(row.get("City", "")),
@@ -429,11 +478,17 @@ def _run(log, t0: float):
                         "contributor_zip":   utils.clean_zip(row.get("Zip", "")),
                         "employer":          _clean(row.get("Employer", "")),
                         "occupation":        _clean(row.get("Occupation", "")),
+                        "contributor_first": name_parts[0],
+                        "contributor_last":  name_parts[1],
                         "candidate_name":    utils.clean_name(_join_name(rec_first, rec_last)),
                         "office":            _clean(row.get("Office Sought", "")),
                         "election_year":     election_year,
                         "amended":           "",
                         "filing_id":         "",
+                        # Loader-only (see the docstring): the recipient's
+                        # name key, no transaction id, nothing superseded.
+                        "state_filer_id":    _filer_key(rec_last, rec_first,
+                                                        row.get("Office Sought", ""), to_org),
                         "raw_file":          raw_file.name,
                         "row_num":           contrib_count,
                     })
@@ -478,8 +533,10 @@ def _run(log, t0: float):
                     rec_org   = _clean(row.get("Organization Name", ""))
                     if rec_org:
                         payee_name = rec_org
+                        payee_parts = ("", rec_org)
                     else:
                         payee_name = _join_name(rec_first, rec_last)
+                        payee_parts = (rec_first, rec_last)
                     # Skip KY KREF summary/accounting rows (payee = "TOTAL", etc.)
                     if payee_name.upper() in _EXPEND_SKIP_PAYEES:
                         continue
@@ -505,6 +562,8 @@ def _run(log, t0: float):
                         "date":           dt,
                         "transaction_type": _clean(row.get("Disbursement Code", "")),
                         "payee_name":     _clean(payee_name),
+                        "payee_first":    payee_parts[0],
+                        "payee_last":     payee_parts[1],
                         "purpose":        _clean(row.get("Purpose", "")),
                         "category":       category,
                         "payee_city":     "",
@@ -517,6 +576,8 @@ def _run(log, t0: float):
                         "election_year":  election_year,
                         "amended":        "",
                         "filing_id":      "",
+                        "state_filer_id": _filer_key(from_cand_last, from_cand_first,
+                                                     row.get("Office Sought", ""), from_org),
                         "raw_file":       raw_file.name,
                         "row_num":        expend_count,
                     })
