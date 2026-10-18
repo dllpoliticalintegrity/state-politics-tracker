@@ -11,7 +11,12 @@ import { formatCurrency, partyColor, partyLabel } from "@/lib/finance";
 import { onBallot } from "@/lib/candidateStatus";
 import { racePath, useRaceConfig, useStateConfig } from "@/states/StateContext";
 
-const SHOWN = 3;
+const SHOWN = 4;
+
+function initialsOf(name: string): string {
+  const w = name.trim().split(/\s+/);
+  return ((w[0]?.[0] ?? "") + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase();
+}
 
 export default function RaceOverviewCard() {
   const state = useStateConfig();
@@ -33,6 +38,7 @@ export default function RaceOverviewCard() {
   rows.sort((a, b) =>
     anyPoll ? (b.pct ?? -1) - (a.pct ?? -1) || b.raised - a.raised : b.raised - a.raised,
   );
+  const leader = rows[0] ?? null;
   const raceRaised = (candidates ?? []).reduce((s, c) => s + (totals?.get(c.id)?.raised ?? 0), 0);
   const href = racePath(state, race);
 
@@ -47,12 +53,49 @@ export default function RaceOverviewCard() {
           {anyPoll ? "Ranked by polling average" : "Ranked by money raised"}
         </p>
 
+        {/* The leader, with a headshot */}
+        {leader && (
+          <div className="mt-4 flex items-center gap-3">
+            {leader.c.photo_url_thumb || leader.c.photo_url ? (
+              <img
+                src={leader.c.photo_url_thumb ?? leader.c.photo_url ?? undefined}
+                alt={leader.c.name}
+                loading="lazy"
+                className="h-14 w-14 shrink-0 rounded-full border-2 object-cover"
+                style={{ borderColor: partyColor(leader.c.party) }}
+              />
+            ) : (
+              <div
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 bg-muted font-display text-base"
+                style={{ borderColor: partyColor(leader.c.party) }}
+                aria-hidden="true"
+              >
+                {initialsOf(leader.c.name)}
+              </div>
+            )}
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                {anyPoll ? "Leads the polls" : "Leads in money raised"}
+              </div>
+              <div className="font-display text-lg font-semibold leading-tight truncate" style={{ color: partyColor(leader.c.party) }}>
+                {leader.c.name}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {partyLabel(leader.c.party)} ·{" "}
+                {anyPoll && leader.pct !== null ? `${leader.pct.toFixed(1)}% average` : `${formatCurrency(leader.raised)} raised`}
+              </div>
+            </div>
+          </div>
+        )}
+
         <ul className="mt-4 space-y-2.5 flex-1">
           {isLoading && <li className="text-sm text-muted-foreground">Loading…</li>}
           {!isLoading && rows.length === 0 && (
             <li className="text-sm text-muted-foreground">No candidates on the ballot yet.</li>
           )}
-          {rows.slice(0, SHOWN).map(({ c, raised, pct }, i) => (
+          {rows.slice(1, SHOWN).map(({ c, raised, pct }, idx) => {
+            const i = idx + 1;
+            return (
             <li key={c.id} className="flex items-center gap-2.5 text-sm">
               <span className="w-4 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
               <span
@@ -61,12 +104,13 @@ export default function RaceOverviewCard() {
                 role="img"
                 aria-label={partyLabel(c.party)}
               />
-              <span className={`min-w-0 flex-1 truncate ${i === 0 ? "font-semibold" : ""}`}>{c.name}</span>
+              <span className="min-w-0 flex-1 truncate">{c.name}</span>
               <span className="tabular-nums text-muted-foreground">
                 {anyPoll && pct !== null ? `${pct.toFixed(1)}%` : formatCurrency(raised)}
               </span>
             </li>
-          ))}
+            );
+          })}
           {rows.length > SHOWN && (
             <li className="pl-6 text-xs text-muted-foreground">+{rows.length - SHOWN} more</li>
           )}
