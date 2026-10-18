@@ -777,6 +777,14 @@ const LIVE_CONFIG_CA: Record<string, Pick<StateConfig, "races" | "agency" | "leg
         pollingSourceUrl: fpoGovernor("California"),
       },
     ],
+    // Legislature (Oct 2026): the general-election candidates from the
+    // Secretary of State's certified list (pipelines/load/roster_ca.py),
+    // finance from the CAL-ACCESS import; the 20 even-numbered Senate seats
+    // and all 80 Assembly seats are up.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 40, generalDate: "2026-11-03", map: "/maps/ca-state-senate.json", seatsUp: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40] },
+      { office: "state-house", title: "State Assembly", districts: 80, generalDate: "2026-11-03", map: "/maps/ca-state-house.json" },
+    ],
   },
 };
 Object.assign(LIVE_CONFIG, LIVE_CONFIG_2, LIVE_CONFIG_3, LIVE_CONFIG_4, LIVE_CONFIG_TX, LIVE_CONFIG_CA);
