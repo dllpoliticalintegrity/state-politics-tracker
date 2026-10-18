@@ -13,6 +13,7 @@ that covers many states and lets readers switch between them, using
   UIs had drifted in both directions within two months, and every UI change
   had to be made twice.*
 - **The CA Governor tracker (ca-gov-polling) stays separate too.**
+  *Reversed Oct 2026 as well — see "California joins the hub" below.*
 - **The new repo is the single home for all other state data** — the
   site, the SLCF importer, the curated candidate data, and the sync
   workflows for every state it covers all live together in one repo.
@@ -327,6 +328,57 @@ with nothing keeping them in step (the risk the section below predicted).
    legacy tx-politics-tracker Pages project, then add both as custom domains
    on the `state-politics-tracker` Worker (Settings → Domains & Routes).
 4. Archive the tx-politics-tracker repository and its Pages project.
+
+## California joins the hub (Oct 2026)
+
+**Decision: cagovtracker.com becomes a single-state deployment of this
+codebase too**, for the same reason as Texas. California's site (the
+ca-poll-boost repo, a TanStack Start rebuild on Lovable hosting) read `ca_*`
+tables in the *Integrity Index* Supabase project, filled by ca-gov-polling's
+CAL-ACCESS importer and 270toWin scraper. Both pipelines now run here, against
+the tracker project.
+
+- **Data, staged like Texas.** The CAL-ACCESS importer
+  (`scripts/data-import/cal-access/import_ca_finance.py`, run by
+  `ca-finance-sync.yml` at 09:00 UTC, ~20 min) moved here unchanged except for
+  its target. It writes `ca_*` staging tables
+  (`20261018160000_california_staging.sql`, the same shapes as the originals)
+  because CAL-ACCESS needs its own dedup rules: keep each filing's highest
+  amendment, drop Form 497 late-report rows once a Form 460 covers their date,
+  drop memo rows, add Schedule A's unitemized line, and drop 496 IE rows once
+  the committee's periodic 460/461 covers them. Those rules are the
+  `ca_*_deduped` views, ported verbatim; the `ca_cf_*` views shape the result
+  as `cf_*` rows (`source_txn_id` = `<filing_id>-<tran_id>`, no amendment
+  number, so an amendment updates rows in place). `publish_california_to_cf()`
+  (`20261018160100`) copies them into `cf_*` with `source = 'calaccess'` and
+  deletes rows that left the views; pg_cron runs it at 10:30 UTC, then
+  refreshes the `cf_*` matviews. It does nothing while `ca_filings` is empty.
+- **Unlike Texas, candidates are not staged.** California's `cf_candidates`
+  rows (same uuids and slugs as the old `ca_candidates`) are the editorial
+  record, edited in the admin console like every state but Texas.
+  `ca_candidate_filers` maps each candidate to its two CAL-ACCESS ids (the
+  candidate's own filer id, which 496 IEs name as their target, and the
+  controlled committee's, also in `filer_refs` as `ca:<id>`). The importer
+  still reads `ca_candidates`, now a view over the two. To track a new
+  candidate: add the `cf_candidates` row, then its `ca_candidate_filers` row.
+- **What the numbers mean on the hub.** Total raised = itemized contributions
+  plus unitemized (as on cagovtracker.com) but, as for every state, not loans
+  (cagovtracker.com counted loans received); loans appear in top donors via
+  `cf_contributions_deduped`. Individuals are CAL-ACCESS type `IND` only
+  (cagovtracker.com also counted `OTH`, which is businesses and other
+  organisations). Spending is each filing's latest amendment
+  (cagovtracker.com summed every amendment). Money into IE committees is one
+  row per (committee, transaction id) — `ca_ie_contributions_deduped` —
+  where cagovtracker.com's top IE donors counted a receipt again each time a
+  later filing restated it.
+- **Polling.** The governor race joins `import-towin-polling-multi`'s race
+  list (same `race_id` as in the Integrity Index project).
+- **Pipelines manifest.** `pipelines/states.json` gives California pipeline
+  `calaccess`: like Texas's `tec`, it is never part of `finance-sync.yml`.
+- **Left in the Integrity Index project** until cagovtracker.com moves: its
+  `ca_*` tables and California race rows (integrityindex's CA House races are
+  in the same `races` table and are not ours), and ca-gov-polling's workflows,
+  which keep that copy current for the old site.
 
 ## Keeping two repos honest
 

@@ -1,8 +1,8 @@
 {
   "_doc": [
     "Which pipeline feeds each state's cf_* finance data. Read by pipelines/plan_matrix.py (the finance-sync.yml matrix), pipelines/run_state.py and pipelines/load/load_cf.py. See docs/slcf-merge-plan.md.",
-    "pipeline: slcf = SLCF scrape + parse, then the loader | pilot = scripts/data-import/pilot/import_pilot_finance.py | tec = Texas, its own tx-finance-sync.yml | none = no finance source.",
-    "Texas (tec) and Michigan (pilot) keep their infrastructure permanently. Every other pilot state moves to slcf at its cutover, after a dry run reconciles (finance-sync.yml, dry_run input).",
+    "pipeline: slcf = SLCF scrape + parse, then the loader | pilot = scripts/data-import/pilot/import_pilot_finance.py | tec = Texas, its own tx-finance-sync.yml | calaccess = California, its own ca-finance-sync.yml | none = no finance source.",
+    "Texas (tec), California (calaccess) and Michigan (pilot) keep their infrastructure permanently. Every other pilot state moves to slcf at its cutover, after a dry run reconciles (finance-sync.yml, dry_run input).",
     "nightly: run on the 07:20 UTC schedule (default true for slcf/pilot). A state can always be dispatched by name.",
     "since: first transaction date loaded (default 1 Jan of the year before cycle). slcf_args: extra SLCF scraper flags. playwright: the SLCF scraper needs Chromium.",
     "id_format: per SLCF table, how a source transaction id becomes source_txn_id (default '{st}:{id}'), set to the pilot's own format so a cutover lands on the existing rows.",
@@ -12,6 +12,7 @@
   ],
   "states": {
     "tx": { "pipeline": "tec", "note": "permanent: TEC importer, tx-finance-sync.yml" },
+    "ca": { "pipeline": "calaccess", "note": "permanent: CAL-ACCESS importer, ca-finance-sync.yml (moved from ca-gov-polling 2026-10)" },
     "mi": { "pipeline": "pilot", "cycle": "2026",
             "note": "permanent: Michigan keeps its importer, legislature roster and ballot-status syncs" },
 
