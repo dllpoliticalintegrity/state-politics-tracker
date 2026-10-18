@@ -72,9 +72,13 @@ aggregates. So:
   now .xlsx and the scraper reads .xls with xlrd, and the first windows came
   back as blank pages. The scraper needs that fix before Oregon loads; OR
   stays on LPT until then.
-- The `lpt-publish` bridge and the `hub_*` objects in LPT stay as they are
-  (harmless, and the cache refresh still serves OH and OR) until both states
-  are on the tracker; then the workflow can be retired.
+- The `lpt-publish` workflow no longer bridges anything on its schedule; it
+  only refreshes LPT's hub caches for the states still read from Henry's
+  tables (`LPT_HIS_STATES`, default `OR`). The bridge still runs on manual
+  dispatch with a state list, and the `hub_*` objects and `mi_/tx_/ca_`
+  tables in LPT stay (harmless) until Oregon moves; then both can go.
+- **Deploys:** `.github/workflows/deploy.yml` publishes main to the Worker
+  (added 2026-10-18 after finding that nothing had deployed since Oct 7).
 
 Sections 1–5 below describe the LPT-first design as built; they remain
 accurate for how OH and OR are read today.
