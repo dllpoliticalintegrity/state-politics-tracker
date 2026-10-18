@@ -10,6 +10,7 @@ import PollingAveragesList from "@/components/PollingAveragesList";
 import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
+import CandidateSearch from "@/components/CandidateSearch";
 import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
@@ -21,6 +22,7 @@ export default function Index() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   const hasPollingSource = !!race.pollingSourceUrl;
+  const isHome = !race.district && race.office === stateCfg.races?.[0]?.office;
   const GENERAL_DATE = new Date(`${race.generalDate}T00:00:00`);
   const { data: candidates, isLoading } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
@@ -133,6 +135,14 @@ export default function Index() {
             ? `Polling averages, campaign finance, and outside spending, synced from ${pollingSourceLabel(race)} and the ${stateCfg.agency?.name}.`
             : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
         </p>
+        {/* The state's home page (its first race) searches every candidate in the state. */}
+        {isHome && stateCfg.source === "tracker" && (
+          <CandidateSearch
+            states={[stateCfg.code]}
+            placeholder={`Search any ${stateCfg.name} candidate by name`}
+            className="pt-2"
+          />
+        )}
       </section>
 
       {/* Summary strip */}

@@ -1,6 +1,11 @@
 import { Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
-import { STATES, type StateConfig } from "@/states/registry";
+import { STATES, liveStates, type StateConfig } from "@/states/registry";
+import CandidateSearch from "@/components/CandidateSearch";
+
+// Candidate search covers the live states whose pages read the tracker
+// database (Oregon still reads the Local Politics Tracker).
+const SEARCH_STATES = liveStates().filter((s) => s.source === "tracker").map((s) => s.code);
 import { usePublishedSites } from "@/hooks/usePublishedSites";
 
 const STATUS_LABEL: Record<StateConfig["status"], string> = {
@@ -33,6 +38,7 @@ export default function StatePicker() {
           across the country — governor on down — synced from each state's disclosure
           agency and FiftyPlusOne. Pick your state to start.
         </p>
+        <CandidateSearch states={SEARCH_STATES} placeholder="Search any candidate by name" className="pt-2" />
       </section>
 
       <section className="container pb-4">
