@@ -36,9 +36,58 @@ Notes
   • In-kind contributions (Sch-E) are written as contributions with
     transaction_type="In-Kind".
   • Loans received (Sch-F1) go to loans_debts with record_type="loan_received".
+    Sch-F1's table has the same first column ("Date Incurred") as Sch-D's
+    unpaid bills; only F1's has an "Amount of Loan" column, and Sch-D is
+    skipped (it used to be read as loans).
   • Loans paid (Sch-F2) go to loans_debts with record_type="loan_repaid".
   • person_id model: "committee" — Iowa committee codes are per-registration;
     candidates may re-register each cycle with a new code.
+  • Each page's layout cache is released once read: a statewide candidate's
+    report runs to 6,000 pages, which pdfplumber otherwise holds in memory
+    (12 GB and climbing on Rob Sand's 2025 report).
+  • Loader ids (columns.py, TRANSACTION_IDS): state_filer_id = the IECDB
+    committee code ("5185", "SWGA51409"). The PDFs carry no transaction id, so
+    txn_id stays blank there (the loader hashes the row); superseded is never
+    set — the index lists only each report's latest version.
+
+Search mode (scraper --search)
+──────────────────────────────
+  search_contributions_{year}.csv / search_expenditures_{year}.csv, when
+  present, replace the PDFs' Sch-A, Sch-B and Sch-E: they are the IECDB
+  Searchable Database's rows (see the scraper), current to the latest filed
+  report. The PDFs then give committee / candidate rows from page 1, and
+  loans from Sch-F1 / F2 — read only in reports whose summary page shows loan
+  activity, so the 6,000-page reports are opened for page 1 alone.
+  • txn_id = transactionId, the database's own id for the transaction.
+  • contributor_type / payee kind = the scraper's kind: "Individual",
+    "Organization", "Committee" or "Unitemized". A committee's name drops the
+    "#<code> " prefix the database puts on it.
+  • As filed: the database shows each party's CURRENT contact record, so a
+    gift from one "Theresa Macdonald" carries the address of a namesake who
+    gave later (Rob Sand's imports: 2.6% of his gifts), and a person's name
+    comes joined ("Richard W. Spanton"). Each itemized row is therefore
+    matched to its line in the report PDF — read as text with PDFium, the
+    whole state's reports in under two minutes — on committee, date, amount and
+    name, and takes the name and city / state / zip as the report printed
+    them. A person's line is "{last}, {first} {middle initial}", with a
+    trailing space when there is no initial ("Dutcher, Michael A " = first
+    "Michael A"; "Peters, George R" = first "George"); "Seward, Jr., Jack" =
+    last "Seward, Jr.". That is exactly the Iowa Data Hub's last_nm /
+    first_nm (what the old pilot importer stored) for 99.9% of the tracked
+    candidates' 177,000 gifts.
+  • Rows with no line in the PDFs keep the database's values: a person's
+    joined name is split — last = the final word, with a particle before it
+    (Van, De, St., ...) and a suffix after it (Jr, III, ...); a middle
+    initial is dropped from first. Anyone else goes whole into last.
+  • An "Un-itemized" lump sum keeps no name and counts as "Individual" (the
+    pilot importer's rule for a nameless gift), transaction_type "Unitemized"
+    so the loader's unitemized option can label it.
+  • Types: CON → "Monetary", INK → "In-Kind"; EXP → blank (the database has no
+    purpose or category, and the loader would otherwise turn the type into
+    every expenditure's spending category). filing_id = checkNumber.
+  • Sch-F1 loans are written as contributions with transaction_type "Loan"
+    (the loader books those as loans) so the lender's "Last, First" keeps its
+    two parts; Sch-F2 stays in loans_debts.
 """
 
 import csv
@@ -104,6 +153,33 @@ _ADDR_RE = re.compile(
 
 # Amount: "$1,000.00" or "(1,000.00)" for negatives
 _AMT_RE = re.compile(r"^\$?[\d,]+(?:\.\d+)?$")
+
+# Search mode: transaction type code -> SLCF transaction_type (an unknown
+# code passes through as is), and the name-splitting word lists.
+SEARCH_TYPES     = {"CON": "Monetary", "INK": "In-Kind", "EXP": ""}
+_NAME_PARTICLES  = {"van", "von", "de", "del", "della", "der", "den", "di", "da", "du",
+                    "la", "le", "st", "st.", "ten", "ter", "vander", "vanden", "dos", "das"}
+_NAME_SUFFIXES   = {"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"}
+_INITIAL_RE      = re.compile(r"^[A-Za-z]\.?$")
+_CMTE_PREFIX_RE  = re.compile(r"^#\S+\s+")
+# Summary-page lines that mean a report has loan schedules to read.
+_LOAN_SUMMARY_RE = re.compile(r"^Schedule F[12]: (Loans Received|Cash Loan Repayments|Forgiven)")
+
+# Search mode, as-filed parties: a PDF text line naming a schedule's columns
+# -> the row family it holds ("con" = Sch-A / E, "exp" = Sch-B; None = a
+# schedule not matched), a record's first line (its date), the amount that
+# ends it, and a "City, ST zip" line (the comma is missing on Sch-D / E).
+_FILED_HEADERS  = (("Name and Address of Contributor", "con"),
+                   ("Name & Address of Contributor", "con"),
+                   ("Expenditure Name & Address", "exp"),
+                   ("Name and Address of Person to Whom Debt", None),
+                   ("Consultant Name and Address", None),
+                   ("Date Expended Expenditure Name", None),
+                   ("Name and Address of Lender", None),
+                   ("Paid / Forgiven", None))
+_FILED_DATE_RE  = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})(?:\s|$)")
+_FILED_AMT_RE   = re.compile(r"(\(?-?\$[\d,]+\.\d{2}\)?)$")
+_FILED_CITY_RE  = re.compile(r"^(.*?),?\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)-?$")
 
 
 # ============================== helpers ==============================
@@ -234,7 +310,9 @@ def classify_table(tbl: list[list]) -> str | None:
         return "A"
     if ncol >= SCH_B_COLS  and h0 == SCH_B_HDR:
         return "B"
-    if ncol >= SCH_F1_COLS and h0 == SCH_F1_HDR:
+    # Sch-D (unpaid bills) shares F1's "Date Incurred"; only F1 has a loan column.
+    if ncol >= SCH_F1_COLS and h0 == SCH_F1_HDR \
+            and any("loan" in _norm(h or "") for h in hdr):
         return "F1"
     if ncol >= SCH_F2_COLS and h0 == SCH_F2_HDR:
         return "F2"
@@ -263,7 +341,9 @@ def parse_pdf_header(pdf: pdfplumber.PDF) -> dict:
       row 5: ["Political Party: Democratic", None, "Amendment Date", date]
       row 6: ["Report Date: 2026", "Candidate Name: Walton, Tom", None, None]
 
-    Table 1: treasurer contact info.
+    Table 1: treasurer contact info. Summary tables: ["Schedule F1: Loans
+    Received Total", "$2,000,000.00"] and the like, kept in meta["summary"]
+    ({label: amount string}).
     """
     meta = {}
     if not pdf.pages:
@@ -326,7 +406,23 @@ def parse_pdf_header(pdf: pdfplumber.PDF) -> dict:
                 meta["treasurer_zip"]   = clean(str(city_row[3])).replace("Zip Code:", "").strip()
         break
 
+    # ── Summary lines: ["Schedule A: Cash Contributions Total", "$606,059.14"] ──
+    meta["summary"] = {
+        clean(str(row[0])): parse_amount(clean(str(row[1])))
+        for tbl in tables for row in tbl
+        if len(row) == 2 and row[0] and row[1] and clean(str(row[0])).startswith("Schedule ")
+    }
     return meta
+
+
+def has_loan_schedules(cmte_meta: dict) -> bool:
+    """Whether a report's summary page shows loans received, repaid or
+    forgiven — True when the summary can't be read, so nothing is missed."""
+    lines = {k: v for k, v in (cmte_meta.get("summary") or {}).items()
+             if _LOAN_SUMMARY_RE.match(k)}
+    if not lines:
+        return True
+    return any(v and float(v) != 0 for v in lines.values())
 
 
 def parse_sch_a_row(row: list, raw_file: str, row_num: int,
@@ -373,6 +469,7 @@ def parse_sch_a_row(row: list, raw_file: str, row_num: int,
                                                or api_meta.get("organization_type", "")),
         "election_year":     api_meta.get("period_year", ""),
         "filing_id":         col1,
+        "state_filer_id":    _filer_id(cmte_meta, api_meta),
         "amended":           "1" if "amended" in (cmte_meta.get("status") or "").lower() else "0",
         "raw_file":          raw_file,
         "row_num":           row_num,
@@ -412,6 +509,7 @@ def parse_sch_b_row(row: list, raw_file: str, row_num: int,
                                               or api_meta.get("organization_type", "")),
         "election_year":    api_meta.get("period_year", ""),
         "filing_id":        cell(row, 1),
+        "state_filer_id":   _filer_id(cmte_meta, api_meta),
         "amended":          "1" if "amended" in (cmte_meta.get("status") or "").lower() else "0",
         "raw_file":         raw_file,
         "row_num":          row_num,
@@ -450,6 +548,7 @@ def parse_sch_e_row(row: list, raw_file: str, row_num: int,
                                                or api_meta.get("organization_type", "")),
         "election_year":     api_meta.get("period_year", ""),
         "filing_id":         "",
+        "state_filer_id":    _filer_id(cmte_meta, api_meta),
         "amended":           "1" if "amended" in (cmte_meta.get("status") or "").lower() else "0",
         "raw_file":          raw_file,
         "row_num":           row_num,
@@ -476,6 +575,7 @@ def parse_sch_f1_row(row: list, raw_file: str, row_num: int,
         "date":                date_val,
         "record_type":         "loan_received",
         "counterparty_name":   utils.clean_name(lender_name),
+        "lender_raw":          lender_name,   # as filed, for loan_as_contribution
         "counterparty_city":   city,
         "counterparty_state":  addr_state,
         "counterparty_zip":    zipcode,
@@ -485,6 +585,7 @@ def parse_sch_f1_row(row: list, raw_file: str, row_num: int,
         "election_year":       api_meta.get("period_year", ""),
         "amended":             "1" if "amended" in (cmte_meta.get("status") or "").lower() else "0",
         "filing_id":           "",
+        "state_filer_id":      _filer_id(cmte_meta, api_meta),
         "raw_file":            raw_file,
         "row_num":             row_num,
     }
@@ -519,8 +620,328 @@ def parse_sch_f2_row(row: list, raw_file: str, row_num: int,
         "election_year":       api_meta.get("period_year", ""),
         "amended":             "1" if "amended" in (cmte_meta.get("status") or "").lower() else "0",
         "filing_id":           "",
+        "state_filer_id":      _filer_id(cmte_meta, api_meta),
         "raw_file":            raw_file,
         "row_num":             row_num,
+    }
+
+
+def _filer_id(cmte_meta: dict, api_meta: dict) -> str:
+    """The filing committee's code, for the loader's state_filer_id: the PDF's
+    "Committee Code", else the index's committeeCode."""
+    return (cmte_meta.get("committee_code") or api_meta.get("committee_code", "")).strip()
+
+
+# ======================= Search rows (--search) ========================
+
+def split_person(name: str) -> tuple[str, str]:
+    """(first, last) of a person's joined name, "First [Middle] Last [Suffix]":
+    last = the final word plus any particle before it and suffix after it;
+    first = the rest without middle initials. One word goes into last."""
+    p = name.split()
+    if len(p) < 2:
+        return "", name.strip()
+    end = len(p)
+    while end > 2 and p[end - 1].lower().rstrip(",") in _NAME_SUFFIXES:
+        end -= 1
+    i = end - 1
+    while i > 1 and p[i - 1].lower() in _NAME_PARTICLES:
+        i -= 1
+    first = [p[0]] + [t for t in p[1:i] if not _INITIAL_RE.match(t)]
+    return " ".join(first), " ".join(p[i:])
+
+
+def _search_party(row: dict) -> tuple[str, str, str, str]:
+    """(full name, first, last, kind) of a search row's other party."""
+    kind = row.get("kind") or "Individual"
+    name = (row.get("secondaryName") or "").strip()
+    if kind == "Unitemized":
+        return "", "", "", kind
+    if kind == "Committee":
+        name = _CMTE_PREFIX_RE.sub("", name)
+    if kind != "Individual":
+        return utils.clean_name(name), "", name, kind
+    first, last = split_person(name)
+    return utils.clean_name(name), first, last, kind
+
+
+def _search_common(row: dict, raw_file: str, row_num: int) -> dict:
+    date_val = parse_date((row.get("date") or "")[:10])
+    return {
+        "state":            STATE,
+        "committee_name":   utils.clean_name(_CMTE_PREFIX_RE.sub("", row.get("primaryName") or "")),
+        "amount":           parse_amount(row.get("amount", "")),
+        "date":             date_val,
+        "office":           _office_from_type(row.get("committeeType", "")),
+        "election_year":    date_val[:4],
+        "filing_id":        clean(row.get("checkNumber")),
+        "state_filer_id":   clean(row.get("primaryCommitteeCode")),
+        "txn_id":           clean(row.get("transactionId")),
+        "raw_file":         raw_file,
+        "row_num":          row_num,
+    }
+
+
+# ---- as filed: the report PDFs' own lines for the search rows ----------
+
+def _name_tokens(name: str) -> str:
+    """A name's words, upper-cased and sorted, one-letter words and
+    punctuation dropped: "Macdonald, Theresa" == "Theresa Macdonald"."""
+    return " ".join(sorted(t for t in re.sub(r"[^A-Z0-9 ]", " ", (name or "").upper()).split()
+                           if len(t) > 1))
+
+
+def _cents(amount: str) -> int | None:
+    s = (amount or "").strip()
+    neg = s.startswith("(") or s.startswith("-") or "-$" in s
+    digits = re.sub(r"[^\d.]", "", s)
+    try:
+        v = round(float(digits) * 100)
+    except ValueError:
+        return None
+    return -v if neg else v
+
+
+def _filed_key(code: str, family: str, date_val: str, cents: int, name: str) -> str:
+    return f"{code}|{family}|{date_val}|{cents}|{_name_tokens(name)}"
+
+
+def search_filed_key(row: dict, family: str) -> str | None:
+    """The as-filed lookup key of a search row ("con" / "exp"), or None for
+    an unitemized lump sum or a row without a usable date or amount."""
+    if (row.get("kind") or "") == "Unitemized":
+        return None
+    name = (row.get("secondaryName") or "").strip()
+    if row.get("kind") == "Committee":
+        name = _CMTE_PREFIX_RE.sub("", name)
+    date_val = parse_date((row.get("date") or "")[:10])
+    cents = _cents(str(row.get("amount") or ""))
+    if not name or not date_val or cents is None:
+        return None
+    return _filed_key(clean(row.get("primaryCommitteeCode")), family, date_val, cents, name)
+
+
+def filed_records(pdf_path: Path) -> list[tuple[str, str, int, list[str]]]:
+    """[(family, date, cents, lines)] for each Sch-A / Sch-E / Sch-B entry of
+    a report, from its text: an entry runs from its date line to the line
+    ending in its amount; lines keep their trailing spaces."""
+    import pypdfium2 as pdfium        # pdfplumber's own PDF engine
+    out, family, cur = [], None, None
+    doc = pdfium.PdfDocument(str(pdf_path))
+    try:
+        for i in range(len(doc)):
+            page = doc[i]
+            tp = page.get_textpage()
+            text = tp.get_text_range()
+            tp.close()
+            page.close()
+            for raw in text.split("\r\n"):
+                line = raw.strip()
+                hdr = next((f for h, f in _FILED_HEADERS if h in line), "")
+                if hdr != "":
+                    family, cur = hdr, None
+                    continue
+                m = _FILED_DATE_RE.match(line)
+                if m and family:
+                    mo, d, y = m.groups()
+                    cur = (family, f"{y}-{int(mo):02d}-{int(d):02d}", [line[m.end():].strip()])
+                    continue
+                if cur is None:
+                    continue
+                a = _FILED_AMT_RE.search(line)
+                if a:
+                    cents = _cents(a.group(1))
+                    if cents is not None:
+                        out.append((cur[0], cur[1], cents, cur[2] + [line[:a.start()].strip()]))
+                    cur = None
+                else:
+                    cur[2].append(raw)
+    finally:
+        doc.close()
+    return out
+
+
+def _filed_parties(lines: list[str]) -> dict[str, tuple[str, str, str, str]]:
+    """{name tokens: (name line, city, state, zip)} for each line of an entry
+    that could be its party's name — single lines first, then two joined (a
+    long name wraps) — with the last "City, ST zip" line after it."""
+    out = {}
+    for span in (1, 2):
+        for i in range(len(lines) - span + 1):
+            raw = " ".join([l.strip() for l in lines[i:i + span - 1]] + [lines[i + span - 1]])
+            toks = _name_tokens(raw)
+            if not toks or toks in out:
+                continue
+            city = st = zipcode = ""
+            for nxt in lines[i + span:]:
+                c = _FILED_CITY_RE.match(nxt.strip())
+                if c:
+                    city, st, zipcode = c.group(1).strip(), c.group(2).upper(), c.group(3)
+            out[toks] = (raw.lstrip(), city, st, zipcode)
+    return out
+
+
+def build_filed_index(pdfs: list[Path], api_index: dict, wanted: set[str], log) -> dict[str, list]:
+    """{search key: [(name line, city, state, zip), ...]} from every report
+    PDF, kept only for the keys some search row has (wanted). Raises
+    ImportError without PDFium."""
+    import pypdfium2  # noqa: F401 -- fail here, not once per PDF
+    index: dict[str, list] = {}
+    failed = 0
+    for pdf_path in pdfs:
+        code = (api_index.get(pdf_path.name, {}).get("committee_code") or "").strip()
+        if not code:
+            continue
+        try:
+            entries = filed_records(pdf_path)
+        except Exception as e:          # an unreadable report: its rows keep the database's values
+            failed += 1
+            log.warning(f"  as-filed text: {pdf_path.name}: {e}")
+            continue
+        for family, date_val, cents, lines in entries:
+            prefix = f"{code}|{family}|{date_val}|{cents}|"
+            for toks, hit in _filed_parties(lines).items():
+                if prefix + toks in wanted:
+                    index.setdefault(prefix + toks, []).append(hit)
+    if failed:
+        log.warning(f"  as-filed text: {failed} PDFs unreadable")
+    return index
+
+
+def filed_name_parts(line: str) -> tuple[str, str] | None:
+    """(last, first) of a person's name line as filed, "{last}, {first} {mi}":
+    the first ", " ends the last name ("Cortez,, Madeline" = last "Cortez,"),
+    or the suffix after it ("Seward, Jr., Jack" = last "Seward, Jr."); the
+    line ends in a space when the middle initial is blank, so its last word
+    is an initial to drop only when it doesn't. None without a comma."""
+    last, sep, first = line.partition(", ")
+    if not sep:
+        last, sep, first = line.partition(",")
+        if not sep:
+            return None
+    suffix = re.match(r"(jr|sr|ii|iii|iv|v)\.?, ", first, re.I)
+    if suffix:
+        last, first = f"{last}, {first[:suffix.end() - 2]}", first[suffix.end():]
+    words = first.split()
+    if len(words) >= 2 and not line.endswith(" ") and _INITIAL_RE.match(words[-1]):
+        words = words[:-1]
+    return last.strip(), " ".join(words)
+
+
+def _take_filed(filed: dict | None, key: str | None, city: str, zipcode: str):
+    """Pop the as-filed entry for a search row's key: of twins (same day,
+    amount and name), the one at the row's own city and zip if any."""
+    hits = filed.get(key) if filed and key else None
+    if not hits:
+        return None
+    for i, h in enumerate(hits):
+        if (h[1].lower(), h[3]) == (city.lower(), zipcode):
+            return hits.pop(i)
+    return hits.pop(0)
+
+
+def _apply_filed(rec: dict, side: str, kind: str, hit) -> None:
+    """Overwrite a search record's name parts and city / state / zip with the
+    report's (side = "contributor" / "payee"): a person's last and first from
+    the name line, anyone else's whole name line into last."""
+    if not hit:
+        return
+    line, city, st, zipcode = hit
+    if kind == "Individual":
+        parts = filed_name_parts(line)
+        if parts and parts[0]:
+            rec[f"{side}_last"], rec[f"{side}_first"] = parts
+    elif kind in ("Organization", "Committee"):
+        rec[f"{side}_last"], rec[f"{side}_first"] = line.strip(), ""
+    if city:
+        rec[f"{side}_city"], rec[f"{side}_state"], rec[f"{side}_zip"] = city, st, zipcode
+
+
+def parse_search_contribution(row: dict, raw_file: str, row_num: int,
+                              filed: dict | None = None) -> dict | None:
+    """One Searchable Database contribution row → contributions record, with
+    its party as filed when the report PDFs have its line (filed)."""
+    rec = _search_common(row, raw_file, row_num)
+    if not rec["amount"] or not rec["txn_id"]:
+        return None
+    name, first, last, kind = _search_party(row)
+    code = clean(row.get("transactionType")).upper()
+    tx_type = SEARCH_TYPES.get(code, code)
+    if kind == "Unitemized" and tx_type == "Monetary":
+        tx_type = "Unitemized"
+    rec.update({
+        "contributor_name":  name,
+        "transaction_type":  tx_type,
+        # A nameless lump sum counts as a person (the pilot importer's rule).
+        "contributor_type":  "Individual" if kind == "Unitemized" else kind,
+        "contributor_city":  clean(row.get("secondaryCity")),
+        "contributor_state": clean(row.get("secondaryState")),
+        "contributor_zip":   clean(row.get("secondaryZip")),
+        "contributor_first": first,
+        "contributor_last":  last,
+    })
+    _apply_filed(rec, "contributor", kind,
+                 _take_filed(filed, search_filed_key(row, "con"),
+                             rec["contributor_city"], rec["contributor_zip"]))
+    return rec
+
+
+def parse_search_expenditure(row: dict, raw_file: str, row_num: int,
+                             filed: dict | None = None) -> dict | None:
+    """One Searchable Database expenditure row → expenditures record, with
+    its payee as filed when the report PDFs have its line (filed)."""
+    rec = _search_common(row, raw_file, row_num)
+    if not rec["amount"] or not rec["txn_id"]:
+        return None
+    name, first, last, kind = _search_party(row)
+    code = clean(row.get("transactionType")).upper()
+    rec.update({
+        "payee_name":       name,
+        "payee_first":      first,
+        "payee_last":       last,
+        "transaction_type": SEARCH_TYPES.get(code, code),
+        "purpose":          "",
+        "category":         "",
+        "payee_city":       clean(row.get("secondaryCity")),
+        "payee_state":      clean(row.get("secondaryState")),
+        "payee_zip":        clean(row.get("secondaryZip")),
+    })
+    _apply_filed(rec, "payee", kind,
+                 _take_filed(filed, search_filed_key(row, "exp"),
+                             rec["payee_city"], rec["payee_zip"]))
+    return rec
+
+
+_CORP_SUFFIX_RE = re.compile(r"^(inc|llc|l\.l\.c|corp|co|company|ltd|lp|llp|pc|pllc|na|n\.a)\.?$", re.I)
+
+
+def loan_as_contribution(rec: dict) -> dict:
+    """A Sch-F1 loans_debts record re-shaped as a contributions row with
+    transaction_type "Loan" (search mode): the loader books it as a loan, and
+    a lender written "Last, First" keeps its two name parts, as filed."""
+    raw = rec.get("lender_raw", "")
+    last, _, first = raw.partition(",")
+    last, first = last.strip(), first.strip()
+    person = bool(first) and not _CORP_SUFFIX_RE.match(first)
+    return {
+        "state":             rec["state"],
+        "committee_name":    rec["committee_name"],
+        "contributor_name":  rec["counterparty_name"],
+        "amount":            rec["original_amount"],
+        "date":              rec["date"],
+        "transaction_type":  "Loan",
+        "contributor_type":  "Individual" if person else "Organization",
+        "contributor_city":  rec["counterparty_city"],
+        "contributor_state": rec["counterparty_state"],
+        "contributor_zip":   rec["counterparty_zip"],
+        "contributor_first": first if person else "",
+        "contributor_last":  last if person else raw.strip(),
+        "candidate_name":    rec["candidate_name"],
+        "election_year":     rec["election_year"],
+        "amended":           rec["amended"],
+        "state_filer_id":    rec["state_filer_id"],
+        "raw_file":          rec["raw_file"],
+        "row_num":           rec["row_num"],
     }
 
 
@@ -616,6 +1037,59 @@ def run():
                 if (RAW_DIR / fn).exists() and (RAW_DIR / fn).stat().st_size > 0]
 
         log.info(f"  PDFs to parse: {len(pdfs):,}")
+
+        # ── Search mode (scraper --search) ─────────────────────────────
+        # Its year files, when present, replace the PDFs' Sch-A / B / E; PDFs
+        # then give committees, candidates and loans (Sch-F1 / F2) only.
+        search_files = [
+            (p, label)
+            for label in ("contributions", "expenditures")
+            for p in sorted(RAW_DIR.glob(f"search_{label}_*.csv"))
+        ]
+        search = bool(search_files)
+        filed = None
+        if search:
+            log.info(f"  Search mode: {len(search_files)} year files; "
+                     f"PDFs read for loans and committees only")
+            # As filed: the PDFs' own lines for the search rows' parties
+            # (see the module docstring) — keys wanted, then the PDFs' text.
+            ft = time.perf_counter()
+            wanted: set[str] = set()
+            for path, label in search_files:
+                family = "con" if label == "contributions" else "exp"
+                with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                    for row in csv.DictReader(f):
+                        key = search_filed_key(row, family)
+                        if key:
+                            wanted.add(key)
+            try:
+                filed = build_filed_index(pdfs, api_index, wanted, log)
+            except ImportError as e:     # no PDFium: the database's values stand
+                log.warning(f"  as-filed text unavailable ({e}); search values kept")
+            log.info(f"  As filed: {len(filed or {}):,} of {len(wanted):,} search keys "
+                     f"found in the PDFs ({round(time.perf_counter() - ft, 1)}s)")
+            del wanted
+        for path, label in search_files:
+            ft = time.perf_counter()
+            parse_row = (parse_search_contribution if label == "contributions"
+                         else parse_search_expenditure)
+            writer = cont_w if label == "contributions" else expn_w
+            written = skipped = 0
+            with open(path, newline="", encoding="utf-8", errors="replace") as f:
+                for row_num, row in enumerate(csv.DictReader(f), start=2):
+                    rec = parse_row(row, path.name, row_num, filed)
+                    if rec is None:
+                        skipped += 1
+                        continue
+                    writer.writerow(rec)
+                    written += 1
+            if label == "contributions":
+                total_contributions += written
+            else:
+                total_expenditures += written
+            log.file_parsed(path.name, label, written, skipped=skipped,
+                            duration_s=round(time.perf_counter() - ft, 3),
+                            bytes=path.stat().st_size)
 
         # ── Dedup sets — one committee/candidate row per unique code ───
         seen_cmte_codes: set[str] = set()
@@ -714,10 +1188,17 @@ def run():
                             candidates_written += 1
 
                     # ── Pages 2+: schedule data ────────────────────────
-                    for page in pdf.pages[1:]:
-                        for tbl in page.extract_tables():
+                    # Search mode reads only the loan schedules, and only in
+                    # reports whose summary shows loans.
+                    pages = pdf.pages[1:]
+                    if search and not has_loan_schedules(cmte_meta):
+                        pages = []
+                    for page in pages:
+                        tables = page.extract_tables()
+                        page.close()     # release the page's layout cache
+                        for tbl in tables:
                             sch = classify_table(tbl)
-                            if sch is None:
+                            if sch is None or (search and sch not in ("F1", "F2")):
                                 continue
 
                             for data_row in tbl[1:]:   # skip header row
@@ -747,7 +1228,10 @@ def run():
                                 elif sch == "F1":
                                     rec = parse_sch_f1_row(data_row, raw_file, row_num,
                                                            cmte_meta, api_meta)
-                                    if rec:
+                                    if rec and search:
+                                        cont_w.writerow(loan_as_contribution(rec))
+                                        cont_count += 1
+                                    elif rec:
                                         loan_w.writerow(rec)
                                         loan_count += 1
 

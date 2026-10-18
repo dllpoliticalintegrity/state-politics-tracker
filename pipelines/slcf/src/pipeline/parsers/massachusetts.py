@@ -23,7 +23,8 @@ Record_Type_ID routing
                   332 Out-of-Pocket Candidate Expense
   Loans/Debts   : 206 Candidate Loan, 331 Out-of-Pocket Loan,
                   501 Liability, 502 IE Liability
-  Skip          : sub-items (351/354/951/952), aggregated unitemized (220/320/420),
+  Skip          : sub-items (351/354/951/952), aggregated unitemized items (220/320/420;
+                  the reports' own unitemized totals are written instead, see Notes),
                   bank/savings entries (205/207/700–754/801), accounting entries
                   (302/304/305/310/314/317), IEPAC transfers (209/317), and all others
                   D102 Year-End Report (Report_Type_ID=11) monetary items (types 201–211,
@@ -45,6 +46,21 @@ Notes
     records — their sub-items (351/354/951) are skipped to avoid double-counting.
   - Amended reports are already excluded at source: OCPF's bulk ZIPs contain only the
     latest version of each report.  No amendment deduplication is needed here.
+  - Unitemized receipts are not items in report-items.txt: each report carries them
+    as one total (reports.txt Receipts_Unitemized_Total / Inkinds_Unitemized_Total).
+    They are written as one contribution per report, dated End_Date and named as
+    OCPF's own search lists them (record types 220 / 420, "Aggregated Unitemized
+    Receipts"), under the same D102 rule as items.  Expenditures_Unitemized_Total is
+    not: for depository committees it sums credit-card / reimbursement sub-items,
+    which the bank-reported payment already counts.
+  - Not written, as outside OCPF's report totals or double counts: 305 Refunded Credit
+    Card Contribution and 212 Refunded Merchant Provider Fee (excluded from the
+    Deposit Report's Receipts_Total / Expenditures_Total), and 318 Payroll Item
+    (itemizes a bank-reported payroll payment, like 351/354).
+  - Loader ids (columns.py, TRANSACTION_IDS): state_filer_id = the report's CPF_ID
+    (cf_candidates.filer_refs "ma:<CPF ID>"); txn_id = Item_ID (an amended report
+    re-issues its items under new Item_IDs, so the replaced ones simply disappear);
+    superseded is never set (amended versions are excluded at source, see above).
   - person_id model: "committee" — CPF ID is assigned per committee registration;
     the same candidate gets a new CPF ID for each new campaign committee.
 """
@@ -133,6 +149,20 @@ LOAN_TYPES = {
 
 # All record types we act on (union — everything else is skipped)
 ACTIVE_TYPES = set(CONTRIBUTION_TYPES) | set(EXPENDITURE_TYPES) | set(LOAN_TYPES)
+
+# Report-level unitemized totals written as one contribution per report:
+# reports.txt column -> (record type, transaction_type, contributor_name).  The
+# record type only drives the D102 rule; the name is OCPF's own label for the row.
+UNITEMIZED_TOTALS = {
+    "Receipts_Unitemized_Total": (220, "Aggregated Un-itemized Receipts",
+                                  "Aggregated Unitemized Receipts"),
+    "Inkinds_Unitemized_Total":  (420, "Aggregated Un-itemized In-kind Contributions",
+                                  "Aggregated Unitemized Inkind Contributions"),
+}
+
+# Record types a D102 Year-End Report (type 11) always keeps, even for a filer
+# with Deposit Reports (see the routing notes above).
+D102_KEPT_TYPES = {401, 402, 403, 405, 420, 206, 331, 501, 502}
 
 # Account type code → canonical committee_type string (written as-is; alias CSV
 # maps these to pipeline canonicals at aggregate time)
@@ -300,7 +330,7 @@ def load_reports(zf: zipfile.ZipFile) -> tuple[dict[str, dict], set[str]]:
 
     Returns:
       rpt         — {Report_ID: {cpf_id, report_year, report_type_id, office,
-                                  district, comm_name}}
+                                  district, comm_name, end_date, unitemized, row_num}}
       deposit_cpfs — set of CPF_IDs that filed at least one Deposit Report
                      (Report_Type_ID = 60) in this ZIP.  Used to suppress the
                      duplicate summary entries in D102 Year-End Reports (type 11).
@@ -316,7 +346,7 @@ def load_reports(zf: zipfile.ZipFile) -> tuple[dict[str, dict], set[str]]:
             io.TextIOWrapper(raw, encoding="utf-8", errors="replace"),
             delimiter="\t",
         )
-        for row in reader:
+        for row_num, row in enumerate(reader, start=2):
             rid = clean(row.get("Report_ID", ""))
             if not rid:
                 continue
@@ -332,6 +362,12 @@ def load_reports(zf: zipfile.ZipFile) -> tuple[dict[str, dict], set[str]]:
                 "office":         clean(row.get("OCPF_Office", "")),
                 "district":       clean(row.get("OCPF_District", "")),
                 "comm_name":      clean(row.get("OCPF_Comm_Name", "")),
+                # Report-level unitemized totals and the date OCPF lists them under
+                # (the period's end; a Deposit Report's is the deposit date)
+                "end_date":       clean(row.get("End_Date", "")) or clean(row.get("Filing_Date", "")),
+                "unitemized":     {col: parse_amount(row.get(col, ""))
+                                   for col in UNITEMIZED_TOTALS},
+                "row_num":        row_num,
             }
             if type_id == "60":
                 deposit_cpfs.add(cpf_id)
@@ -518,8 +554,7 @@ def run():
                             #     (verified: 0 exact overlaps across all sample years).
                             if (rpt.get("report_type_id") == "11"
                                     and cpf in deposit_cpfs
-                                    and rtype not in (401, 402, 403, 405,
-                                                      206, 331, 501, 502)):
+                                    and rtype not in D102_KEPT_TYPES):
                                 skipped += 1
                                 continue
 
@@ -559,10 +594,18 @@ def run():
                                     "contributor_zip":   clean(row.get("Zip", "")),
                                     "employer":          clean(row.get("Employer", "")),
                                     "occupation":        clean(row.get("Occupation", "")),
+                                    # Source name parts for the loader: Name is the
+                                    # surname (or the whole name of an organisation)
+                                    "contributor_first": first,
+                                    "contributor_last":  name,
                                     "candidate_name":    utils.clean_name(cand_name),
                                     "office":            office,
                                     "election_year":     rpt_year,
                                     "filing_id":         item_id,
+                                    # CPF ID of the filing committee + OCPF's Item_ID,
+                                    # for the loader (columns.py, TRANSACTION_IDS)
+                                    "state_filer_id":    cpf,
+                                    "txn_id":            item_id,
                                     "raw_file":          zip_path.name,
                                     "row_num":           row_num,
                                 })
@@ -584,6 +627,11 @@ def run():
                                     "state":            STATE,
                                     "committee_name":   utils.clean_name(comm_name),
                                     "payee_name":       payee,
+                                    # The loader's payee name: the whole name, read
+                                    # "First Last", in payee_last (the site shows
+                                    # payee_last alone for a payee of unknown type)
+                                    "payee_last":       (clean(row.get("Clarified_Name", ""))
+                                                         or " ".join(filter(None, [first, name]))),
                                     "amount":           amount,
                                     "date":             parse_date(row.get("Date", "")),
                                     "transaction_type": EXPENDITURE_TYPES[rtype],
@@ -595,6 +643,8 @@ def run():
                                     "office":           office,
                                     "election_year":    rpt_year,
                                     "filing_id":        item_id,
+                                    "state_filer_id":   cpf,
+                                    "txn_id":           item_id,
                                     "raw_file":         zip_path.name,
                                     "row_num":          row_num,
                                 })
@@ -614,10 +664,44 @@ def run():
                                     "candidate_name":     utils.clean_name(cand_name),
                                     "election_year":      rpt_year,
                                     "filing_id":          item_id,
+                                    "state_filer_id":     cpf,
+                                    "txn_id":             item_id,
                                     "raw_file":           zip_path.name,
                                     "row_num":            row_num,
                                 })
                                 loan_count += 1
+
+                    # ── Report-level unitemized totals (see the notes above) ──
+                    # One row per report and total, as OCPF's search lists them;
+                    # no Item_ID, so txn_id stays blank and the loader hashes the row.
+                    for rid, rpt in rpt_lookup.items():
+                        cpf = rpt["cpf_id"]
+                        reg = filer_reg.get(cpf, {})
+                        for col, (rtype, tx_type, label) in UNITEMIZED_TOTALS.items():
+                            amount = rpt["unitemized"][col]
+                            if not amount or float(amount) == 0:
+                                continue
+                            if (rpt["report_type_id"] == "11" and cpf in deposit_cpfs
+                                    and rtype not in D102_KEPT_TYPES):
+                                continue
+                            cont_w.writerow({
+                                "state":             STATE,
+                                "committee_name":    utils.clean_name(
+                                    rpt["comm_name"] or reg.get("committee_name", "")),
+                                "contributor_name":  label,
+                                "amount":            amount,
+                                "date":              parse_date(rpt["end_date"]),
+                                "transaction_type":  tx_type,
+                                "contributor_last":  label,
+                                "candidate_name":    utils.clean_name(reg.get("candidate_name", "")),
+                                "office":            rpt["office"] or reg.get("office", ""),
+                                "election_year":     rpt["report_year"],
+                                "filing_id":         rid,
+                                "state_filer_id":    cpf,
+                                "raw_file":          f"{zip_path.name}:reports.txt",
+                                "row_num":           rpt["row_num"],
+                            })
+                            cont_count += 1
 
             except zipfile.BadZipFile as e:
                 log.warning(f"  {zip_path.name}: bad ZIP — {e}")
