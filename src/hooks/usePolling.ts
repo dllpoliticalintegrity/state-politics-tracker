@@ -29,8 +29,8 @@ async function fetchRacePolling(raceCfg: RaceConfig): Promise<PollingBundle | nu
   if (raceErr) throw raceErr;
   if (!race) return null;
 
-  // Only the race's own polling source (270toWin, or FiftyPlusOne for Texas);
-  // RCP has been deprecated.
+  // Only the race's own polling source (FiftyPlusOne; older 270toWin and RCP
+  // rows are left in the table but not read).
   const { data: rows, error } = await (supabase as any)
     .from("race_polling")
     .select("source,rcp_url,source_url,last_updated,spread,raw_data")
@@ -41,8 +41,9 @@ async function fetchRacePolling(raceCfg: RaceConfig): Promise<PollingBundle | nu
 
   const pick = rows[0];
 
-  // 270toWin aggregator stores { all_candidates: [...] }; RCP stores an array
-  // of poll rows with an "RCP Average" entry. Normalize both to PollRow[].
+  // The FiftyPlusOne aggregate stores { all_candidates: [...] }; legacy RCP
+  // rows stored an array of polls with an "RCP Average" entry. Normalize both
+  // to PollRow[].
   const raw = pick.raw_data;
   let average: PollRow | null = null;
   let polls: PollRow[] = [];
@@ -56,8 +57,8 @@ async function fetchRacePolling(raceCfg: RaceConfig): Promise<PollingBundle | nu
       );
   } else if (raw && Array.isArray(raw.all_candidates)) {
     // Synthesize a single "average" row keyed by surname → pct so the
-    // existing readCandidatePct helper continues to work. 270toWin and
-    // FiftyPlusOne both store { all_candidates: [{ name, avg_pct }] }.
+    // existing readCandidatePct helper continues to work. FiftyPlusOne (like
+    // 270toWin before it) stores { all_candidates: [{ name, avg_pct }] }.
     const avgRow: PollRow = { Poll: `${pollingSourceLabel(raceCfg)} Average`, Date: "", Sample: "", MoE: "" };
     for (const c of raw.all_candidates as Array<{ name: string; avg_pct: number }>) {
       const surname = c.name.trim().split(/\s+/).pop() ?? "";

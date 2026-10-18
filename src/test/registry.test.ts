@@ -17,13 +17,13 @@ describe("state registry", () => {
     for (const code of codes) expect(code).toMatch(/^[a-z]{2}$/);
   });
 
-  it("tracks California as a live state with its governor race on 270toWin", () => {
+  it("tracks California as a live state with its governor race", () => {
     const ca = getState("ca")!;
     expect(ca.status).toBe("live");
     expect(ca.externalUrl).toBeUndefined();
     expect(ca.races!.map((r) => r.raceSlug)).toEqual(["california-governor-2026"]);
-    expect(pollingSourceKey(ca.races![0])).toBe("270towin");
-    expect(ca.races![0].pollingSourceUrl).toBe("https://www.270towin.com/2026-governor-polls/california");
+    expect(pollingSourceKey(ca.races![0])).toBe("fiftyplusone");
+    expect(ca.races![0].pollingSourceUrl).toBe("https://fiftyplusone.news/polls/governor/general/california");
     // No state links out to a separate site any more.
     expect(STATES.filter((s) => s.status === "external")).toEqual([]);
   });
@@ -44,7 +44,7 @@ describe("state registry", () => {
     expect(tx.externalUrl).toBeUndefined();
     expect(tx.agency?.name).toBe("Texas Ethics Commission");
     expect(tx.races!.map((r) => r.office)).toEqual(["governor", "lt-governor", "attorney-general"]);
-    // Only the governor's race is polled, and by FiftyPlusOne rather than 270toWin.
+    // Only the governor's race is polled.
     const [gov, ltgov] = tx.races!;
     expect(pollingSourceKey(gov)).toBe("fiftyplusone");
     expect(pollingSourceLabel(gov)).toBe("FiftyPlusOne");
@@ -53,10 +53,15 @@ describe("state registry", () => {
     expect(statePollingLabel(tx)).toBe("FiftyPlusOne");
   });
 
-  it("defaults every other race's polling to 270toWin", () => {
-    const mi = getState("mi")!;
-    expect(pollingSourceKey(mi.races![0])).toBe("270towin");
-    expect(statePollingLabel(mi)).toBe("270toWin");
+  it("polls every race through FiftyPlusOne, linking each to its FiftyPlusOne page", () => {
+    const polled = liveStates().flatMap((s) => (s.races ?? []).filter((r) => r.pollingSourceUrl));
+    expect(polled.length).toBeGreaterThanOrEqual(22);
+    for (const r of polled) {
+      expect(pollingSourceKey(r)).toBe("fiftyplusone");
+      expect(r.pollingSourceUrl).toMatch(/^https:\/\/fiftyplusone\.news\/polls\/governor\/general\/[a-z-]+$/);
+    }
+    expect(getState("ak")!.races![0].pollingSourceUrl).toBe("https://fiftyplusone.news/polls/governor/general/alaska");
+    expect(statePollingLabel(getState("mi")!)).toBe("FiftyPlusOne");
     // A state with no polled race has no polling credit at all.
     expect(statePollingLabel(getState("hi")!)).toBeNull();
   });

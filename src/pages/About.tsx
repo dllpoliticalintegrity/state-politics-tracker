@@ -92,7 +92,9 @@ export default function About() {
             )}
             's {stateCfg.name} pages — both individual polls and the aggregate. Our
             averages cover general-election matchups from roughly the last 60 days;
-            primary-only polls are shown but kept out of the head-to-head average.
+            primary-only polls are shown but kept out of the head-to-head average, and
+            once the nominees are set, matchups {pollingLabel} marks hypothetical or
+            that include a candidate who has left the race are left out too.
           </p>
         </Card>
 

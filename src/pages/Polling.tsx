@@ -54,7 +54,8 @@ function groupPolls(rows: RacePollRow[]): PollGroup[] {
 function matchupLabel(m: string): string {
   if (m === "dem_primary") return "D primary";
   if (m === "rep_primary") return "R primary";
-  if (m === "primary") return "Top-two primary";
+  // Every-party primaries: California's top-two, Alaska's top-four.
+  if (m === "primary") return "All-party primary";
   return "General";
 }
 
