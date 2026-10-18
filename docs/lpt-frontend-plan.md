@@ -222,10 +222,12 @@ unless the disposition says withdrew or lost, or an override says otherwise.
      routed by state through `hub_src()` — his shared tables and matviews
      for his states, our prefixed tables for ours. plpgsql with EXECUTE, so
      each call is planned with the actual state. Applied 2026-10-18.
-   - Needs the `LPT_SERVICE_ROLE_KEY` GitHub secret (the workflow skips with
-     a warning without it). First run: dispatch with `limit` as a smoke
-     test, then a full run per state, then compare `hub_race_totals` with
-     the tracker's summaries before flipping the state's `source`.
+   - First full run 2026-10-18 (35 min for the three states): every
+     candidate's raised and spent totals match the tracker to the dollar;
+     MI, TX and CA flipped to `source: "lpt"`. The same workflow's last
+     step refreshes the caches for Henry's states (`LPT_HIS_STATES`
+     repository variable, default `GA OH OR`) after his weekday refresh, so
+     nothing is scheduled in his project.
    - The tracker is retired later by repointing the three importers at the
      prefixed tables (phase 5).
 4. **Curated content.** Move `cf_candidates` photos, bios and featured flags

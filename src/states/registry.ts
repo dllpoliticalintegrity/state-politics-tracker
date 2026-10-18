@@ -134,10 +134,12 @@ const SLCF_READY = new Set([
 
 // States whose pages read the Local Politics Tracker project. A state moves
 // here only after its numbers have been checked against the tracker's
-// (docs/lpt-frontend-plan.md, phase 1). VITE_LPT_STATES ("ga,az") overrides
-// the set at build time, for previews and local checks.
+// (docs/lpt-frontend-plan.md). GA, OH and OR read Henry's tables there;
+// MI, TX and CA read the hub's own mi_/tx_/ca_ tables, bridged nightly
+// from the tracker (phase 3). VITE_LPT_STATES ("ga,az") overrides the set
+// at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga,oh,or")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "ga,oh,or,mi,tx,ca")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
