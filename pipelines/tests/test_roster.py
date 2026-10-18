@@ -60,6 +60,27 @@ class Resolution(unittest.TestCase):
         self.assertIsNone(self.r.resolve("999", ["Unknown Committee"], "Nobody Here"))
 
 
+class Conflicts(unittest.TestCase):
+    def test_lumped_scrape_id_is_refused(self):
+        r = roster.FilerResolver([
+            {"state_filer_id": "Bauer", "committee_name": "PETER BAUER"},
+            {"state_filer_id": "Bauer", "committee_name": "PAUL A BAUER JR"},
+        ])
+        self.assertIsNone(r.resolve("Bauer"))
+        self.assertEqual(r.how, "ambiguous")
+
+    def test_shared_and_claimed_refs_are_dropped(self):
+        rows = [{"slug": "william-harris-ga-hd126", "filer_refs": ["ga:100918"]},
+                {"slug": "william-harris-ga-hd82", "filer_refs": ["ga:100918"]},
+                {"slug": "new-one-ga-sd1", "filer_refs": ["ga:103524"]},
+                {"slug": "clean-ga-sd2", "filer_refs": ["ga:5"]}]
+        stats, logs = {}, []
+        roster.drop_conflicting_refs(rows, {"ga:103524": "rick-jackson"}, stats, logs.append)
+        self.assertEqual([r["filer_refs"] for r in rows], [[], [], [], ["ga:5"]])
+        self.assertEqual(stats["ref_conflict"], 3)
+        self.assertTrue(any("held by rick-jackson" in l for l in logs))
+
+
 class Texas(unittest.TestCase):
     def test_ident_resolver(self):
         r = roster.IdentResolver()

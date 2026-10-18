@@ -18,9 +18,14 @@ all against the scrape. Unresolved candidates are still added (no money).
 
 Idempotent by slug ("<first>-<last>-<st>-sd<N>" / "-hd<N>": the state is in
 the slug because cf_candidates.slug is unique across states).
-A new candidate is inserted; an existing one gets only its status, party and
-any missing committee ref updated -- never its name, photo or other fields an
-admin may have curated. Nothing is ever deleted.
+A new candidate is inserted; an existing one (matched by slug, or by its
+committee within the same office, so a rename does not duplicate it) gets
+only missing committee refs, and status / party when they are still unset --
+never anything an admin may have curated. Nothing is ever deleted. A
+committee id goes to one candidate only: ids resolved for two roster rows,
+already held by another candidate, or used by the scrape for more than one
+committee are refused and logged. An LPT failure skips the roster, never the
+finance load.
 
 LPT is read with its publishable (anon) key; writes go through rest.py with
 the tracker's service key.
@@ -141,30 +146,46 @@ class FilerResolver:
             cid, cname = (c.get("state_filer_id") or "").strip(), c.get("committee_name")
             if cid and cname:
                 self.name_by_other_id.setdefault(id_key(cid), cname)
+        names_by_fid = defaultdict(set)
         for row in rows:
             fid = (row.get("state_filer_id") or "").strip()
             if not fid:
                 continue
+            if row.get("committee_name"):
+                names_by_fid[fid].add(norm(row["committee_name"]))
             self.by_id.setdefault(id_key(fid), fid)
             for key in (row.get("committee_name"), fid):
                 k = norm(key)
                 if k:
                     self.by_name.setdefault(k, fid)
+        # An id the scrape uses for more than one committee (Alaska keys
+        # filers by surname: "Bauer" is two people) is never attached.
+        self.ambiguous = {fid for fid, names in names_by_fid.items() if len(names) > 1}
+        self.how = None          # "id" | "committee" | "candidate" after resolve()
 
     def resolve(self, lpt_fid, committee_names=(), candidate_name=None):
+        fid, self.how = self._resolve(lpt_fid, committee_names, candidate_name)
+        if fid in self.ambiguous:
+            self.how = "ambiguous"
+            return None
+        return fid
+
+    def _resolve(self, lpt_fid, committee_names, candidate_name):
         if lpt_fid and id_key(lpt_fid) in self.by_id:
-            return self.by_id[id_key(lpt_fid)]
+            return self.by_id[id_key(lpt_fid)], "id"
         names = list(committee_names or ())
         if lpt_fid and id_key(lpt_fid) in self.name_by_other_id:
             names.append(self.name_by_other_id[id_key(lpt_fid)])
         for n in names:
             hit = self.by_name.get(norm(n))
             if hit:
-                return hit
+                return hit, "committee"
         if candidate_name:
-            return self.by_name.get(norm(display_name(candidate_name))) or \
+            hit = self.by_name.get(norm(display_name(candidate_name))) or \
                 self.by_name.get(norm(candidate_name))
-        return None
+            if hit:
+                return hit, "candidate"
+        return None, None
 
 
 def build_roster(st, races, participants, candidates, resolver):
@@ -190,6 +211,9 @@ def build_roster(st, races, participants, candidates, resolver):
             committees = [committees]
         fid = resolver.resolve(cand.get("state_filer_id"), committees, raw_name)
         stats["resolved" if fid else "unresolved"] += 1
+        how = getattr(resolver, "how", None)
+        if how:
+            stats[f"by_{how}"] += 1
         slug = f"{name_slug(name)}-{st}-{prefix}{district}"
         if slug in out:                       # same person listed twice
             if fid and f"{st}:{fid}" not in out[slug]["filer_refs"]:
@@ -233,24 +257,75 @@ def fetch_lpt(st):
     return races, participants, candidates
 
 
-def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
-    """Seed / refresh one state's legislative roster. Returns the stats dict."""
-    resolver = FilerResolver(scrape_rows, committees)
-    races, participants, candidates = fetch_lpt(st)
-    roster, stats = build_roster(st, races, participants, candidates, resolver)
-    live = rest.get_all(f"cf_candidates?state=eq.{st}&office=in.(state-senate,state-house)"
-                        f"&select=id,slug,party,status,filer_refs&order=id")
-    live_by_slug = {r["slug"]: r for r in live}
-    inserts, updates = [], []
+def drop_conflicting_refs(roster, claimed, stats, log=print):
+    """A committee id may belong to one candidate only. Refs resolved for
+    more than one roster row, or already held by another candidate, are not
+    attached (logged): the loader would otherwise give the money to
+    whichever candidate sorts first."""
+    counts = defaultdict(int)
     for row in roster:
-        cur = live_by_slug.get(row["slug"])
+        for ref in row["filer_refs"]:
+            counts[ref] += 1
+    for row in roster:
+        kept = []
+        for ref in row["filer_refs"]:
+            owner = claimed.get(ref)
+            if counts[ref] > 1 or (owner and owner != row["slug"]):
+                stats["ref_conflict"] = stats.get("ref_conflict", 0) + 1
+                log(f"   roster: {row['slug']}: {ref} not attached "
+                    f"({'shared by ' + str(counts[ref]) + ' roster rows' if counts[ref] > 1 else 'held by ' + owner})")
+                continue
+            kept.append(ref)
+        row["filer_refs"] = kept
+
+
+def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
+    """Seed / refresh one state's legislative roster. Returns the stats dict.
+    Never raises on an LPT problem: the finance load must still run."""
+    try:
+        resolver = FilerResolver(scrape_rows, committees)
+        races, participants, candidates = fetch_lpt(st)
+    except Exception as e:  # noqa: BLE001 — LPT down must not cost a night's load
+        log(f"   roster: skipped ({type(e).__name__}: {e})")
+        return {"error": str(e)}
+    roster, stats = build_roster(st, races, participants, candidates, resolver)
+    live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,office,district,party,status,filer_refs&order=id")
+    claimed = {}
+    for r in live:
+        for ref in r.get("filer_refs") or []:
+            claimed.setdefault(ref, r["slug"])
+    by_slug = {r["slug"]: r for r in live}
+    legis = [r for r in live if r.get("office") in ("state-senate", "state-house")]
+    by_ref = {}
+    for r in legis:
+        for ref in r.get("filer_refs") or []:
+            by_ref.setdefault((r["office"], ref), r)
+    # A renamed candidate (nickname to legal name) keeps their committee: match
+    # an existing row by (office, ref) before inventing a new slug.
+    for row in roster:
+        if row["slug"] not in by_slug:
+            for ref in row["filer_refs"]:
+                hit = by_ref.get((row["office"], ref))
+                if hit:
+                    row["slug"] = hit["slug"]
+                    break
+    drop_conflicting_refs(roster, claimed, stats, log)
+    inserts, updates = [], []
+    seen = set()
+    for row in roster:
+        if row["slug"] in seen:
+            continue
+        seen.add(row["slug"])
+        cur = by_slug.get(row["slug"])
         if cur is None:
             inserts.append(row)
             continue
+        # Status and party are editorial once a row exists (the admin curates
+        # them, as Michigan's roster leaves them): fill them only when unset.
         patch = {}
-        if row["status"] != cur.get("status"):
+        if not cur.get("status") and row["status"]:
             patch["status"] = row["status"]
-        if row["party"] and row["party"] != cur.get("party"):
+        if not cur.get("party") and row["party"]:
             patch["party"] = row["party"]
         refs = list(cur.get("filer_refs") or [])
         missing = [r for r in row["filer_refs"] if r not in refs]
@@ -260,9 +335,15 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
             updates.append((cur["id"], patch))
     stats.update({"races": len(races), "lpt_candidates": len(roster),
                   "insert": len(inserts), "update": len(updates)})
+    status_mix = defaultdict(int)
+    for r in inserts:
+        status_mix[r["status"]] += 1
     log(f"   roster: {len(races)} LPT races, {len(roster)} candidates "
-        f"({stats.get('resolved', 0)} with a committee in the scrape, "
-        f"{stats.get('unresolved', 0)} without); {len(inserts)} new, {len(updates)} updated"
+        f"({stats.get('resolved', 0)} matched to a committee: {stats.get('by_id', 0)} by id, "
+        f"{stats.get('by_committee', 0)} by committee name, {stats.get('by_candidate', 0)} by "
+        f"candidate name; {stats.get('unresolved', 0)} unmatched, {stats.get('by_ambiguous', 0)} "
+        f"ambiguous ids refused, {stats.get('ref_conflict', 0)} shared refs refused); "
+        f"{len(inserts)} new {dict(status_mix)}, {len(updates)} updated"
         f"{' (dry run)' if dry_run else ''}")
     if dry_run:
         return stats
@@ -295,7 +376,11 @@ class IdentResolver:
 
 
 def sync_texas(dry_run=False, log=print):
-    races, participants, candidates = fetch_lpt("tx")
+    try:
+        races, participants, candidates = fetch_lpt("tx")
+    except Exception as e:  # noqa: BLE001 — LPT down must not block the TEC import
+        log(f"   texas roster: skipped ({type(e).__name__}: {e})")
+        return {"error": str(e)}
     rows, stats = build_roster("tx", races, participants, candidates, IdentResolver())
     live = rest.get_all("tx_candidates?select=id,slug,party,status,filer_ident&order=id")
     live_by_slug = {r["slug"]: r for r in live}
@@ -316,7 +401,7 @@ def sync_texas(dry_run=False, log=print):
             })
             live_idents.add(ident)
             continue
-        patch = {k: r[k] for k in ("status", "party") if r[k] and r[k] != cur.get(k)}
+        patch = {k: r[k] for k in ("status", "party") if r[k] and not cur.get(k)}
         if patch:
             updates.append((cur["id"], patch))
     log(f"   texas roster: {len(races)} LPT races, {len(rows)} candidates; "

@@ -42,6 +42,7 @@ jobs:
       # candidates in tx_candidates from the Local Politics Tracker before the
       # import, so their money loads on this run (standard library only).
       - name: Seed legislative candidates
+        continue-on-error: true       # a roster problem must never skip the import
         env:
           SUPABASE_URL: https://lohxdfrxnxuxjdvvyfjc.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

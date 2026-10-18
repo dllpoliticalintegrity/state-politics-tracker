@@ -91,6 +91,9 @@ def candidate_refs(st):
     for c in rows:
         for ref in c.get("filer_refs") or []:
             if isinstance(ref, str) and ref.startswith(f"{st}:"):
+                if ref in refs and refs[ref][1] != c["slug"]:
+                    print(f"   warning: {ref} is on both {refs[ref][1]} and {c['slug']}; "
+                          f"its money loads to {refs[ref][1]}", flush=True)
                 refs.setdefault(ref, (c["id"], c["slug"]))
     return refs
 

@@ -332,6 +332,7 @@ class SeedCandidate:
     name: str
     filer_ident: str  # COH account, normalized (leading zeros stripped)
     committee_filer_ident: str  # principal SPAC account, "" if none
+    office: str = ""  # TEC office code (GOVERNOR, STATEREP, ...)
 
 
 def load_seed_candidates(sb) -> Dict[str, SeedCandidate]:
@@ -340,18 +341,26 @@ def load_seed_candidates(sb) -> Dict[str, SeedCandidate]:
     Major TX campaigns raise through a specific-purpose committee (Abbott is
     COH 19652 but the money is in SPAC 51153 'Texans for Greg Abbott'), so
     both accounts' filings/transactions count as the candidate's."""
-    res = sb.table("tx_candidates").select(
-        "id,slug,name,filer_ident,committee_filer_ident"
-    ).execute()
+    # Paged: with the legislature seeded the table nears PostgREST's
+    # 1,000-row cap, past which a single select truncates silently.
+    rows = []
+    for start in range(0, 100_000, 1000):
+        res = (sb.table("tx_candidates")
+               .select("id,slug,name,filer_ident,committee_filer_ident,office")
+               .order("id").range(start, start + 999).execute())
+        rows.extend(res.data or [])
+        if len(res.data or []) < 1000:
+            break
     seeds: Dict[str, SeedCandidate] = {}
     n = 0
-    for row in res.data or []:
+    for row in rows:
         c = SeedCandidate(
             id=row["id"],
             slug=row["slug"],
             name=row["name"],
             filer_ident=norm_ident(row["filer_ident"]),
             committee_filer_ident=norm_ident(row.get("committee_filer_ident") or ""),
+            office=(row.get("office") or "").strip().upper(),
         )
         seeds[c.filer_ident] = c
         if c.committee_filer_ident:
@@ -575,11 +584,23 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
     instead of CA's committee-name regex. Returns the DCE filer ident set for
     the ie-contributions stage.
     """
-    seed_by_name = {
-        (norm_name(c.name.split()[-1]), norm_name(c.name.split()[0])): c
-        for c in seeds.values()
-        if len(c.name.split()) >= 2
-    }
+    # (office, last, first) -> candidate, for DCE rows that name the benefited
+    # candidate. Name suffixes are skipped ("Gary W. Gates Jr" keys on GATES),
+    # the office must agree, and a key two candidates share is dropped rather
+    # than guessed (two David Cooks ran in 2026).
+    suffixes = {"JR", "SR", "II", "III", "IV"}
+
+    def name_key(c):
+        words = [w for w in c.name.split() if norm_name(w) not in suffixes]
+        return (c.office, norm_name(words[-1]), norm_name(words[0])) if len(words) >= 2 else None
+
+    groups: Dict[tuple, set] = {}
+    for c in {c.id: c for c in seeds.values()}.values():
+        k = name_key(c)
+        if k:
+            groups.setdefault(k, set()).add(c.id)
+    by_id = {c.id: c for c in seeds.values()}
+    seed_by_name = {k: by_id[next(iter(v))] for k, v in groups.items() if len(v) == 1}
     committees: Dict[str, str] = {}
     writer = BatchWriter(sb, "tx_independent_expenditures", on_conflict="expend_info_id,expend_persent_id")
     unmatched = 0
@@ -593,7 +614,8 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
         if cycle in ("pre-cycle", "unknown"):
             continue
         fid = norm_ident(row.get("filerIdent"))
-        key = (norm_name(row.get("candidateNameLast")), norm_name(row.get("candidateNameFirst")))
+        key = ((row.get("candidateSeekOfficeCd") or "").strip().upper(),
+               norm_name(row.get("candidateNameLast")), norm_name(row.get("candidateNameFirst")))
         cand = seed_by_name.get(key)
         sup_opp = "S"
         if fid in targets:
