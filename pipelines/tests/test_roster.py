@@ -124,6 +124,70 @@ class Build(unittest.TestCase):
         self.assertEqual(stats["unresolved"], 1)
 
 
+class Twins(unittest.TestCase):
+    NICK = {"CHUCK": "CHARLES", "BILL": "WILLIAM"}
+
+    def row(self, name, status, refs, district="44"):
+        return {"office": "state-house", "district": district, "name": name, "status": status,
+                "slug": roster.name_slug(name) + "-ga-hd" + district, "filer_refs": refs,
+                "committee_name": "Cmte" if refs else None}
+
+    def test_ballot_name_and_filing_name_merge_onto_the_ballot_row(self):
+        stats = {}
+        rows = [self.row("Don Parsons", "active", []),
+                self.row("Donald L. Parsons", "not_on_ballot", ["ga:101489"]),
+                self.row("John LaHood", "won_primary", [], "175"),
+                self.row("George J. Lahood", "not_on_ballot", ["ga:103712"], "175")]
+        out = roster.collapse_twins(rows, stats, self.NICK)
+        self.assertEqual(stats["twins_merged"], 2)
+        by = {r["slug"]: r for r in out}
+        self.assertEqual(set(by), {"don-parsons-ga-hd44", "john-lahood-ga-hd175"})
+        self.assertEqual(by["don-parsons-ga-hd44"]["filer_refs"], ["ga:101489"])
+        self.assertEqual(by["don-parsons-ga-hd44"]["status"], "active")
+        self.assertEqual(by["john-lahood-ga-hd175"]["committee_name"], "Cmte")
+
+    def test_different_first_names_are_held_for_review(self):
+        stats = {}
+        rows = [self.row("Michelle Teska", "active", [], "55"),
+                self.row("Colleen Teska", "not_on_ballot", ["oh:1"], "55"),
+                self.row("Chuck Brannan", "not_on_ballot", ["fl:1"], "10"),
+                self.row("Chase Brannan", "not_on_ballot", [], "10")]
+        out = roster.collapse_twins(rows, stats, self.NICK)
+        self.assertEqual(len(out), 4)
+        self.assertEqual(len(stats["review"]), 2)
+
+    def test_committee_named_for_the_ballot_name_merges(self):
+        stats = {}
+        rows = [self.row("Michelle Teska", "active", [], "55"),
+                self.row("Colleen Teska", "not_on_ballot", ["oh:15881"], "55")]
+        out = roster.collapse_twins(rows, stats, self.NICK,
+                                    {"oh:15881": {"CONSERVATIVES FOR MICHELLE TESKA"}})
+        self.assertEqual([(r["name"], r["filer_refs"]) for r in out], [("Michelle Teska", ["oh:15881"])])
+        # A committee named for someone else's first name is not evidence.
+        stats = {}
+        rows = [self.row("Michelle Teska", "active", [], "55"),
+                self.row("Colleen Teska", "not_on_ballot", ["oh:15881"], "55")]
+        out = roster.collapse_twins(rows, stats, self.NICK, {"oh:15881": {"FRIENDS OF COLLEEN TESKA"}})
+        self.assertEqual(len(out), 2)
+
+    def test_both_or_neither_with_a_committee_never_merge(self):
+        stats = {}
+        rows = [self.row("Bill Smith", "active", ["ga:1"]), self.row("William Smith", "active", ["ga:2"]),
+                self.row("Ann Lee", "active", [], "3"), self.row("Ann B. Lee", "active", [], "3")]
+        self.assertEqual(len(roster.collapse_twins(rows, stats, self.NICK)), 4)
+        self.assertNotIn("twins_merged", stats)
+
+    def test_same_person(self):
+        self.assertTrue(roster.same_person("Chuck Brannan", "Charles Brannan", self.NICK))
+        self.assertTrue(roster.same_person("Don Parsons", "Donald L. Parsons", {}))
+        self.assertTrue(roster.same_person("John LaHood", "George J. Lahood", {}))
+        self.assertFalse(roster.same_person("Chuck Brannan", "Chase Brannan", self.NICK))
+        self.assertFalse(roster.same_person("Kori Simmons", "Mitchell D. Simmons", {}))
+        self.assertFalse(roster.same_person("Gregory Lee Alexander", "Greg S Alexander", {}))
+        self.assertTrue(roster.same_person("Kori Simmons", "Mitchell D. Simmons", {},
+                                           {"KORI SIMMONS FOR THE PEOPLE"}))
+
+
 class Settle(unittest.TestCase):
     def test_only_unsettled_statuses_move(self):
         self.assertEqual(roster.settle("active", "not_on_ballot"), "not_on_ballot")
