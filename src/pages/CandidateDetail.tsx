@@ -351,7 +351,7 @@ export default function CandidateDetail() {
                     className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">
+                      <div className="font-medium name-scroll">
                         {[d.contributor_first_name, d.contributor_last_name]
                           .filter(Boolean)
                           .join(" ") || "—"}
@@ -392,7 +392,7 @@ export default function CandidateDetail() {
                     className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">
+                      <div className="font-medium name-scroll">
                         {[d.contributor_first_name, d.contributor_last_name]
                           .filter(Boolean)
                           .join(" ") || "—"}
@@ -446,7 +446,7 @@ export default function CandidateDetail() {
                     key={i}
                     className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-2"
                   >
-                    <div className="font-medium truncate">{d.name}</div>
+                    <div className="font-medium name-scroll">{d.name}</div>
                     <div className="font-mono font-semibold shrink-0 text-xs md:text-sm tabular-nums">
                       {formatCurrency(d.amount)}
                     </div>
@@ -469,7 +469,7 @@ export default function CandidateDetail() {
                       className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">
+                        <div className="font-medium name-scroll">
                           {[l.contributor_first_name, l.contributor_last_name]
                             .filter(Boolean)
                             .join(" ") || "—"}
@@ -508,7 +508,7 @@ export default function CandidateDetail() {
                   className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium truncate">{r.committee_name ?? "—"}</div>
+                    <div className="font-medium name-scroll">{r.committee_name ?? "—"}</div>
                     <div className="text-xs text-muted-foreground truncate">
                       {r.expenditure_date ? new Date(r.expenditure_date).toLocaleDateString() : "—"}
                       {r.description ? ` · ${r.description}` : ""}

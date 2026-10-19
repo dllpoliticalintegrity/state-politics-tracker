@@ -151,7 +151,7 @@ export default function IndependentExpenditures() {
                     {r.party ?? "—"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <div className="font-semibold text-sm name-scroll group-hover:text-primary transition-colors">
                       {r.name}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -187,7 +187,7 @@ export default function IndependentExpenditures() {
               <div className="flex items-center gap-4">
                 <div className="text-xs text-muted-foreground tabular-nums w-8">{i + 1}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm truncate">{c.name}</div>
+                  <div className="font-semibold text-sm name-scroll">{c.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {c.transaction_count} transactions · filer {c.filer_id}
                   </div>
