@@ -19,13 +19,18 @@ deploys.
    This writes `dist-lovable/state-politics-tracker-frontend-<sha>.zip`. It
    holds `src/` (minus tests), `shared/`, `public/`, `index.html`, the
    build config and `LOVABLE.md` (the sandbox's rules), and nothing else.
-2. **Import into Lovable.** Create a new project from the ZIP (Lovable:
-   import / upload a ZIP).
+2. **Put it in the sandbox repo, then import that into Lovable.** Lovable's
+   new default stack (TanStack Start) can't take our Vite + react-router
+   code unchanged, and a ZIP attached to a new project lands in that stack.
+   So the export goes into its own private repo,
+   `dllpoliticalintegrity/state-politics-tracker-design` (created
+   2026-10-18), and Lovable imports that repo with **Import from GitHub**,
+   which keeps the files and the stack as they are and syncs edits back to
+   the repo. To refresh the repo, unzip a new export over a clone of it and
+   push.
    - If Lovable offers **Lovable Cloud** or a Supabase connection, decline.
      The app already reads the tracker database with its public read-only
      key, and connecting anything else empties every page.
-   - Turn on **GitHub sync** for the project. Lovable creates its own repo,
-     e.g. `dllpoliticalintegrity/state-politics-tracker-design`.
 3. **Check the preview.** `/` shows the hub; `/tx`, `/tx/governor`,
    `/mi/state-senate/11` show state pages with live data. A per-state site
    (texaspoliticstracker.com) is the same pages without the `/tx` prefix.
