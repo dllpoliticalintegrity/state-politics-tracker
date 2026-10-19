@@ -351,6 +351,25 @@ class LoaderTest(unittest.TestCase):
         self.assertEqual((r["candidate_id"], r["committee_id"], r["source"], r["cycle"]),
                          ("uuid-weiser", "co:1", "slcf", "2026"))
 
+    def test_rereported_gift_keeps_the_latest_report(self):
+        g = lambda txn, filing, **kw: dict({"state_filer_id": "1", "date": "2026-08-11",
+                                            "amount": "90000", "contributor_name": "CLAIRE ZABEL",
+                                            "contributor_type": "Individual", "txn_id": txn,
+                                            "filing_id": filing}, **kw)
+        write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
+            g("1", "500"),                                   # 24-hour report
+            g("2", "612", contributor_city="Oakland"),       # the regular report
+            g("3", "700", amount="25"), g("4", "700", amount="25"),   # two gifts, one report
+        ])
+        entry = dict(self.ENTRY, rereports=True)
+        got = sorted(r["source_txn_id"] for t, _, r in
+                     load_cf.rows_for_state("co", entry, self.clean, self.REFS) if t == "cf_contributions")
+        self.assertEqual(got, ["co:2", "co:3", "co:4"])
+        # Off by default.
+        got = [r["source_txn_id"] for t, _, r in
+               load_cf.rows_for_state("co", self.ENTRY, self.clean, self.REFS) if t == "cf_contributions"]
+        self.assertEqual(len(got), 4)
+
     def test_skip_types(self):
         entry = dict(self.ENTRY, skip_types={"contributions": ["Interest"]})
         write_gz(self.clean / "contributions.csv.gz", C.CONTRIBUTIONS, [
