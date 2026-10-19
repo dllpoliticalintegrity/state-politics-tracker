@@ -87,30 +87,30 @@ function StateTile({ state, ownSite }: { state: StateConfig; ownSite?: string })
   const base = "block rounded-md border bg-card p-3 text-left";
 
   switch (state.status) {
-    case "live":
-      return (
+    case "live": {
+      const tileClass = `${base} border-primary shadow-[0_1px_0_hsl(var(--primary))] hover:bg-accent`;
+      // A state with a dedicated site (michiganpoliticstracker.com) opens
+      // that site by default; the hub's own /:state page stays one small
+      // link away.
+      return ownSite ? (
         <div className="relative">
+          <a href={ownSite} className={tileClass} title={`Open ${state.name}'s own site`}>
+            {inner}
+          </a>
           <Link
             to={`/${state.code}`}
-            className={`${base} border-primary shadow-[0_1px_0_hsl(var(--primary))] hover:bg-accent`}
+            className="absolute top-2 right-2 inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+            title={`View ${state.name} on this site`}
           >
-            {inner}
+            View here
           </Link>
-          {ownSite && (
-            // States with a dedicated site (michiganpoliticstracker.com) get a
-            // small outbound link; the hub's own /:state pages keep working.
-            <a
-              href={ownSite}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute top-2 right-2 inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
-              title={`${state.name} also has its own site`}
-            >
-              Own site <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
         </div>
+      ) : (
+        <Link to={`/${state.code}`} className={tileClass}>
+          {inner}
+        </Link>
       );
+    }
     case "external":
       return (
         <a

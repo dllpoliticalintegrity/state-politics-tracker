@@ -18,6 +18,7 @@ import { useSiteMenu } from "@/hooks/useSiteMenu";
 import { STATES } from "@/states/registry";
 import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
+import { usePublishedSites } from "@/hooks/usePublishedSites";
 import type { RaceConfig } from "@/states/registry";
 import star from "@/assets/star.svg";
 import { NEWSLETTER_SIGNUP_URL } from "@/lib/links";
@@ -27,6 +28,10 @@ import { stateOutlineUrl } from "@/states/outlines";
 function StateSwitcher() {
   const activeState = useActiveState();
   const navigate = useNavigate();
+  // States with a published site of their own (michiganpoliticstracker.com)
+  // open that site by default; the hub's own /:state pages stay reachable
+  // by URL. Empty while loading, so the switch then stays on the hub.
+  const sites = usePublishedSites();
 
   const live = STATES.filter((s) => s.status === "live");
   const external = STATES.filter((s) => s.status === "external");
@@ -37,6 +42,11 @@ function StateSwitcher() {
     if (!cfg) return;
     if (cfg.status === "external") {
       window.open(cfg.externalUrl, "_blank", "noopener");
+      return;
+    }
+    const ownSite = sites[cfg.code];
+    if (ownSite && cfg.code !== activeState?.code) {
+      window.location.assign(ownSite);
       return;
     }
     navigate(`/${cfg.code}`);
@@ -53,7 +63,13 @@ function StateSwitcher() {
             <SelectLabel>Live</SelectLabel>
             {live.map((s) => (
               <SelectItem key={s.code} value={s.code}>
-                {s.name}
+                {sites[s.code] && s.code !== activeState?.code ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {s.name} <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </span>
+                ) : (
+                  s.name
+                )}
               </SelectItem>
             ))}
           </SelectGroup>

@@ -157,8 +157,10 @@ ca-gov-polling → TX port). Phase numbers refer to `docs/plan.md`.
       full sitemap, generated robots.txt/llms.txt, `/mi/*` → `/*`
       redirects. Deployed as the `michigan` env in `wrangler.jsonc`
       (`npx wrangler deploy --env michigan`); needs the zone on the
-      Cloudflare account and a second Workers project. Hub tiles link out
-      to a state's own site when one exists.
+      Cloudflare account and a second Workers project. A hub tile or
+      switcher entry for a state with a published site of its own opens
+      that site by default (since 2026-10-19); "View here" on the tile
+      keeps the hub's `/:state` page reachable.
 - [x] Michigan legislature (Sep 2026): State Senate (38) + State House
       (110) as district races, finance only — `chambers` in the registry,
       `cf_candidates.district`, chamber overview at `/state-senate`,
