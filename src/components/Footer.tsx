@@ -1,3 +1,4 @@
+import { NEWSLETTER_SIGNUP_URL } from "@/lib/links";
 import { Link } from "react-router-dom";
 import { useActiveState, useStateBase } from "@/states/StateContext";
 import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
@@ -33,7 +34,7 @@ export function Footer() {
             </p>
             <p className="text-sm text-muted-foreground">
               <a
-                href="https://politicalintegritypac.substack.com"
+                href={NEWSLETTER_SIGNUP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"

@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Sun, Moon, Menu, Heart, ExternalLink } from "lucide-react";
+import { Sun, Moon, Menu, Mail, ExternalLink } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
@@ -19,10 +19,9 @@ import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
 import type { RaceConfig } from "@/states/registry";
 import star from "@/assets/star.svg";
+import { NEWSLETTER_SIGNUP_URL } from "@/lib/links";
 import { stateOutlineUrl } from "@/states/outlines";
 
-/** The org's hosted donation page; the Donate button links straight to it. */
-const DONATE_URL = "https://donate.politicalintegrity.us";
 
 function StateSwitcher() {
   const activeState = useActiveState();
@@ -208,9 +207,9 @@ export function Header() {
             <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
           <Button asChild size="sm" className="h-8 px-3 text-sm gap-1.5">
-            <a href={DONATE_URL} target="_blank" rel="noopener noreferrer">
-              <Heart className="h-3.5 w-3.5" />
-              Donate
+            <a href={NEWSLETTER_SIGNUP_URL} target="_blank" rel="noopener noreferrer">
+              <Mail className="h-3.5 w-3.5" />
+              Sign up
             </a>
           </Button>
         </div>
@@ -257,9 +256,9 @@ export function Header() {
                 {theme === "dark" ? "Light mode" : "Dark mode"}
               </Button>
               <Button asChild className="w-full justify-start gap-2 text-sm mt-2">
-                <a href={DONATE_URL} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
-                  <Heart className="h-4 w-4" />
-                  Donate
+                <a href={NEWSLETTER_SIGNUP_URL} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+                  <Mail className="h-4 w-4" />
+                  Sign up for updates
                 </a>
               </Button>
             </nav>
