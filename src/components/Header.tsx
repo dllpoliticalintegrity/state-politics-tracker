@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sun, Moon, Menu, Mail, ExternalLink } from "lucide-react";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -176,7 +176,7 @@ export function Header() {
         </div>
 
         {menu.length > 0 && (
-          <nav className="hidden md:flex items-center gap-0.5" aria-label="Races">
+          <nav className="hidden xl:flex items-center gap-0.5" aria-label="Races">
             {menu.map((item) => (
               <Link key={item.key} to={item.to}>
                 <Button
@@ -195,7 +195,7 @@ export function Header() {
           </nav>
         )}
 
-        <div className="hidden md:flex items-center gap-1.5">
+        <div className="hidden xl:flex items-center gap-1.5">
           <Button
             variant="ghost"
             size="icon"
@@ -215,13 +215,14 @@ export function Header() {
         </div>
 
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild className="md:hidden">
+          <SheetTrigger asChild className="xl:hidden">
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Open menu">
               <Menu className="h-4 w-4" />
             </Button>
           </SheetTrigger>
           <SheetContent side="right" className="w-64 bg-card">
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
+            <SheetDescription className="sr-only">Races, pages and settings for this site</SheetDescription>
             <nav className="flex flex-col gap-1 mt-6" aria-label="Races">
               {menu.map((item) => (
                 <Link key={item.key} to={item.to} onClick={() => setOpen(false)}>

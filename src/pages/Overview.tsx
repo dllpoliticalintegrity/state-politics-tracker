@@ -52,7 +52,7 @@ export default function Overview() {
         <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Statewide races
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 [&>*]:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
           {races.map((r) => (
             <RaceProvider key={r.office} race={r}>
               <RaceOverviewCard />

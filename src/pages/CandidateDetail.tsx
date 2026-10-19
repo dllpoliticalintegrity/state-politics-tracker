@@ -336,7 +336,7 @@ export default function CandidateDetail() {
 
         {/* Top donors / PACs / employers */}
         {hasFinanceData && (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 [&>*]:min-w-0">
             <Card className="p-4 md:p-6">
               <h2 className="font-display text-lg font-semibold mb-4">Top individual donors</h2>
               <div className="space-y-2">
