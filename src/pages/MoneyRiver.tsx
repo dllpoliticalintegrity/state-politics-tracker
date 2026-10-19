@@ -191,11 +191,13 @@ function RiverLine({ row, raceBase }: { row: RiverRow; raceBase: string }) {
   const sentence =
     row.kind === "expenditure" ? (
       <>
-        {candidateLink} <span className="text-muted-foreground">{verb}</span> <span className="font-semibold">{object}</span>
+        {candidateLink} <span className="text-muted-foreground">{verb}</span>{" "}
+        <span className="font-semibold name-scroll inline-block max-w-full align-bottom">{object}</span>
       </>
     ) : (
       <>
-        <span className="font-semibold">{subject}</span> <span className="text-muted-foreground">{verb}</span> {candidateLink}
+        <span className="font-semibold name-scroll inline-block max-w-full align-bottom">{subject}</span>{" "}
+        <span className="text-muted-foreground">{verb}</span> {candidateLink}
       </>
     );
 

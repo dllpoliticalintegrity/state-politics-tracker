@@ -230,7 +230,7 @@ export default function Committees() {
         )}
 
         {visible.length > 0 && (
-          <Card className="overflow-hidden">
+          <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
                 <tr>
@@ -261,8 +261,8 @@ export default function Committees() {
                     <td className="px-4 py-3 text-right font-display text-muted-foreground/70 tabular-nums">
                       {i + 1}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold leading-tight">{titleCase(c.name)}</div>
+                    <td className="px-4 py-3 max-w-[55vw] lg:max-w-none">
+                      <div className="font-semibold leading-tight name-scroll lg:whitespace-normal">{titleCase(c.name)}</div>
                       {(c.city || c.contributor_state) && (
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {[c.city ? titleCase(c.city) : null, c.contributor_state].filter(Boolean).join(", ")}
@@ -351,7 +351,7 @@ export default function Committees() {
                           {cand?.party ?? "—"}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm truncate">
+                          <div className="font-semibold text-sm name-scroll">
                             {cand?.name ?? "Candidate no longer tracked"}
                             {out && <span className="ml-2 text-[10px] font-normal text-muted-foreground">{out}</span>}
                           </div>

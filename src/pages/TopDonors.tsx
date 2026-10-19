@@ -208,7 +208,7 @@ export default function TopDonors() {
                     {i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <div className="font-semibold text-sm name-scroll group-hover:text-primary transition-colors">
                       {d.display_name}
                     </div>
                     <div className="text-xs text-muted-foreground truncate">
@@ -296,7 +296,7 @@ export default function TopDonors() {
                           {cand?.party ?? "—"}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm truncate">
+                          <div className="font-semibold text-sm name-scroll">
                             {cand?.name ?? "Unknown candidate"}
                           </div>
                           <div className="text-xs text-muted-foreground">
@@ -377,7 +377,7 @@ export default function TopDonors() {
                     <div className="flex items-center gap-3">
                       <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate">{s.committee_name}</div>
+                        <div className="font-semibold text-sm name-scroll">{s.committee_name}</div>
                         <div className="text-xs text-muted-foreground">
                           Filer {s.ie_filer_ident} · {s.contribution_count} gift
                           {s.contribution_count === 1 ? "" : "s"}

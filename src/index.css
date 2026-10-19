@@ -162,6 +162,28 @@
 }
 
 @layer utilities {
+  /*
+   * A donor or committee name in a fixed-width box: one line, cut off with
+   * an ellipsis on wide screens; on phones and tablets the full name scrolls
+   * sideways inside the box instead of being cut off.
+   */
+  .name-scroll {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (max-width: 1023px) {
+    .name-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      text-overflow: clip;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+  }
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
