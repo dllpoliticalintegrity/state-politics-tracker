@@ -204,6 +204,47 @@ class Rows(unittest.TestCase):
         b, _ = self.run_rows(hashed[1:])
         self.assertEqual(a[0]["source_txn_id"], b[0]["source_txn_id"])
 
+    def test_refiled_buy_keeps_only_the_latest_report(self):
+        # Georgia: Defend US PAC's $50,905 for Gooch under filings 241569 and 241612.
+        rows = [exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="a", filing_id="241569"),
+                exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="b", filing_id="241612")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 1)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:b:"))
+        # Numeric order, not string order: report 1000 is later than 999.
+        rows = [exp("1911", "2026-04-22", 10, "Paton for Georgia", "S", txn="x", filing_id="999"),
+                exp("1911", "2026-04-22", 10, "Paton for Georgia", "S", txn="y", filing_id="1000")]
+        out, _ = self.run_rows(rows)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:y:"))
+
+    def test_identical_rows_on_one_report_all_count(self):
+        rows = [exp("1911", "2026-07-21", 13423.12, "Paton for Georgia", "S", txn=t, filing_id="77")
+                for t in ("m1", "m2", "m3")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 0)
+        self.assertEqual(len(out), 3)
+
+    def test_without_report_ids_identical_rows_collapse_to_latest_txn(self):
+        # Arizona: no report id; the same buys in three transaction-id batches.
+        rows = [exp("1911", "2026-09-28", 17340.35, "Paton for Georgia", "S", txn=t)
+                for t in ("16251177", "16251215", "16251203")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 2)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:16251215:"))
+
+    def test_refiled_needs_every_field_to_agree(self):
+        base = dict(fid="1911", date="2026-04-22", amount=500, target="Paton for Georgia", stance="S")
+        rows = [exp(**base, txn="1", filing_id="1"),
+                exp(**{**base, "amount": 501}, txn="2", filing_id="2"),
+                exp(**{**base, "date": "2026-04-23"}, txn="3", filing_id="3"),
+                exp(**base, txn="4", filing_id="4", payee="Mail Co"),
+                exp(**{**base, "stance": "O"}, txn="5", filing_id="5")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 0)
+        self.assertEqual(len(out), 5)
+
     def test_filters_and_unmatched_log(self):
         rows = [
             exp("1911", "2024-06-01", 50, "Paton for Georgia", "S"),           # before since

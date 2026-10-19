@@ -245,12 +245,52 @@ def _superseded(row):
     return (row.get("superseded") or "").strip().lower() in ("1", "y", "yes", "true")
 
 
+def _id_key(s):
+    """Sort key putting numeric ids in numeric order ("99" < "100")."""
+    s = (s or "").strip()
+    return (0, int(s), "") if s.isdigit() else (1, 0, s)
+
+
+def drop_refiled(picked):
+    """Drop the same buy disclosed again on a later report.
+
+    States re-disclose IEs (a 24-hour notice, then the periodic report, then
+    any amendment), each copy with its own transaction id: Georgia's Defend
+    US PAC $50,905 for Gooch under filings 241569 and 241612, Arizona's
+    az:101712 buys in three id batches. Rows that agree on spender, target,
+    stance, amount, date, payee and purpose are one buy when they sit on
+    different reports, and only the latest report's copy is kept. Identical
+    rows on the same report are separate line items (three mailers at the
+    same price) and all stay. Arizona's IE rows carry no report id, so its
+    identical rows always collapse to the latest transaction id.
+    Returns (kept, dropped_count)."""
+    groups = defaultdict(list)
+    for i, (row, base, target, stance, cand, spender) in enumerate(picked):
+        key = (spender, cand, stance, mapping.money(row.get("amount")),
+               mapping.iso_date(row.get("date")), norm(row.get("payee_name")),
+               norm(row.get("purpose") or row.get("transaction_type")))
+        groups[key].append(i)
+    drop = set()
+    for idx in groups.values():
+        if len(idx) < 2:
+            continue
+        filings = [(picked[i][0].get("filing_id") or "").strip() for i in idx]
+        if all(filings):
+            latest = max(filings, key=_id_key)
+            drop.update(i for i, f in zip(idx, filings) if f != latest)
+        else:
+            keep = max(idx, key=lambda i: _id_key((picked[i][0].get("txn_id") or "").strip()))
+            # Copies of the keeper's own transaction are ie_rows' "repeated".
+            drop.update(i for i in idx if picked[i][1] != picked[keep][1])
+    return [p for i, p in enumerate(picked) if i not in drop], len(drop)
+
+
 def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print):
     """Yield cf_independent_expenditures rows for the expenditure rows whose
     target resolves; the stats dict says what did not."""
     by_name = by_name or {}
     stats = {"ie_rows": 0, "matched": 0, "unmatched": 0, "before_since": 0,
-             "superseded": 0, "no_spender": 0, "repeated": 0}
+             "superseded": 0, "no_spender": 0, "repeated": 0, "refiled": 0}
     unmatched = defaultdict(float)
     picked = []                 # (row, base, target, stance, candidate_id, spender)
     targets = defaultdict(set)  # base -> distinct normalised targets
@@ -281,6 +321,7 @@ def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=
             continue
         stats["matched"] += 1
         picked.append((row, base, target, stance, cand, spender))
+    picked, stats["refiled"] = drop_refiled(picked)
 
     out = []
     seen = set()
@@ -419,7 +460,7 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     for rec in ie_out:
         by_cand[rec["target_candidate_id"]][rec["support_oppose"]] += rec["amount"]
     log(f"   outside spending: {stats['ie_rows']} IE rows, {stats['matched']} matched to "
-        f"{len(by_cand)} tracked candidates ({len(ie_out)} kept, {stats['repeated']} repeats), "
+        f"{len(by_cand)} tracked candidates ({len(ie_out)} kept, {stats['repeated']} repeats, {stats['refiled']} re-filed), "
         f"{stats['unmatched']} unmatched ({stats['unmatched_targets']} targets), "
         f"{stats['no_spender']} without a spender; {len(comm_out)} spenders, "
         f"{len(contrib_out)} spender receipts{' (dry run)' if dry_run else ''}")
