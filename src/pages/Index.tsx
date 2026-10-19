@@ -8,8 +8,6 @@ import { isGeneralMatchup, pollRowIsCandidate, readCandidatePct, useRacePolling,
 import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
 import type { CandidateCardStats } from "@/components/CandidateCard";
-import ContributionsTicker from "@/components/ContributionsTicker";
-import RaceSubnav from "@/components/RaceSubnav";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
 import HeadToHead from "@/pages/HeadToHead";
@@ -84,8 +82,6 @@ export default function Index() {
 
   return (
     <div className="min-h-[80vh]">
-      <ContributionsTicker />
-      <RaceSubnav />
 
       {/* Hero */}
       <section className="container pt-3 md:pt-4 pb-8 max-w-3xl text-center space-y-4">
