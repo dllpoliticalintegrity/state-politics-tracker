@@ -5,10 +5,9 @@ import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContex
 import { statePath } from "@/states/site";
 
 /**
- * A race's own tabs — Overview / Candidates / Polling / Money — rendered at
- * the top of every page inside a race. The site header stays fixed on the
- * races themselves (Governor, Attorney General, …); this strip is the
- * navigation *within* the race the header selected. District races also
+ * A race's own tabs — Overview / Candidates / Polling / Money — directly
+ * beneath the race menu (SiteNavStrip), which already shows the selected
+ * race, so the strip carries no race name of its own. District races also
  * get a crumb back to their chamber overview.
  */
 export default function RaceSubnav() {
@@ -36,9 +35,6 @@ export default function RaceSubnav() {
             {chamber.title}
           </Link>
         )}
-        <div className="text-sm font-semibold whitespace-nowrap shrink-0 py-2.5 pr-2 border-r hidden sm:block">
-          {race.title}
-        </div>
         <nav aria-label={`${race.title} sections`} className="flex w-full justify-between gap-3 sm:w-auto sm:justify-start sm:gap-5 -mb-px">
           {tabs.map((t) => (
             <NavLink

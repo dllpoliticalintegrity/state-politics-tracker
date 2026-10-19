@@ -3,7 +3,6 @@
 // that race's dashboard.
 import RaceOverviewCard from "@/components/RaceOverviewCard";
 import CandidateSearch from "@/components/CandidateSearch";
-import ContributionsTicker from "@/components/ContributionsTicker";
 import PoweredBy from "@/components/PoweredBy";
 import { RaceProvider, useStateConfig } from "@/states/StateContext";
 import { SITE_STATE, isSingleStateSite } from "@/states/site";
@@ -24,12 +23,6 @@ export default function Overview() {
 
   return (
     <div className="min-h-[80vh]">
-      {races[0] && (
-        // The ticker reads the active race; on the overview, the top race's.
-        <RaceProvider race={races[0]}>
-          <ContributionsTicker />
-        </RaceProvider>
-      )}
 
       <section className="container pt-6 md:pt-8 pb-8 max-w-3xl text-center space-y-4">
         <PoweredBy />

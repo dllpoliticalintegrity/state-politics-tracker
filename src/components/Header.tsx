@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select";
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { useActiveState, useStateBase } from "@/states/StateContext";
+import { useActiveState } from "@/states/StateContext";
+import { useSiteMenu } from "@/hooks/useSiteMenu";
 import { STATES } from "@/states/registry";
 import { ALL_STATES_URL, SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
@@ -80,29 +81,6 @@ function StateSwitcher() {
       </SelectContent>
     </Select>
   );
-}
-
-/**
- * The site menu is fixed for a state: one entry per tracked race (statewide
- * offices, then legislative chambers) plus About. Navigation *within* a
- * race — Overview / Candidates / Polling / Money — lives in RaceSubnav on
- * the race pages, so this bar never changes shape as you move around.
- */
-function useSiteMenu(navRaces: RaceConfig[]) {
-  const activeState = useActiveState();
-  const stateBase = useStateBase();
-  const { pathname } = useLocation();
-  if (!activeState) return [];
-  const officeIdx = stateBase ? 2 : 1;
-  const currentOffice = pathname.split("/")[officeIdx];
-  const items = [
-    { to: stateBase || "/", label: "Overview", key: "" },
-    ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
-    ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
-    { to: `${stateBase}/committees`, label: "Committees", key: "committees" },
-    { to: `${stateBase}/about`, label: "About", key: "about" },
-  ];
-  return items.map((i) => ({ ...i, active: (currentOffice ?? "") === i.key }));
 }
 
 function navIcon(key: string) {
@@ -220,7 +198,7 @@ export function Header() {
     >
       <div className="container flex h-14 items-center justify-between gap-3">
         <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
-          <Link to="/" className="flex items-center gap-2 min-w-0 xl:flex-1">
+          <Link to="/" className="flex items-center gap-2 min-w-0">
             <span
                aria-label={outline && activeState ? `Outline of ${activeState.name}` : "Star"}
               role="img"
@@ -250,26 +228,6 @@ export function Header() {
             Beta
           </span>
         </div>
-
-        {menu.length > 0 && (
-          <nav className="hidden xl:flex shrink-0 items-center gap-0.5" aria-label="Races">
-            {menu.map((item) => (
-              <Link key={item.key} to={item.to}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                    className={`h-8 px-1.5 2xl:px-2.5 text-[13px] ${
-                    item.active
-                      ? "text-foreground bg-accent font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {item.label}
-                </Button>
-              </Link>
-            ))}
-          </nav>
-        )}
 
         <div className="hidden xl:flex shrink-0 items-center gap-1.5">
           <Button

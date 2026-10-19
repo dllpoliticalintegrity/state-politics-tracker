@@ -19,7 +19,7 @@ import {
 } from "@/states/registry";
 import { SITE_NAME, SITE_STATE } from "@/states/site";
 import { routeMeta } from "../shared/seo";
-import RaceSubnav from "@/components/RaceSubnav";
+import SiteNavStrip from "@/components/SiteNavStrip";
 import StatePicker from "./pages/StatePicker";
 import Chamber from "./pages/Chamber";
 import ComingSoon from "./pages/ComingSoon";
@@ -54,6 +54,7 @@ function StateArea({ cfg: pinned }: { cfg?: StateConfig }) {
 
   return (
     <StateProvider config={cfg}>
+      <SiteNavStrip />
       <Routes>
         <Route index element={<Overview />} />
         <Route path="about" element={<About />} />
@@ -102,15 +103,6 @@ function DistrictArea({ cfg, chamber }: { cfg: StateConfig; chamber: ChamberConf
   return <RaceRoutes race={districtRace(cfg, chamber, district!)} />;
 }
 
-// The race's own tabs on every race sub-page. The race home renders them
-// itself, under the live contributions ticker, so the ticker keeps the top.
-function SubnavExceptHome() {
-  const { pathname } = useLocation();
-  const base = useRaceBase();
-  if (pathname.replace(/\/+$/, "") === base) return null;
-  return <RaceSubnav />;
-}
-
 // The race-scoped dashboard pages, shared by statewide and district races.
 function ComparisonRedirect() {
   const base = useRaceBase();
@@ -121,7 +113,6 @@ function ComparisonRedirect() {
 function RaceRoutes({ race }: { race: RaceConfig }) {
   return (
     <RaceProvider race={race}>
-      <SubnavExceptHome />
       <Routes>
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />
