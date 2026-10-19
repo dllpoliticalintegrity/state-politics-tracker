@@ -139,6 +139,7 @@ export default function Index() {
               ? {
                   name: leader.c.name,
                   party: leader.c.party,
+                  photoUrl: leader.c.photo_url_medium ?? leader.c.photo_url ?? leader.c.photo_url_thumb,
                   detail: hasPollingSource
                     ? leader.stats.pollPct != null
                       ? `${leader.stats.pollPct}% average`

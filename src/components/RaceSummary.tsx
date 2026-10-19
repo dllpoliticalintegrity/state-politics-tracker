@@ -20,6 +20,13 @@ export interface RaceLeader {
   party: string | null;
   /** "49.4% average" or "$1.2M raised". */
   detail: string;
+  /** Headshot URL, if the candidate has one. */
+  photoUrl?: string | null;
+}
+
+function initialsOf(name: string): string {
+  const w = name.trim().split(/\s+/);
+  return ((w[0]?.[0] ?? "") + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase();
 }
 
 export default function RaceSummary({
@@ -49,9 +56,29 @@ export default function RaceSummary({
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)]">
       {/* Leader, coloured by party */}
-      <Card className="p-5 flex flex-col justify-between overflow-hidden relative">
+      <Card className="p-5 flex flex-col overflow-hidden relative">
         <span className="absolute inset-y-0 left-0 w-1.5" style={{ background: leaderColor ?? "hsl(var(--border))" }} />
         <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{leaderLabel}</div>
+        {leader && (
+          <div className="mt-3">
+            {leader.photoUrl ? (
+              <img
+                src={leader.photoUrl}
+                alt={leader.name}
+                className="h-20 w-20 rounded-full border-[3px] object-cover"
+                style={{ borderColor: leaderColor }}
+              />
+            ) : (
+              <div
+                className="flex h-20 w-20 items-center justify-center rounded-full border-[3px] bg-muted font-display text-2xl"
+                style={{ borderColor: leaderColor }}
+                aria-hidden="true"
+              >
+                {initialsOf(leader.name)}
+              </div>
+            )}
+          </div>
+        )}
         <div className="mt-3">
           <div
             className="font-display text-3xl font-bold leading-tight break-words"
