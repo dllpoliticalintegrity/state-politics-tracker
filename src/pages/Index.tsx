@@ -18,6 +18,7 @@ import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
 import { offBallotLast } from "@/lib/candidateStatus";
 import { homeHeadline } from "@/states/nicknames";
+import pipLogo from "@/assets/pip-logo.png";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -117,6 +118,15 @@ export default function Index() {
 
       {/* Hero */}
       <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
+        <a
+          href="https://politicalintegrity.us"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex flex-col items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <img src={pipLogo} alt="" width={56} height={56} className="h-14 w-14" />
+          Powered by the Political Integrity Project
+        </a>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {`${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
