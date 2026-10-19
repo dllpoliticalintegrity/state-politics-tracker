@@ -221,5 +221,42 @@ class Statewide(unittest.TestCase):
         self.assertGreaterEqual(stats["ref_conflict"], 1)
 
 
+class StatewideExtraOffices(unittest.TestCase):
+    """lpt_statewide: an office with no cf_candidates rows yet is fetched and
+    seeded (Iowa's row offices, 2026-10-18); legislative names are ignored."""
+
+    def setUp(self):
+        self.asked = []
+        self._get_all, self._fetch = roster.rest.get_all, roster.fetch_lpt_statewide
+        roster.rest.get_all = lambda path: [
+            {"id": "1", "slug": "rob-sand", "name": "Rob Sand", "office": "governor",
+             "party": "Democrat", "status": "active", "filer_refs": ["ia:5185"]}]
+
+        def fetch(st, offices):
+            self.asked.append(set(offices))
+            races = [{"race_id": "ag", "office": "attorney-general"}]
+            participants = [
+                {"race_id": "ag", "candidate_id": "b", "candidate_name": "BIRD, BRENNA", "party": "Republican",
+                 "disposition": "Renominated", "on_ballot": True, "source": "greenpapers"}]
+            candidates = [{"candidate_id": "b", "candidate_name": "BIRD, BRENNA", "party": ["Republican"],
+                           "state_filer_id": "5206", "committee_name": ["Bird for Iowa"]}]
+            return races, participants, candidates
+        roster.fetch_lpt_statewide = fetch
+
+    def tearDown(self):
+        roster.rest.get_all, roster.fetch_lpt_statewide = self._get_all, self._fetch
+
+    def test_new_office_is_seeded(self):
+        resolver = roster.FilerResolver([{"state_filer_id": "5206"}])
+        stats = roster.sync_statewide("ia", resolver, dry_run=True, log=lambda *_: None,
+                                      extra_offices=["attorney-general", "state-senate"])
+        self.assertEqual(self.asked, [{"governor", "attorney-general"}])
+        self.assertEqual(stats["insert"], 1)
+
+    def test_without_extra_offices_only_existing_ones(self):
+        roster.sync_statewide("ia", roster.FilerResolver([]), dry_run=True, log=lambda *_: None)
+        self.assertEqual(self.asked, [{"governor"}])
+
+
 if __name__ == "__main__":
     unittest.main()

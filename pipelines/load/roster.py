@@ -35,7 +35,9 @@ certified lists) reach us on the next run. A status anyone has set to
 something other than "active" is never changed.
 
 Statewide races (sync_statewide): only offices the state already has in
-cf_candidates (LPT lists a few stray people under unrelated offices). An
+cf_candidates (LPT lists a few stray people under unrelated offices), plus
+any states.json lists under `lpt_statewide` — how a state's new statewide
+races get their first candidates (Iowa, 2026-10-18). An
 existing candidate is matched by committee, then by surname within the
 office ("Alex" vs "Alexander Kolodin"); a missing committee ref is filled.
 A new candidate is added only when LPT has them on the ballot.
@@ -329,7 +331,7 @@ def drop_conflicting_refs(roster, claimed, stats, log=print):
         row["filer_refs"] = kept
 
 
-def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
+def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewide_offices=()):
     """Seed / refresh one state's legislative roster. Returns the stats dict.
     Never raises on an LPT problem: the finance load must still run."""
     try:
@@ -402,7 +404,8 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
             rest.upsert("cf_candidates", inserts[i:i + 200], conflict="slug", resolution="ignore")
         patch_rows(updates)
     try:
-        stats["statewide"] = sync_statewide(st, resolver, dry_run=dry_run, log=log)
+        stats["statewide"] = sync_statewide(st, resolver, dry_run=dry_run, log=log,
+                                             extra_offices=statewide_offices)
     except Exception as e:  # noqa: BLE001 — never cost the finance load
         log(f"   statewide roster: skipped ({type(e).__name__}: {e})")
     return stats
@@ -542,10 +545,10 @@ def plan_statewide(st, races, participants, candidates, live, resolver, claimed_
     return inserts, updates, dict(stats)
 
 
-def sync_statewide(st, resolver, dry_run=False, log=print):
+def sync_statewide(st, resolver, dry_run=False, log=print, extra_offices=()):
     live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,office,party,status,filer_refs&order=id")
     statewide = [r for r in live if r.get("office") not in LEGISLATIVE]
-    offices = {r["office"] for r in statewide}
+    offices = {r["office"] for r in statewide} | {o for o in extra_offices if o not in LEGISLATIVE}
     if not offices:
         return {}
     races, participants, candidates = fetch_lpt_statewide(st, offices)

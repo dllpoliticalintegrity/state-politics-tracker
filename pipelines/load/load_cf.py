@@ -324,7 +324,8 @@ def main(argv=None):
                 for row in open_table(clean_dir, table) or []:
                     yield row
         roster.sync_state(st, scrape_rows(), dry_run=args.dry_run,
-                          committees=list(open_table(clean_dir, "committees") or []))
+                          committees=list(open_table(clean_dir, "committees") or []),
+                          statewide_offices=entry.get("lpt_statewide") or ())
 
     refs = candidate_refs(st)
     print(f"== loading {st} from {clean_dir} ({len(refs)} tracked committees, "

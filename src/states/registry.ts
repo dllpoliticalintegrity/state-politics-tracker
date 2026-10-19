@@ -142,22 +142,24 @@ const SLCF_READY = new Set([
 // here only while the tracker has no rows for it (docs/lpt-frontend-plan.md).
 // The tracker project is the unified store: every state reads it as soon as
 // its own pipeline reconciles. OR reads Henry's tables until its ORESTAR
-// scrape lands in the tracker. VITE_LPT_STATES ("or,oh") overrides the set
-// at build time, for previews and local checks.
+// scrape lands in the tracker; IA until its first SLCF load does (the
+// tracker's Iowa rows are the pilot's, frozen in May 2026, and it has no
+// Iowa row-office or legislative candidates yet). VITE_LPT_STATES ("or,oh")
+// overrides the set at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or,ia")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 );
 
-// The site covers the statemoney.us states plus Michigan and California
-// (decided 2026-10-18). These states have dashboards and nightly imports but
+// The site covers the statemoney.us states plus Michigan, California and
+// Iowa (decided 2026-10-18). These states have dashboards and nightly imports but
 // are hidden from the hub for now: their tiles read "coming soon" and their
 // routes render the coming-soon page. Their pipelines keep running, so
 // un-hiding one is a one-line change.
 const HIDDEN: Set<string> = new Set([
-  "al", "ar", "co", "ct", "hi", "ia", "id", "il", "ks", "ky", "ma", "md", "me", "mn", "nv", "pa",
+  "al", "ar", "co", "ct", "hi", "id", "il", "ks", "ky", "ma", "md", "me", "mn", "nv", "pa",
 ]);
 
 // States tracked on a separate site, whose tiles link out. Empty since Oct
@@ -457,6 +459,22 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
         raceSlug: "iowa-governor-2026",
         pollingSourceUrl: fpoGovernor("Iowa"),
       },
+      // Every Iowa executive office is on the 2026 ballot; candidates come from
+      // the Local Politics Tracker (states.json lpt_statewide). The segment
+      // is LPT's office name, so Secretary of Agriculture keeps FL's segment.
+      { office: "attorney-general", title: "Attorney General", generalDate: "2026-11-03", raceSlug: "iowa-attorney-general-2026" },
+      { office: "secretary-of-state", title: "Secretary of State", generalDate: "2026-11-03", raceSlug: "iowa-secretary-of-state-2026" },
+      { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "iowa-treasurer-2026" },
+      { office: "auditor", title: "Auditor", generalDate: "2026-11-03", raceSlug: "iowa-auditor-2026" },
+      { office: "agriculture-commissioner", title: "Secretary of Agriculture", generalDate: "2026-11-03", raceSlug: "iowa-secretary-of-agriculture-2026" },
+    ],
+    // Legislature (Oct 2026): rosters from the Local Politics Tracker
+    // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
+    // are Census cartographic-boundary 2024 districts simplified with
+    // mapshaper (6%). The 25 odd-numbered Senate seats are up.
+    chambers: [
+      { office: "state-senate", title: "State Senate", districts: 50, generalDate: "2026-11-03", map: "/maps/ia-state-senate.json", seatsUp: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49] },
+      { office: "state-house", title: "State House", districts: 100, generalDate: "2026-11-03", map: "/maps/ia-state-house.json" },
     ],
   },
   md: {
