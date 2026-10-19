@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import type { StateConfig } from "@/states/registry";
+import MidtermsCountdown from "@/components/MidtermsCountdown";
+import CongressLookup from "@/components/CongressLookup";
 
 export default function ComingSoon({ state }: { state: StateConfig }) {
   return (
@@ -25,6 +27,8 @@ export default function ComingSoon({ state }: { state: StateConfig }) {
           ← All states
         </Link>
       </p>
+      <MidtermsCountdown />
+      <CongressLookup />
     </div>
   );
 }

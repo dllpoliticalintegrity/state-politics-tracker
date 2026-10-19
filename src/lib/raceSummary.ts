@@ -35,7 +35,7 @@ function withShares(slices: Omit<Slice, "pct">[]): Slice[] {
 }
 
 /** Funding-source slices for the race's candidates (empty categories dropped, except the three core ones). */
-export function fundingSlices(rows: FundingRow[], candidateIds: Set<string>): Slice[] {
+export function fundingSlices(rows: FundingRow[], candidateIds: Set<string>, include?: Set<string>): Slice[] {
   const sums = new Map<string, number>();
   for (const r of rows) {
     if (!candidateIds.has(r.candidate_id)) continue;
@@ -43,7 +43,7 @@ export function fundingSlices(rows: FundingRow[], candidateIds: Set<string>): Sl
   }
   return withShares(
     FUNDING_CATEGORIES.filter(
-      (c) => (sums.get(c.key) ?? 0) > 0 || c.key === "individuals" || c.key === "pac" || c.key === "self",
+      (c) => (sums.get(c.key) ?? 0) > 0 || c.key === "individuals" || c.key === "pac" || c.key === "self" || !!include?.has(c.key),
     ).map((c) => ({ key: c.key, label: c.label, color: c.color, amount: sums.get(c.key) ?? 0 })),
   );
 }

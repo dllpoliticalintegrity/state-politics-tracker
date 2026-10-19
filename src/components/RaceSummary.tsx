@@ -35,9 +35,11 @@ export default function RaceSummary({
   candidates,
   totals,
   funding,
+  showLeader = true,
 }: {
-  leaderLabel: string;
-  leader: RaceLeader | null;
+  leaderLabel?: string;
+  leader?: RaceLeader | null;
+  showLeader?: boolean;
   candidates: CandidateLite[];
   totals: Map<string, { raised: number; spent: number }> | undefined;
   /** null when the state has no funding breakdown (Local Politics Tracker). */
@@ -54,9 +56,9 @@ export default function RaceSummary({
   const leaderColor = leader ? partyColor(leader.party) : undefined;
 
   return (
-    <div className="grid grid-cols-1 gap-4 [&>*]:min-w-0 md:grid-cols-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)]">
+    <div className={`grid grid-cols-1 gap-4 [&>*]:min-w-0 md:grid-cols-2 ${showLeader ? "xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)]" : "xl:grid-cols-3"}`}>
       {/* Leader, coloured by party */}
-      <Card className="p-5 flex flex-col overflow-hidden relative">
+      {showLeader && <Card className="p-5 flex flex-col overflow-hidden relative">
         <span className="absolute inset-y-0 left-0 w-1.5" style={{ background: leaderColor ?? "hsl(var(--border))" }} />
         <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{leaderLabel}</div>
         {leader && (
@@ -93,7 +95,7 @@ export default function RaceSummary({
           )}
           {!leader && <div className="mt-1 text-sm text-muted-foreground">No data yet</div>}
         </div>
-      </Card>
+      </Card>}
 
       {/* Raised & spent */}
       <Card className="p-5 flex flex-col">
@@ -159,13 +161,13 @@ function DonutCard({
 }) {
   const total = (slices ?? []).reduce((s, x) => s + x.amount, 0);
   return (
-    <Card className="p-5 flex flex-col">
+    <Card className="p-3 sm:p-5 flex flex-col">
       <h3 className="font-semibold">{title}</h3>
       {note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}
       {!slices || total <= 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">{empty}</p>
       ) : (
-        <div className="mt-3 flex items-center gap-4">
+        <div className="mt-3 flex flex-wrap items-center gap-4">
           <div className="h-24 w-24 shrink-0" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -188,13 +190,13 @@ function DonutCard({
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <ul className="min-w-0 flex-1 space-y-2 text-sm">
+          <ul className="min-w-0 flex-1 basis-24 space-y-2 text-sm">
             {slices.map((s) => (
               <li key={s.key} className="flex gap-2">
                 <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
                 <span className="min-w-0 leading-tight">
-                  <span className="block text-muted-foreground">{s.label}</span>
-                  <span className="block font-semibold tabular-nums">
+                  <span className="block text-muted-foreground break-words">{s.label}</span>
+                  <span className="block font-semibold tabular-nums break-words">
                     {usd(s.amount)} <span className="font-normal text-xs text-muted-foreground">· {pct(s.pct)}</span>
                   </span>
                 </span>
@@ -205,5 +207,60 @@ function DonutCard({
       )}
       {footer && <p className="mt-auto pt-4 text-xs text-muted-foreground">{footer}</p>}
     </Card>
+  );
+}
+
+/** One candidate's personal stats, in the same card style as the race summary. */
+export function CandidateSummary({
+  candidateId,
+  totals,
+  funding,
+  pollPct,
+  showPolling = false,
+  categories,
+}: {
+  candidateId: string;
+  totals: { raised: number; spent: number; cash?: number } | undefined;
+  funding: FundingRow[] | null | undefined;
+  pollPct?: number | null;
+  showPolling?: boolean;
+  /** Funding categories to always list, so side-by-side cards match. */
+  categories?: Set<string>;
+}) {
+  const loading = totals === undefined;
+  const sources = funding ? fundingSlices(funding, new Set([candidateId]), categories) : null;
+  const cash = totals ? totals.cash ?? Math.max(0, totals.raised - totals.spent) : 0;
+  const rows: [string, string][] = [
+    ["Raised", loading ? "…" : usd(totals.raised)],
+    ["Spent", loading ? "…" : usd(totals.spent)],
+    ["Cash left", loading ? "…" : usd(cash)],
+  ];
+  return (
+    <div className="grid h-full grid-cols-1 grid-rows-[auto_1fr] gap-3 [&>*]:min-w-0">
+      <Card className="p-3 sm:p-5 flex flex-col">
+        <h3 className="font-semibold">Raised &amp; Spent</h3>
+        {!loading && totals.raised > 0 && (
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (totals.spent / totals.raised) * 100)}%` }} />
+          </div>
+        )}
+        <dl className="mt-3 space-y-2 text-sm">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex gap-2">
+              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-sm ${label === "Spent" ? "bg-primary" : label === "Raised" ? "bg-muted-foreground/30" : "bg-transparent"}`} aria-hidden="true" />
+              <div className="min-w-0 leading-tight">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="font-semibold tabular-nums break-words">{value}</dd>
+              </div>
+            </div>
+          ))}
+        </dl>
+      </Card>
+      <DonutCard
+        title="Funding Sources"
+        slices={sources}
+        empty={funding === undefined || loading ? "Loading…" : funding === null ? "Not available for this state yet." : "No contributions filed yet."}
+      />
+    </div>
   );
 }

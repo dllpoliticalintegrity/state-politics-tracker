@@ -33,6 +33,7 @@ export type TxCandidate = {
   slug: string;
   name: string;
   party: string | null;
+  is_incumbent?: boolean;
   title: string | null;
   bio: string | null;
   photo_url: string | null;

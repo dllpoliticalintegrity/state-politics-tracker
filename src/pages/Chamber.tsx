@@ -1,9 +1,11 @@
 import { chamberHeadline } from "@/states/nicknames";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
+import { ArrowRight } from "lucide-react";
 import DistrictMap from "@/components/DistrictMap";
 import { useCandidateTotals, useChamberCandidates, type TxCandidate } from "@/hooks/useCandidates";
-import { formatCurrency, partyColor } from "@/lib/finance";
+import { formatCurrency, partyLabel } from "@/lib/finance";
+import { comparisonDefaults, comparisonPair, comparisonTextClass } from "@/lib/headToHead";
 import { chamberDistricts, chamberScope, type ChamberConfig } from "@/states/registry";
 import { useStateConfig } from "@/states/StateContext";
 import { statePath } from "@/states/site";
@@ -12,7 +14,7 @@ import { onBallot } from "@/lib/candidateStatus";
 /**
  * A legislative chamber's overview: one row per district, listing the
  * candidates with a committee on file and what each has raised, linking to
- * the district's race dashboard. Finance only — no polling exists for
+ * the district's head-to-head comparison. Finance only — no polling exists for
  * these seats.
  */
 export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
@@ -99,52 +101,52 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
           </div>
         )}
         {candidateCount > 0 && (
-          <Card className="overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 font-semibold w-24">District</th>
-                  <th className="px-4 py-2.5 font-semibold">Candidates</th>
-                  <th className="px-4 py-2.5 font-semibold text-right w-36">Raised</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rows.map(({ district, cands, total }) => (
-                  <tr key={district} className="hover:bg-accent/50 align-top">
-                    <td className="px-4 py-3">
-                      <Link to={`${base}/${district}`} className="font-display font-semibold text-primary hover:underline">
-                        {district}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      {cands.length === 0 ? (
-                        <span className="text-muted-foreground">No committee on file</span>
-                      ) : (
-                        <ul className="flex flex-wrap gap-x-4 gap-y-1">
-                          {cands.map((c) => (
-                            <li key={c.id} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                              <span
-                                className="inline-block h-2 w-2 rounded-full shrink-0"
-                                style={{ backgroundColor: partyColor(c.party) }}
-                                aria-hidden
-                              />
-                              <Link to={`${base}/${district}/candidates/${c.slug}`} className="hover:underline">
-                                {c.name}
-                              </Link>
-                              <span className="text-muted-foreground text-xs">{formatCurrency(raised(c))}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums">
-                      {total > 0 ? formatCurrency(total) : <span className="text-muted-foreground">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          <div className="divide-y border-y">
+            <div className="grid grid-cols-[3rem_minmax(0,1fr)_1rem] sm:grid-cols-[5rem_minmax(0,1fr)_7rem_1rem] gap-2 sm:gap-4 px-2 sm:px-4 py-2.5 bg-muted/50 text-xs font-semibold uppercase text-muted-foreground">
+              <span>District</span>
+              <span className="text-center">Candidates</span>
+              <span className="hidden sm:block text-right">Raised</span>
+              <span aria-hidden="true" />
+            </div>
+            {rows.map(({ district, cands, total }) => {
+              const defaults = comparisonDefaults(cands, raised, () => null);
+              const pair = comparisonPair(cands, defaults, null, null);
+              const selections = new URLSearchParams();
+              if (pair[0]) selections.set("left", pair[0].slug);
+              if (pair[1]) selections.set("right", pair[1].slug);
+              const query = selections.toString();
+              return (
+                <Link key={district}
+                  to={`${base}/${district}${query ? `?${query}` : ""}`}
+                  aria-label={`District ${district} head to head${defaults.length ? `: ${pair.filter((c) => c !== undefined).map((c) => c.name).join(" versus ")}` : ""}`}
+                  className="group grid grid-cols-[3rem_minmax(0,1fr)_1rem] sm:grid-cols-[5rem_minmax(0,1fr)_7rem_1rem] gap-2 sm:gap-4 items-center px-2 sm:px-4 py-3 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+                  <h2 className="font-display text-base font-semibold text-primary">{district}</h2>
+                  <div className="min-w-0">
+                  <div className="grid grid-cols-[minmax(0,1fr)_1rem_minmax(0,1fr)] gap-1 sm:gap-3 items-center">
+                    {[0, 1].map((side) => {
+                      const candidate = pair[side];
+                      return (
+                        <div key={side} className={`min-w-0 text-center ${side === 1 ? "col-start-3 row-start-1" : "col-start-1 row-start-1"}`}>
+                          {candidate ? <>
+                            <h3 className="name-scroll overflow-x-auto whitespace-nowrap text-xs sm:text-sm font-semibold text-foreground">{candidate.name}</h3>
+                            <p className="flex flex-wrap justify-center gap-x-1.5 text-[11px] sm:text-xs text-muted-foreground mt-1">
+                              <span className={comparisonTextClass(candidate.party)}>{partyLabel(candidate.party)}</span>
+                              <span className="font-mono tabular-nums">{formatCurrency(raised(candidate))}</span>
+                            </p>
+                          </> : <p className="text-xs text-muted-foreground">{defaults.length ? "No opponent listed" : "No committee on file"}</p>}
+                        </div>
+                      );
+                    })}
+                    <span className="col-start-2 row-start-1 text-center text-xs font-semibold uppercase text-muted-foreground" aria-hidden="true">vs</span>
+                  </div>
+                  {cands.length > 2 && <p className="mt-1 text-center text-xs text-muted-foreground">+{cands.length - 2} other {cands.length === 3 ? "candidate" : "candidates"}</p>}
+                  </div>
+                  <span className="hidden sm:block text-right font-mono text-sm tabular-nums">{formatCurrency(total)}</span>
+                  <ArrowRight className="h-4 w-4 text-primary" aria-hidden="true" />
+                </Link>
+              );
+            })}
+          </div>
         )}
       </section>
     </div>

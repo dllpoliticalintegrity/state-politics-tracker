@@ -2,6 +2,9 @@ import { Link } from "react-router-dom";
 import { ExternalLink } from "lucide-react";
 import { STATES, liveStates, type StateConfig } from "@/states/registry";
 import CandidateSearch from "@/components/CandidateSearch";
+import MidtermsCountdown from "@/components/MidtermsCountdown";
+import CongressLookup from "@/components/CongressLookup";
+import PoweredBy from "@/components/PoweredBy";
 
 // Candidate search covers the live states whose pages read the tracker
 // database (Oregon still reads the Local Politics Tracker).
@@ -26,7 +29,8 @@ export default function StatePicker() {
   const sites = usePublishedSites();
   return (
     <div className="min-h-[80vh]">
-      <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
+      <section className="container pt-3 md:pt-4 pb-8 max-w-3xl text-center space-y-4">
+        <PoweredBy />
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           2026 statewide races
         </p>
@@ -34,11 +38,11 @@ export default function StatePicker() {
           Who's winning your state — and who's paying for it
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          Polling averages, campaign finance, and outside spending for statewide races
-          across the country — governor on down — synced from each state's disclosure
-          agency and FiftyPlusOne. Pick your state to start.
+          State-level polling averages, campaign spending, and Super PAC spending — synced from each state's disclosure agency and FiftyPlusOne.
         </p>
         <CandidateSearch states={SEARCH_STATES} placeholder="Search any candidate by name" className="pt-2" />
+        <MidtermsCountdown />
+        <CongressLookup />
       </section>
 
       <section className="container pb-4">

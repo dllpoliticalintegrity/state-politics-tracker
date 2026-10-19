@@ -30,6 +30,9 @@
 
     --primary: 160 40% 26%;
     --primary-foreground: 42 40% 97%;
+    /* Bright green from the PIP logo (#39CA66) */
+    --logo-green: 139 57% 51%;
+    --logo-green-foreground: 160 40% 12%;
 
     --secondary: 42 25% 90%;
     --secondary-foreground: 40 15% 12%;
