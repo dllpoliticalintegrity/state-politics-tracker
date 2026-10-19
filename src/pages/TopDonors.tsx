@@ -203,12 +203,12 @@ export default function TopDonors() {
               className="block w-full text-left"
             >
               <Card className="p-4 hover:border-primary/40 transition-colors group">
-                <div className="flex items-center gap-4">
+                <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2">
                   <div className="text-xs text-muted-foreground tabular-nums w-8 shrink-0">
                     {i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <div className="name-scroll font-semibold text-sm group-hover:text-primary transition-colors">
                       {d.display_name}
                     </div>
                     <div className="text-xs text-muted-foreground truncate">
@@ -217,7 +217,7 @@ export default function TopDonors() {
                       {d.city ? ` · ${d.city}${d.state ? ", " + d.state : ""}` : ""}
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="col-start-2 text-left sm:col-start-3 sm:text-right min-w-0">
                     <div className="font-mono font-semibold text-sm tabular-nums">
                       {formatCurrencyFull(d.total_amount)}
                     </div>
@@ -258,7 +258,7 @@ export default function TopDonors() {
 
           {selectedCand && (
             <>
-              <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                 <Card className="p-3">
                   <div className="font-mono font-semibold text-lg tabular-nums">
                     {formatCurrencyFull(selectedCand.total_amount)}
@@ -285,7 +285,7 @@ export default function TopDonors() {
                   const cand = candidateById.get(s.candidate_id);
                   const row = (
                     <Card className="p-3 hover:border-primary/40 transition-colors">
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span
                           className="text-[11px] font-semibold px-1.5 py-0.5 rounded-sm shrink-0"
                           style={{
@@ -296,7 +296,7 @@ export default function TopDonors() {
                           {cand?.party ?? "—"}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm truncate">
+                          <div className="font-semibold text-sm break-words">
                             {cand?.name ?? "Unknown candidate"}
                           </div>
                           <div className="text-xs text-muted-foreground">
@@ -349,7 +349,7 @@ export default function TopDonors() {
 
           {selectedIe && (
             <>
-              <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                 <Card className="p-3">
                   <div className="font-mono font-semibold text-lg tabular-nums">
                     {formatCurrencyFull(selectedIe.total_amount)}
@@ -374,10 +374,10 @@ export default function TopDonors() {
                 </h3>
                 {selectedIe.splits.map((s) => (
                   <Card key={s.ie_filer_ident} className="p-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate">{s.committee_name}</div>
+                        <div className="name-scroll font-semibold text-sm">{s.committee_name}</div>
                         <div className="text-xs text-muted-foreground">
                           Filer {s.ie_filer_ident} · {s.contribution_count} gift
                           {s.contribution_count === 1 ? "" : "s"}

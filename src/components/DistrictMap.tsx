@@ -75,14 +75,7 @@ export default function DistrictMap({
     },
     staleTime: Infinity,
   });
-  const [hover, setHover] = useState<{ district: string; x: number; y: number; flip: boolean } | null>(null);
-  // Tooltip position from a mouse event, in CSS px relative to the svg; flip
-  // to the cursor's left on the right 40% so it stays inside the map.
-  const place = (e: React.MouseEvent, district: string) => {
-    const box = (e.currentTarget as unknown as SVGElement).closest("svg")!.getBoundingClientRect();
-    const x = e.clientX - box.left;
-    setHover({ district, x, y: e.clientY - box.top, flip: x > box.width * 0.6 });
-  };
+  const [hover, setHover] = useState<{ district: string } | null>(null);
 
   const byDistrict = useMemo(() => new Map(rows.map((r) => [r.district, r])), [rows]);
 
@@ -144,9 +137,8 @@ export default function DistrictMap({
               key={district}
               to={`${base}/${district}`}
               aria-label={`District ${district}: ${row && row.total > 0 ? `${formatCurrency(row.total)} raised` : "no money reported"}`}
-              onMouseEnter={(e) => place(e, district)}
-              onMouseMove={(e) => place(e, district)}
-              onFocus={() => setHover({ district, x: anchor.x, y: anchor.y, flip: false })}
+              onMouseEnter={() => setHover({ district })}
+              onFocus={() => setHover({ district })}
               onBlur={() => setHover(null)}
               className="outline-none"
             >
@@ -180,12 +172,7 @@ export default function DistrictMap({
 
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded-md border bg-card px-3 py-2 text-xs shadow-md max-w-[240px]"
-          style={
-            hover.flip
-              ? { right: `calc(100% - ${hover.x - 12}px)`, top: hover.y + 12 }
-              : { left: hover.x + 12, top: hover.y + 12 }
-          }
+          className="pointer-events-none absolute left-2 top-2 z-10 w-60 max-w-[calc(100%-1rem)] break-words rounded-md border bg-card px-3 py-2 text-xs shadow-md"
         >
           <div className="font-display text-sm font-semibold">District {hover.district}</div>
           {hovered && hovered.cands.length > 0 ? (

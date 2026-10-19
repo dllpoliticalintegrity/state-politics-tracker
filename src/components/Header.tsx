@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Sun, Moon, Menu, Mail, ExternalLink, Home, Landmark, Users, Info, Vote } from "lucide-react";
+import { Sun, Moon, Menu, Mail, ExternalLink, LayoutGrid, Landmark, Building2, Users, Info, Vote, Crown, UserRound, Scale, FileText, Wallet } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
@@ -43,7 +43,7 @@ function StateSwitcher() {
 
   return (
     <Select value={activeState?.code ?? ""} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-[150px] text-sm" aria-label="Choose a state">
+      <SelectTrigger className="h-10 w-[112px] shrink-0 text-sm sm:w-[150px]" aria-label="Choose a state">
         <SelectValue placeholder="Choose a state" />
       </SelectTrigger>
       <SelectContent>
@@ -106,10 +106,16 @@ function useSiteMenu(navRaces: RaceConfig[]) {
 }
 
 function navIcon(key: string) {
-  if (key === "") return Home;
+  if (key === "") return LayoutGrid;
   if (key === "committees") return Users;
   if (key === "about") return Info;
-  if (/senate|house|assembly|legislat/.test(key)) return Landmark;
+  if (/senate/.test(key)) return Landmark;
+  if (/house|assembly|legislat/.test(key)) return Building2;
+  if (/lieutenant|lt-gov/.test(key)) return UserRound;
+  if (/governor/.test(key)) return Crown;
+  if (/attorney/.test(key)) return Scale;
+  if (/secretary/.test(key)) return FileText;
+  if (/treasurer|comptroller|controller|auditor/.test(key)) return Wallet;
   return Vote;
 }
 
@@ -128,26 +134,36 @@ export function MobileBottomNav() {
         data-mobile-bottom-nav
         className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 xl:hidden pb-[env(safe-area-inset-bottom)]"
       >
-        <ul className="grid grid-cols-4">
-          {menu.slice(0, 4).map((item) => {
+        <ul className="flex w-full">
+          {menu.slice(0, 3).map((item) => {
             const Icon = navIcon(item.key);
             return (
-              <li key={item.key} className="min-w-0">
+              <li key={item.key} className="min-w-0 flex-1 basis-0">
                 <Link
                   to={item.to}
                   aria-current={item.active ? "page" : undefined}
-                  className={`flex h-14 flex-col items-center justify-center gap-1 px-1 transition-colors ${
+                  className={`flex h-14 flex-col items-center justify-center gap-0.5 px-1 transition-colors ${
                     item.active ? "text-primary" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   <Icon className="h-5 w-5" strokeWidth={item.active ? 2.4 : 1.8} aria-hidden="true" />
-                  <span className={`w-full truncate text-center text-[11px] leading-none ${item.active ? "font-semibold" : "font-medium"}`}>
+                  <span className={`w-full break-words text-center text-[10px] leading-tight ${item.active ? "font-semibold" : "font-medium"}`}>
                     {item.label}
                   </span>
                 </Link>
               </li>
             );
           })}
+          <li className="min-w-0 flex-1 basis-0">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("open-mobile-menu"))}
+              className="flex h-14 w-full flex-col items-center justify-center gap-0.5 px-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Menu className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
+              <span className="w-full text-center text-[10px] font-medium leading-tight">More</span>
+            </button>
+          </li>
         </ul>
       </nav>
     </>
@@ -156,6 +172,11 @@ export function MobileBottomNav() {
 
 export function Header() {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener("open-mobile-menu", onOpen);
+    return () => window.removeEventListener("open-mobile-menu", onOpen);
+  }, []);
   const { theme, setTheme } = useTheme();
   const activeState = useActiveState();
   const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
@@ -198,10 +219,10 @@ export function Header() {
       style={{ borderTop: "3px solid var(--site-accent, hsl(var(--primary)))" }}
     >
       <div className="container flex h-14 items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link to="/" className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
+          <Link to="/" className="flex items-center gap-2 min-w-0 xl:flex-1">
             <span
-              aria-label={outline ? `Outline of ${activeState!.name}` : "Star"}
+               aria-label={outline && activeState ? `Outline of ${activeState.name}` : "Star"}
               role="img"
               data-testid="site-mark"
               className={`inline-block shrink-0 bg-primary ${outline ? "h-6 w-6" : "h-5 w-5"}`}
@@ -216,7 +237,7 @@ export function Header() {
                 maskPosition: "center",
               }}
             />
-            <span className="font-display text-lg font-bold tracking-tight truncate">
+            <span className="min-w-0 font-display text-xs leading-tight font-bold break-words sm:text-lg sm:truncate">
               {chrome.logoUrl && <img src={chrome.logoUrl} alt="" className="h-6 w-auto mr-2 inline-block align-middle" />}
               {chrome.siteName}
             </span>
@@ -231,13 +252,13 @@ export function Header() {
         </div>
 
         {menu.length > 0 && (
-          <nav className="hidden xl:flex items-center gap-0.5" aria-label="Races">
+          <nav className="hidden xl:flex shrink-0 items-center gap-0.5" aria-label="Races">
             {menu.map((item) => (
               <Link key={item.key} to={item.to}>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`h-8 px-2.5 text-[13px] ${
+                    className={`h-8 px-1.5 2xl:px-2.5 text-[13px] ${
                     item.active
                       ? "text-foreground bg-accent font-semibold"
                       : "text-muted-foreground hover:text-foreground"
@@ -250,7 +271,7 @@ export function Header() {
           </nav>
         )}
 
-        <div className="hidden xl:flex items-center gap-1.5">
+        <div className="hidden xl:flex shrink-0 items-center gap-1.5">
           <Button
             variant="ghost"
             size="icon"
@@ -271,11 +292,11 @@ export function Header() {
 
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild className="xl:hidden">
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Open menu">
+            <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0" aria-label="Open menu">
               <Menu className="h-4 w-4" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="w-64 bg-card">
+          <SheetContent side="right" className="w-64 max-w-[calc(100vw-2rem)] overflow-y-auto bg-card pb-[env(safe-area-inset-bottom)]">
             <SheetTitle className="font-display text-lg">Menu</SheetTitle>
             <SheetDescription className="sr-only">Races, pages and settings for this site</SheetDescription>
             <nav className="flex flex-col gap-1 mt-6" aria-label="Races">

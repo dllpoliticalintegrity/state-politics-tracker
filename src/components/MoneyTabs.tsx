@@ -14,13 +14,13 @@ export default function MoneyTabs() {
   const base = useRaceBase();
   return (
     <nav aria-label="Money sections" className="border-b">
-      <div className="flex gap-6 -mb-px">
+      <div className="flex gap-3 sm:gap-6 -mb-px">
         {tabs.map(({ to, label }) => (
           <NavLink
             key={to}
             to={`${base}/${to}`}
             className={({ isActive }) =>
-              `pb-2.5 text-sm border-b-2 transition-colors ${
+              `min-w-0 py-2.5 text-sm border-b-2 transition-colors ${
                 isActive
                   ? "border-primary text-foreground font-semibold"
                   : "border-transparent text-muted-foreground hover:text-foreground"

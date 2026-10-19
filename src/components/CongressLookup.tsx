@@ -8,7 +8,7 @@ export default function CongressLookup() {
     <div className="flex justify-center sm:block">
       <Button
         asChild
-        className="bg-[hsl(var(--logo-green))] text-[hsl(var(--logo-green-foreground))] hover:bg-[hsl(var(--logo-green)/0.9)]"
+        className="h-auto min-h-11 max-w-full whitespace-normal py-2.5 text-center bg-[hsl(var(--logo-green))] text-[hsl(var(--logo-green-foreground))] hover:bg-[hsl(var(--logo-green)/0.9)]"
       >
         <a
           href={INTEGRITY_INDEX_URL}
@@ -17,7 +17,7 @@ export default function CongressLookup() {
           aria-label="Looking for your member of U.S Congress? Open the Integrity Index (opens in a new tab)"
         >
           <Landmark aria-hidden="true" />
-          Looking for your member of U.S Congress?
+          <span className="min-w-0 break-words">Looking for your member of U.S Congress?</span>
           <ExternalLink aria-hidden="true" />
         </a>
       </Button>

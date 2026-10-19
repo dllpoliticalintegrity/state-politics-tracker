@@ -161,7 +161,7 @@ export default function Committees() {
       </section>
 
       <section className="container pb-8">
-        <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
+        <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-y-0 sm:divide-x rounded-lg border bg-card">
           <Stat label="Committees" value={isLoading ? "…" : totals.committees.toLocaleString()} />
           <Stat label="Given to candidates" value={isLoading ? "…" : formatCurrency(totals.given)} />
           <Stat label="Contributions" value={isLoading ? "…" : totals.gifts.toLocaleString()} />
@@ -230,15 +230,15 @@ export default function Committees() {
         )}
 
         {visible.length > 0 && (
-          <Card className="overflow-hidden">
-            <table className="w-full text-sm">
+          <Card className="overflow-x-auto">
+            <table className="w-full table-fixed text-sm [&_th]:px-2 [&_td]:px-2 sm:[&_th]:px-4 sm:[&_td]:px-4">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 font-semibold w-12 text-right">#</th>
+                  <th className="px-4 py-2.5 font-semibold w-8 sm:w-12 text-right">#</th>
                   <th className="px-4 py-2.5 font-semibold">Committee</th>
                   <th className="px-4 py-2.5 font-semibold text-right w-28 hidden sm:table-cell">Candidates</th>
                   <th className="px-4 py-2.5 font-semibold text-right w-24 hidden md:table-cell">Gifts</th>
-                  <th className="px-4 py-2.5 font-semibold text-right w-32">Total</th>
+                  <th className="px-4 py-2.5 font-semibold text-right w-28 sm:w-32">Total</th>
                   <th className="px-4 py-2.5 font-semibold text-right w-36 hidden lg:table-cell">Last gift</th>
                 </tr>
               </thead>
@@ -262,7 +262,7 @@ export default function Committees() {
                       {i + 1}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold leading-tight">{titleCase(c.name)}</div>
+                      <div className="name-scroll font-semibold leading-tight">{titleCase(c.name)}</div>
                       {(c.city || c.contributor_state) && (
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {[c.city ? titleCase(c.city) : null, c.contributor_state].filter(Boolean).join(", ")}
@@ -313,7 +313,7 @@ export default function Committees() {
 
           {selected && (
             <>
-              <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                 <Card className="p-3">
                   <div className="font-mono font-semibold text-lg tabular-nums">
                     {formatCurrencyFull(selected.total_amount)}
@@ -343,7 +343,7 @@ export default function Committees() {
                     <Card
                       className={`p-3 hover:border-primary/40 transition-colors ${out ? "opacity-60" : ""}`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span
                           className="text-[11px] font-semibold px-1.5 py-0.5 rounded-sm shrink-0"
                           style={{ backgroundColor: partyColor(cand?.party), color: "white" }}
@@ -351,7 +351,7 @@ export default function Committees() {
                           {cand?.party ?? "—"}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm truncate">
+                          <div className="font-semibold text-sm break-words">
                             {cand?.name ?? "Candidate no longer tracked"}
                             {out && <span className="ml-2 text-[10px] font-normal text-muted-foreground">{out}</span>}
                           </div>

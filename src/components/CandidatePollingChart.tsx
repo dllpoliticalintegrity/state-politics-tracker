@@ -97,9 +97,9 @@ export default function CandidatePollingChart({ candidate }: Props) {
   const yMax = Math.max(10, Math.ceil(maxPct / 5) * 5 + 5);
 
   return (
-    <div className="w-full h-[240px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rollingPoints} margin={{ top: 12, right: 20, left: -10, bottom: 0 }}>
+    <div className="min-w-0 w-full">
+      <ResponsiveContainer width="100%" height={240}>
+        <AreaChart data={rollingPoints} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.35} />
@@ -116,12 +116,14 @@ export default function CandidatePollingChart({ candidate }: Props) {
             stroke="hsl(var(--border))"
           />
           <YAxis
+            width={40}
             unit="%"
             domain={[0, yMax]}
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "Inter" }}
             stroke="hsl(var(--border))"
           />
           <Tooltip
+            position={{ x: 0, y: 0 }}
             cursor={{ stroke: "hsl(var(--muted-foreground))", strokeDasharray: "3 3" }}
             content={({ active, payload, label }) => {
               if (!active || !payload || payload.length === 0) return null;
@@ -136,18 +138,7 @@ export default function CandidatePollingChart({ candidate }: Props) {
                     })
                   : "";
               return (
-                <div
-                  style={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    fontFamily: "Inter",
-                    fontSize: 12,
-                    padding: "8px 10px",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
-                    minWidth: 180,
-                  }}
-                >
+                <div className="w-48 max-w-[calc(100vw-6rem)] whitespace-normal rounded-md border bg-card p-2.5 font-sans text-xs shadow-md">
                   <div
                     style={{
                       fontSize: 10,
@@ -159,7 +150,7 @@ export default function CandidatePollingChart({ candidate }: Props) {
                   >
                     {dateLabel}
                   </div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                  <div className="flex flex-wrap items-baseline gap-1.5">
                     <strong style={{ color, fontSize: 18 }}>{pct.toFixed(1)}%</strong>
                     <span style={{ color: "hsl(var(--muted-foreground))", fontSize: 10 }}>
                       30-day avg · {samples} poll{samples === 1 ? "" : "s"}

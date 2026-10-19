@@ -56,7 +56,7 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
       </section>
 
       <section className="container pb-10">
-        <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
+        <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-y-0 sm:divide-x rounded-lg border bg-card">
           <Stat label="Districts with candidates" value={`${contested} / ${rows.length}`} />
           <Stat label="Candidates with committees" value={String(candidateCount)} />
           <Stat label="Raised this cycle" value={formatCurrency(totalRaised)} sub="Across all committees" />
@@ -128,7 +128,7 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
                       return (
                         <div key={side} className={`min-w-0 text-center ${side === 1 ? "col-start-3 row-start-1" : "col-start-1 row-start-1"}`}>
                           {candidate ? <>
-                            <h3 className="name-scroll overflow-x-auto whitespace-nowrap text-xs sm:text-sm font-semibold text-foreground">{candidate.name}</h3>
+                            <h3 className="break-words text-xs sm:text-sm font-semibold text-foreground">{candidate.name}</h3>
                             <p className="flex flex-wrap justify-center gap-x-1.5 text-[11px] sm:text-xs text-muted-foreground mt-1">
                               <span className={comparisonTextClass(candidate.party)}>{partyLabel(candidate.party)}</span>
                               <span className="font-mono tabular-nums">{formatCurrency(raised(candidate))}</span>

@@ -93,7 +93,7 @@ export default function MoneyRiver() {
             aria-label="Candidate"
             value={filters.candidate}
             onChange={(e) => update({ candidate: e.target.value })}
-            className="text-xs h-7 px-2 rounded-md border bg-background text-foreground max-w-[18rem]"
+            className="text-base sm:text-xs h-11 sm:h-7 px-2 rounded-md border bg-background text-foreground min-w-0 max-w-full sm:max-w-[18rem]"
           >
             <option value="">All candidates</option>
             {candidateOptions.map((c) => (
@@ -106,7 +106,7 @@ export default function MoneyRiver() {
       </section>
 
       <section className="container pb-10 space-y-3">
-        <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
             {isLoading
               ? "Loading…"
@@ -115,7 +115,7 @@ export default function MoneyRiver() {
                 : `Showing ${win.from.toLocaleString()}–${win.to.toLocaleString()} of ${total.toLocaleString()}`}
             {isFetching && !isLoading ? " · updating" : ""}
           </span>
-          <span className="text-right">Source: {agency}, synced nightly</span>
+          <span className="sm:text-right">Source: {agency}, synced nightly</span>
         </div>
 
         {error && (
@@ -200,8 +200,8 @@ function RiverLine({ row, raceBase }: { row: RiverRow; raceBase: string }) {
     );
 
   return (
-    <div className="grid grid-cols-[3px_1fr_auto] gap-x-3 px-3 py-2.5">
-      <div className="rounded-sm" style={{ backgroundColor: partyColor(row.candidate_party) }} aria-hidden />
+    <div className="grid grid-cols-[3px_minmax(0,1fr)] sm:grid-cols-[3px_minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-3 py-2.5">
+      <div className="rounded-sm row-span-2 sm:row-span-1" style={{ backgroundColor: partyColor(row.candidate_party) }} aria-hidden />
       <div className="min-w-0 space-y-0.5">
         <div className="text-sm leading-snug">{sentence}</div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -211,7 +211,7 @@ function RiverLine({ row, raceBase }: { row: RiverRow; raceBase: string }) {
           {row.detail && <span className="truncate max-w-[32rem]">{row.detail}</span>}
         </div>
       </div>
-      <div className="text-right">
+      <div className="col-start-2 sm:col-start-3 flex flex-wrap items-baseline gap-x-3 sm:block sm:text-right min-w-0">
         <div className="font-mono font-semibold text-sm tabular-nums">{formatCurrencyFull(row.amount)}</div>
         <div className="text-[11px] text-muted-foreground tabular-nums">{formatDate(row.txn_date)}</div>
       </div>

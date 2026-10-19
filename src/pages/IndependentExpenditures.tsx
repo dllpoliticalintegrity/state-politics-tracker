@@ -143,7 +143,7 @@ export default function IndependentExpenditures() {
               <Card
                 className={`p-4 hover:border-primary/40 transition-colors group ${r.offBallot ? "opacity-50 grayscale" : ""}`}
               >
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <span
                     className="text-[11px] font-semibold px-1.5 py-0.5 rounded-sm shrink-0"
                     style={{ backgroundColor: partyColor(r.party), color: "white" }}
@@ -151,7 +151,7 @@ export default function IndependentExpenditures() {
                     {r.party ?? "—"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <div className="font-semibold text-sm break-words group-hover:text-primary transition-colors">
                       {r.name}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -184,15 +184,15 @@ export default function IndependentExpenditures() {
           )}
           {(topCommittees ?? []).map((c, i) => (
             <Card key={c.filer_id} className="p-4">
-              <div className="flex items-center gap-4">
+              <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2">
                 <div className="text-xs text-muted-foreground tabular-nums w-8">{i + 1}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm truncate">{c.name}</div>
+                  <div className="name-scroll font-semibold text-sm">{c.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {c.transaction_count} transactions · filer {c.filer_id}
                   </div>
                 </div>
-                <div className="text-right shrink-0">
+                <div className="col-start-2 text-left sm:col-start-3 sm:text-right min-w-0">
                   <div className="font-mono font-semibold text-sm tabular-nums">
                     {formatCurrencyFull(c.total_amount)}
                   </div>
