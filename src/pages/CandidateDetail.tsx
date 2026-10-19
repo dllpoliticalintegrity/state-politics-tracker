@@ -112,12 +112,17 @@ export default function CandidateDetail() {
   // money raised from other people.
   const individualExSelf = Math.max(0, totals.individual - selfFundedFromIndividuals);
 
-  const indPct =
-    totals.totalRaised > 0
-      ? Math.round((individualExSelf / totals.totalRaised) * 100)
-      : 0;
-  const pacPct =
-    totals.totalRaised > 0 ? Math.round((totals.pac / totals.totalRaised) * 100) : 0;
+  // Loan principal is not in totalRaised (cf_contributions_summary sums
+  // contributions only; loans live in cf_loans), so the three bars share a
+  // base of contributions plus loans. Dividing by totalRaised alone put a
+  // self-lender far over 100% (Zach Lahn: $2.5M of loans on $1.2M raised).
+  const loansOnly = (loans ?? [])
+    .filter((l) => l.source === "loan")
+    .reduce((s, l) => s + l.total_amount, 0);
+  const sourcesBase = totals.totalRaised + loansOnly;
+  const shareOf = (v: number) => (sourcesBase > 0 ? Math.round((v / sourcesBase) * 100) : 0);
+  const indPct = shareOf(individualExSelf);
+  const pacPct = shareOf(totals.pac);
   const smallDollarPct =
     totals.totalRaised > 0
       ? Math.round((totals.smallDollar / totals.totalRaised) * 100)
@@ -285,11 +290,7 @@ export default function CandidateDetail() {
                   <SourceBar
                     label="Self-funded & loans"
                     value={totalLoans}
-                    pct={
-                      totals.totalRaised > 0
-                        ? Math.round((totalLoans / totals.totalRaised) * 100)
-                        : 0
-                    }
+                    pct={shareOf(totalLoans)}
                     color="hsl(var(--chart-2))"
                   />
                 )}
