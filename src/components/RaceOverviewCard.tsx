@@ -11,11 +11,24 @@ import { formatCurrency, partyColor, partyLabel } from "@/lib/finance";
 import { onBallot } from "@/lib/candidateStatus";
 import { racePath, useRaceConfig, useStateConfig } from "@/states/StateContext";
 
-const SHOWN = 4;
-
 function initialsOf(name: string): string {
   const w = name.trim().split(/\s+/);
   return ((w[0]?.[0] ?? "") + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase();
+}
+
+function Headshot({ name, party, src }: { name: string; party: string | null; src: string | null | undefined }) {
+  const ring = { borderColor: partyColor(party) };
+  return src ? (
+    <img src={src} alt={name} loading="lazy" className="h-16 w-16 rounded-full border-2 object-cover" style={ring} />
+  ) : (
+    <div
+      className="flex h-16 w-16 items-center justify-center rounded-full border-2 bg-muted font-display text-lg"
+      style={ring}
+      aria-hidden="true"
+    >
+      {initialsOf(name)}
+    </div>
+  );
 }
 
 export default function RaceOverviewCard() {
@@ -38,7 +51,6 @@ export default function RaceOverviewCard() {
   rows.sort((a, b) =>
     anyPoll ? (b.pct ?? -1) - (a.pct ?? -1) || b.raised - a.raised : b.raised - a.raised,
   );
-  const leader = rows[0] ?? null;
   const raceRaised = (candidates ?? []).reduce((s, c) => s + (totals?.get(c.id)?.raised ?? 0), 0);
   const href = racePath(state, race);
 
@@ -53,68 +65,48 @@ export default function RaceOverviewCard() {
           {anyPoll ? "Ranked by polling average" : "Ranked by money raised"}
         </p>
 
-        {/* The leader, with a headshot */}
-        {leader && (
-          <div className="mt-4 flex items-center gap-3">
-            {leader.c.photo_url_thumb || leader.c.photo_url ? (
-              <img
-                src={leader.c.photo_url_thumb ?? leader.c.photo_url ?? undefined}
-                alt={leader.c.name}
-                loading="lazy"
-                className="h-14 w-14 shrink-0 rounded-full border-2 object-cover"
-                style={{ borderColor: partyColor(leader.c.party) }}
-              />
-            ) : (
-              <div
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 bg-muted font-display text-base"
-                style={{ borderColor: partyColor(leader.c.party) }}
-                aria-hidden="true"
-              >
-                {initialsOf(leader.c.name)}
-              </div>
-            )}
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-                {anyPoll ? "Leads the polls" : "Leads in money raised"}
-              </div>
-              <div className="font-display text-lg font-semibold leading-tight truncate" style={{ color: partyColor(leader.c.party) }}>
-                {leader.c.name}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {partyLabel(leader.c.party)} ·{" "}
-                {anyPoll && leader.pct !== null ? `${leader.pct.toFixed(1)}% average` : `${formatCurrency(leader.raised)} raised`}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <ul className="mt-4 space-y-2.5 flex-1">
-          {isLoading && <li className="text-sm text-muted-foreground">Loading…</li>}
+        {/* The top two, side by side */}
+        <div className="mt-4 flex-1">
+          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
           {!isLoading && rows.length === 0 && (
-            <li className="text-sm text-muted-foreground">No candidates on the ballot yet.</li>
+            <p className="text-sm text-muted-foreground">No candidates on the ballot yet.</p>
           )}
-          {rows.slice(1, SHOWN).map(({ c, raised, pct }, idx) => {
-            const i = idx + 1;
-            return (
-            <li key={c.id} className="flex items-center gap-2.5 text-sm">
-              <span className="w-4 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: partyColor(c.party) }}
-                role="img"
-                aria-label={partyLabel(c.party)}
-              />
-              <span className="min-w-0 flex-1 truncate">{c.name}</span>
-              <span className="tabular-nums text-muted-foreground">
-                {anyPoll && pct !== null ? `${pct.toFixed(1)}%` : formatCurrency(raised)}
-              </span>
-            </li>
-            );
-          })}
-          {rows.length > SHOWN && (
-            <li className="pl-6 text-xs text-muted-foreground">+{rows.length - SHOWN} more</li>
+          {rows.length > 0 && (
+            <div className={`grid gap-3 ${rows.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+              {rows.slice(0, 2).map((r, i) => (
+                <div
+                  key={r.c.id}
+                  className={`relative flex flex-col items-center rounded-md px-2 pb-3 pt-4 text-center ${
+                    i === 0 ? "bg-accent/60" : ""
+                  }`}
+                >
+                  {i === 0 && rows.length > 1 && (
+                    <span className="absolute left-2 top-2 rounded-sm bg-background px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Leads
+                    </span>
+                  )}
+                  <Headshot name={r.c.name} party={r.c.party} src={r.c.photo_url_thumb ?? r.c.photo_url} />
+                  <div
+                    className="mt-2 font-display text-base font-semibold leading-tight"
+                    style={{ color: partyColor(r.c.party) }}
+                  >
+                    {r.c.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{partyLabel(r.c.party)}</div>
+                  <div className="mt-1.5 font-display text-xl font-bold tabular-nums">
+                    {anyPoll ? (r.pct !== null ? `${r.pct.toFixed(1)}%` : "—") : formatCurrency(r.raised)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">{anyPoll ? "polling average" : "raised"}</div>
+                </div>
+              ))}
+            </div>
           )}
-        </ul>
+          {rows.length > 2 && (
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              +{rows.length - 2} more on the ballot
+            </p>
+          )}
+        </div>
 
         <div className="mt-4 flex items-center justify-between border-t pt-3 text-sm">
           <span className="text-muted-foreground">
