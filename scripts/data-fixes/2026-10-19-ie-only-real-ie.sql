@@ -20,8 +20,14 @@
 --     so the site is right before it runs.
 --  4. SLCF spenders left with no outside-spending rows: their receipts and
 --     spender rows (the loader keys both on spenders it still produces).
--- California's few in-kind contributions that filers reported on Schedule E
--- are left as reported.
+--  5. California: campaign committees the importer read as outside spenders
+--     for a namesake (scripts/data-import/cal-access, _other_first_name):
+--     Ian Calderon's "Calderon for Governor 2026" counted for Lisa Calderon
+--     ($335K), Loretta Sanchez's 2010 and 2014 committees for Dennis P.
+--     Sanchez ($74K), with their receipts listed as IE donors ($374K). The
+--     importer only adds rows, so they are deleted here. The rest of the
+--     California fixes are view filters
+--     (supabase/migrations/20261019020000_california_cf_views_no_duplicates.sql).
 --
 -- Safe to re-run: the backups skip rows they already hold, and a second run
 -- finds nothing left to delete. Run with execute_sql (it has its own
@@ -84,15 +90,36 @@ delete from public.tx_independent_expenditures t
  using public.tx_independent_expenditures_backup_20261019 b
  where t.expend_info_id = b.expend_info_id and t.expend_persent_id = b.expend_persent_id;
 
+create table if not exists public.ca_independent_expenditures_backup_20261019 as
+select t.* from public.ca_independent_expenditures t where false;
+insert into public.ca_independent_expenditures_backup_20261019
+select t.* from public.ca_independent_expenditures t
+ where t.ie_committee_filer_id in (1484078, 1281498, 1328999)
+   and not exists (select 1 from public.ca_independent_expenditures_backup_20261019 b where b.id = t.id);
+create table if not exists public.ca_ie_contributions_backup_20261019 as
+select t.* from public.ca_ie_contributions t where false;
+insert into public.ca_ie_contributions_backup_20261019
+select t.* from public.ca_ie_contributions t
+ where t.ie_committee_filer_id in (1484078, 1281498, 1328999)
+   and not exists (select 1 from public.ca_ie_contributions_backup_20261019 b where b.id = t.id);
+delete from public.ca_independent_expenditures t
+ using public.ca_independent_expenditures_backup_20261019 b where t.id = b.id;
+delete from public.ca_ie_contributions t
+ using public.ca_ie_contributions_backup_20261019 b where t.id = b.id;
+
 -- Backups hold data with donor names: service role only.
 revoke all on public.cf_independent_expenditures_backup_20261019,
               public.cf_ie_contributions_backup_20261019,
               public.cf_ie_committees_backup_20261019,
-              public.tx_independent_expenditures_backup_20261019 from anon, authenticated;
+              public.tx_independent_expenditures_backup_20261019,
+              public.ca_independent_expenditures_backup_20261019,
+              public.ca_ie_contributions_backup_20261019 from anon, authenticated;
 alter table public.cf_independent_expenditures_backup_20261019 enable row level security;
 alter table public.cf_ie_contributions_backup_20261019 enable row level security;
 alter table public.cf_ie_committees_backup_20261019 enable row level security;
 alter table public.tx_independent_expenditures_backup_20261019 enable row level security;
+alter table public.ca_independent_expenditures_backup_20261019 enable row level security;
+alter table public.ca_ie_contributions_backup_20261019 enable row level security;
 
 commit;
--- Then: select public.refresh_cf_finance_views();
+-- Then: select public.publish_california_to_cf(); select public.refresh_cf_finance_views();
