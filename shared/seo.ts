@@ -29,7 +29,7 @@ import {
   type RaceConfig,
   type StateConfig,
 } from "../src/states/registry";
-import { homeHeadline } from "../src/states/nicknames";
+import { chamberHeadline, homeHeadline, raceHeadline } from "../src/states/nicknames";
 import { SITE_STATE_META, siteNameFor, type PublishedSites } from "./site";
 
 export type RouteMeta = {
@@ -138,7 +138,7 @@ function raceRoutes(state: StateConfig, race: RaceConfig, base: string, ctx: Tab
     description: polled
       ? `Who's donating to the ${state.name} ${race.title} candidates in ${year}: campaign contributions, top donors and outside spending from the ${agency}, plus the polling average from ${pollingSourceLabel(race)}.`
       : `Who's donating to the ${state.name} ${race.title} candidates in ${year}: campaign contributions, top donors, spending and outside money from the ${agency}.`,
-    h1: `${label}: ${polled ? "Polls, Candidates & Money" : "Candidates & Money"}`,
+    h1: raceHeadline(state.name, race),
     body: `
       <p>Track the ${escapeHtml(label)} race: the candidate field, ${polled ? "a polling average built from public general-election polls, " : ""}money raised and spent by each campaign, top donors, and outside spending — updated nightly from the ${escapeHtml(agency)}.</p>
       <ul>
@@ -203,7 +203,7 @@ function chamberMeta(state: StateConfig, chamber: ChamberConfig, base: string, c
   return {
     title: `${state.name} ${chamber.title} ${year} — Campaign Donations by District | ${site}`,
     description: `Who is donating to ${state.name} ${chamber.title} candidates in ${year}, district by district: campaign contributions, money raised and top donors from ${agency} filings.`,
-    h1: `${state.name} ${chamber.title} ${year}: Money in Every District`,
+    h1: chamberHeadline(state.name, chamber.title),
     body: `
       <p>Campaign finance for ${escapeHtml(state.name)}'s ${escapeHtml(chamberScope(chamber).replace(/^all /, "").replace(/^the /, ""))}, synced nightly from the ${escapeHtml(agency)}. Each district page lists its candidates, what they have raised and spent, their top donors and any outside spending.</p>
       <ul>

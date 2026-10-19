@@ -246,3 +246,16 @@ describe("state home headline", () => {
     expect(routeMeta("/oh", null)!.h1).toBe("Follow the Money across the Buckeye State");
   });
 });
+
+describe("race page headlines", () => {
+  it("follows the money in each race, by state and office", async () => {
+    const { raceHeadline, chamberHeadline } = await import("@/states/nicknames");
+    expect(raceHeadline("Georgia", { title: "Governor" })).toBe("Follow the Money in the Georgia Governor's Race");
+    expect(raceHeadline("Texas", { title: "Lt. Governor" })).toBe("Follow the Money in the Texas Lt. Governor's Race");
+    expect(raceHeadline("Michigan", { title: "State Senate District 11", district: "11" }))
+      .toBe("Follow the Money in the Michigan State Senate District 11 Race");
+    expect(chamberHeadline("Michigan", "State Senate")).toBe("Follow the Money in the Michigan State Senate");
+    expect(routeMeta("/governor", "ga")!.h1).toBe("Follow the Money in the Georgia Governor's Race");
+    expect(routeMeta("/state-senate/11", "mi")!.h1).toBe("Follow the Money in the Michigan State Senate District 11 Race");
+  });
+});
