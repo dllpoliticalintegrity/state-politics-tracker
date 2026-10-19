@@ -282,7 +282,87 @@ def build_roster(st, races, participants, candidates, resolver):
                                       p["race_id"] in confirmed,
                                       party(p.get("party") or cand.get("party"))),
         }
-    return list(out.values()), dict(stats)
+    committee_names = defaultdict(set)
+    for cname, fid in (getattr(resolver, "by_name", None) or {}).items():
+        committee_names[f"{st}:{fid}"].add(cname)
+    return collapse_twins(list(out.values()), stats, committee_names=committee_names), dict(stats)
+
+
+_SUFFIXES = {"JR", "SR", "II", "III", "IV"}
+_ON_BALLOT = {"active", "won_primary", "nominee"}
+
+
+def _name_words(name):
+    return [w for w in norm(display_name(name) or name or "").split() if w not in _SUFFIXES]
+
+
+def same_person(a, b, nicknames, b_committees=()):
+    """True when two names in one race are plausibly one person under a
+    ballot name and a filing name: b's committee is named for a ("Michelle
+    Teska" / Colleen Teska's "Conservatives for Michelle Teska"), one first
+    name is a short form of the other ("Don" / "Donald", "Rick" / "Richard"
+    via the nickname file), or one's first name is the other's middle initial
+    ("John LaHood" files as "George J. Lahood"). Same surname is checked by
+    the caller."""
+    wa, wb = _name_words(a), _name_words(b)
+    if len(wa) < 2 or len(wb) < 2:
+        return False
+    called = f" {wa[0]} {wa[-1]} "
+    if any(called in f" {norm(c)} " for c in b_committees):
+        return True
+    ma, mb = {m[:1] for m in wa[1:-1]}, {m[:1] for m in wb[1:-1]}
+    if ma and mb and not ma & mb:
+        return False      # "Greg S Alexander" / "Gregory Lee Alexander"
+    fa, fb = wa[0], wb[0]
+    if fa.startswith(fb) or fb.startswith(fa):
+        return True
+    if nicknames.get(fa, fa) == nicknames.get(fb, fb):
+        return True
+    return any(m[:1] == fb[:1] for m in wa[1:-1]) or any(m[:1] == fa[:1] for m in wb[1:-1])
+
+
+def collapse_twins(rows, stats, nicknames=None, committee_names=None):
+    """Merge one person LPT lists twice in a race under two names (the
+    ballot name, on the ballot with no committee, and the filing name, off
+    the ballot with the committee and the money: Georgia HD44 "Don Parsons" /
+    "Donald L. Parsons"). Two rows merge only when they share a race and a
+    surname, exactly one has a committee, and the first names fit
+    (same_person; committee_names maps a ref to its committee names in the
+    scrape). The merged row keeps the ballot listing's name, slug and
+    status and takes the committee. Other same-surname pairs in a race are
+    left alone and listed in stats["review"]: relatives do run in the same
+    district."""
+    if nicknames is None:
+        from ie import load_nicknames  # noqa: E402 — same directory, lazy to keep roster light
+        nicknames = load_nicknames()
+    groups = defaultdict(list)
+    for r in rows:
+        words = _name_words(r["name"])
+        if words:
+            groups[(r["office"], r["district"], words[-1])].append(r)
+    drop = set()
+    for (office, district, _), group in groups.items():
+        if len(group) < 2:
+            continue
+        with_refs = [r for r in group if r["filer_refs"]]
+        if len(group) == 2 and len(with_refs) == 1:
+            bare = group[0] if group[1] is with_refs[0] else group[1]
+            names = set().union(*((committee_names or {}).get(f, set()) for f in with_refs[0]["filer_refs"]))
+            twin = same_person(bare["name"], with_refs[0]["name"], nicknames, names)
+        else:
+            twin = False
+        if twin:
+            keep = max(group, key=lambda r: (r["status"] in _ON_BALLOT, bool(r["filer_refs"])))
+            other = group[1] if keep is group[0] else group[0]
+            keep["filer_refs"] = keep["filer_refs"] + [f for f in other["filer_refs"] if f not in keep["filer_refs"]]
+            keep["committee_name"] = keep["committee_name"] or other["committee_name"]
+            drop.add(other["slug"])
+            stats["twins_merged"] = stats.get("twins_merged", 0) + 1
+            stats.setdefault("merged", []).append(f"{office} {district}: {other['name']} -> {keep['name']}")
+            continue
+        stats.setdefault("review", []).append(
+            f"{office} {district}: " + " / ".join(r["name"] for r in group))
+    return [r for r in rows if r["slug"] not in drop]
 
 
 def fetch_lpt(st):

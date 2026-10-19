@@ -626,10 +626,17 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
     committees: Dict[str, str] = {}
     writer = BatchWriter(sb, "tx_independent_expenditures", on_conflict="expend_info_id,expend_persent_id")
     unmatched = 0
+    skipped_donations = 0
     for row in stream_csv(zf, "cand.csv"):
         if (row.get("candidateSeekOfficeCd") or "").strip() not in TARGET_OFFICES:
             continue
         if (row.get("infoOnlyFlag") or "").strip().upper() == "Y":
+            continue
+        # Only real independent spending counts. TEC's DONATIONS category is
+        # money given to a campaign or committee (it shows up in the
+        # recipient's own receipts), not a direct campaign expenditure.
+        if (row.get("expendCatCd") or "").strip().upper() == "DONATIONS":
+            skipped_donations += 1
             continue
         iso = parse_tec_date(row.get("expendDt"))
         cycle = classify_cycle(iso)
@@ -673,8 +680,8 @@ def import_dce(sb, zf, seeds: Dict[str, SeedCandidate], targets: Dict[str, tuple
     writer.flush()
     logger.info(
         "tx_independent_expenditures: upserted %d rows across %d DCE filers "
-        "(%d rows didn't match a seeded candidate)",
-        writer.total, len(committees), unmatched,
+        "(%d rows didn't match a seeded candidate, %d DONATIONS rows skipped)",
+        writer.total, len(committees), unmatched, skipped_donations,
     )
     return set(committees)
 

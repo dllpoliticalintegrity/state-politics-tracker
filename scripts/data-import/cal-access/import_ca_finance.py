@@ -240,6 +240,32 @@ def extract_tsvs():
             logger.info("  wrote %.1f MB", target.stat().st_size / 1_000_000)
 
 
+# Words that may stand right before a candidate's surname in a committee name
+# without being someone's first name ("SUPPORTING BECERRA FOR GOVERNOR").
+_NAME_LEAD_WORDS = {
+    "SUPPORTING", "SUPPORT", "SUPPORTS", "OPPOSING", "OPPOSE", "OPPOSES", "AGAINST",
+    "STOP", "DEFEAT", "ELECT", "RE-ELECT", "REELECT", "RECALL", "NO", "ON", "YES",
+    "FOR", "OF", "TO", "THE", "AND", "WITH", "BACK", "DRAFT", "COMMITTEE",
+}
+
+
+def _other_first_name(name_upper: str, match: "re.Match", cand: "SeedCandidate") -> bool:
+    """True when a surname-only match ("CALDERON FOR GOVERNOR") is preceded by
+    a different person's first name: "IAN CALDERON FOR GOVERNOR 2026" is Ian
+    Calderon's own campaign, not a committee for Lisa Calderon, and "PEOPLE
+    FOR LORETTA SANCHEZ FOR GOVERNOR 2010" is not for Dennis P. Sanchez.
+    Candidate committees are named exactly like that, so without this check
+    they were read as primarily-formed IE committees for a namesake."""
+    parts = cand.name.upper().split()
+    if not re.fullmatch(rf"{re.escape(parts[-1])}\s+FOR\s+GOVERNOR", match.group(0)):
+        return False  # a form with the first name matched; it is already checked
+    before = re.findall(r"[A-Z][A-Z'.-]*", name_upper[:match.start()])
+    if not before:
+        return False
+    prev = before[-1].rstrip(".")
+    return prev not in _NAME_LEAD_WORDS and prev != parts[0] and len(prev) > 1
+
+
 def match_committees_by_name(
     sb,
     by_candidate: Dict[int, "SeedCandidate"],
@@ -299,16 +325,29 @@ def match_committees_by_name(
     seen: set = set()
     by_candidate_id: Dict[str, "SeedCandidate"] = {c.id: c for c in by_candidate.values()}
 
-    def _try_match(fid: int, name: str) -> None:
-        """Apply the regex to a single (filer_id, name) pair."""
+    def _try_match(fid: int, name: str, first: str = "") -> None:
+        """Apply the regex to a single (filer_id, name) pair. CAL-ACCESS keeps a
+        name in two parts, NAML and NAMF ("CALDERON FOR GOVERNOR 2026" + "IAN";
+        ca_ie_committees stores them as "NAML; NAMF"), so the regex runs on the
+        name in reading order: "IAN CALDERON FOR GOVERNOR 2026"."""
         if not fid or fid in seen or fid in by_committee:
             return
         seen.add(fid)
         name_upper = (name or "").upper()
+        first_upper = (first or "").upper().strip()
+        if not first_upper and ";" in name_upper:
+            name_upper, first_upper = (p.strip() for p in name_upper.split(";", 1))
+        name_upper = f"{first_upper} {name_upper}".strip()
         if not name_upper or not governor_re.search(name_upper):
             return
+        # A committee named for an earlier race ("SANCHEZ FOR GOVERNOR 2010,
+        # PEOPLE FOR LORETTA") is not working on this one.
+        years = [int(y) for y in re.findall(r"\b(19\d\d|20\d\d)\b", name_upper)]
+        if years and max(years) < CYCLE_START.year:
+            return
         for cand, full_pat in candidate_patterns:
-            if full_pat.search(name_upper):
+            m = full_pat.search(name_upper)
+            if m and not _other_first_name(name_upper, m, cand):
                 sup_opp = "O" if any(w in name_upper for w in oppose_words) else "S"
                 name_to_target[fid] = (cand, sup_opp)
                 return
@@ -352,7 +391,7 @@ def match_committees_by_name(
     path = DATA_DIR / "FILERNAME_CD.TSV"
     for row in stream_tsv(path):
         fid = to_int(row.get("FILER_ID", ""))
-        _try_match(fid, row.get("NAML") or "")
+        _try_match(fid, row.get("NAML") or "", row.get("NAMF") or "")
 
     logger.info(
         "matched %d IE committees to candidates (%d explicit from ca_ie_committee_targets)",
@@ -414,6 +453,21 @@ def _norm_name(s: str) -> str:
     return (s or "").strip().upper().replace(".", "").replace(",", "")
 
 
+def _lookup_target(name_index: Dict[tuple, "SeedCandidate"], last: str, first: str):
+    """The tracked candidate a per-row CAND_NAML/CAND_NAMF names. The surname
+    alone is enough only when the row gives no first name or its initial
+    agrees: Dennis P. Sanchez must not collect rows naming Loretta Sanchez."""
+    hit = name_index.get((last, first))
+    if hit is not None:
+        return hit
+    hit = name_index.get((last, ""))
+    if hit is None:
+        return None
+    if not first or _norm_name(hit.name.split()[0])[:1] == first[:1]:
+        return hit
+    return None
+
+
 def import_filings(
     sb,
     by_committee: Dict[int, SeedCandidate],
@@ -452,7 +506,7 @@ def import_filings(
         last = _norm_name(parts[-1])
         first = _norm_name(parts[0])
         name_index[(last, first)] = c
-        # Also store last-name-only as fallback
+        # Also store last-name-only as fallback (see _lookup_target)
         name_index[(last, "")] = c
 
     path = DATA_DIR / "CVR_CAMPAIGN_DISCLOSURE_CD.TSV"
@@ -477,7 +531,7 @@ def import_filings(
         if form_type == "F496" and cand_naml:
             last = _norm_name(cand_naml)
             first_tok = _norm_name(cand_namf.split()[0]) if cand_namf else ""
-            ie_target = name_index.get((last, first_tok)) or name_index.get((last, ""))
+            ie_target = _lookup_target(name_index, last, first_tok)
         if ie_target is None and form_type in ("F496", "F461"):
             pf = primarily_formed.get(filer_id)
             if pf is not None:
@@ -1162,7 +1216,7 @@ def import_independent_expenditures(
             if cand_naml:
                 last = _norm_name(cand_naml)
                 first_tok = _norm_name(cand_namf.split()[0]) if cand_namf else ""
-                ie_target = name_index.get((last, first_tok)) or name_index.get((last, ""))
+                ie_target = _lookup_target(name_index, last, first_tok)
                 if ie_target is not None:
                     target_id = ie_target.id
                 else:

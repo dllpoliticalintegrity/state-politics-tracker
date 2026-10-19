@@ -102,9 +102,32 @@ class Affiliations(unittest.TestCase):
         aff = ie.committee_affiliations(COMMITTEES)
         row = exp("1911", "2026-03-01", 100, "Paton for Georgia", "S")
         self.assertEqual(ie.ie_target(row, aff), ("Paton for Georgia", "S"))
-        plain = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": ""}
+        plain = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                 "transaction_type": "Independent Expenditures"}
         self.assertEqual(ie.ie_target(plain, aff), ("BURT JONES", "S"))
         self.assertIsNone(ie.ie_target({"state_filer_id": "76", "support_oppose": ""}, aff))
+
+    def test_only_real_independent_expenditures_count(self):
+        aff = ie.committee_affiliations(COMMITTEES)
+        # A committee-level affiliation alone is not enough: the row's own
+        # type must say IE (Florida's "Friends of" committees never do).
+        for ttype in ("MON", "Direct Expenditures", "", "Fundraising Expenses"):
+            row = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                   "transaction_type": ttype, "purpose": "PLACED MEDIA"}
+            self.assertIsNone(ie.ie_target(row, aff), ttype)
+        # Money handed to another committee is never outside spending,
+        # whether the row is marked by the state or inherits the committee.
+        for purpose in ("CONTRIBUTION", "Transfer", "REFUND", "Contributions to committees"):
+            marked = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), purpose=purpose)
+            self.assertIsNone(ie.ie_target(marked, aff), purpose)
+            inherited = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                         "transaction_type": "Independent Expenditures", "purpose": purpose}
+            self.assertIsNone(ie.ie_target(inherited, aff), purpose)
+        marked = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), transaction_type="Transfer", purpose="")
+        self.assertIsNone(ie.ie_target(marked, aff))
+        # Real IEs still count.
+        ad = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), purpose="Digital ads")
+        self.assertEqual(ie.ie_target(ad, aff), ("Paton for Georgia", "S"))
 
     def test_spender_key(self):
         by_name = ie.committees_by_name(COMMITTEES)
@@ -122,9 +145,9 @@ class Rows(unittest.TestCase):
         self.by_name = ie.committees_by_name(COMMITTEES)
         self.logs = []
 
-    def run_rows(self, rows, since="2025-01-01", ids=None):
+    def run_rows(self, rows, since="2025-01-01", ids=None, refiled=True):
         return ie.ie_rows("ga", rows, self.index, self.aff, ids or mapping.TxnIds("ga"), since, "2026",
-                          self.by_name, self.logs.append)
+                          self.by_name, self.logs.append, refiled=refiled)
 
     def test_matched_rows_become_cf_rows(self):
         out, stats = self.run_rows([exp("1911", "2026-03-01", 1000, "Paton for Georgia", "S", txn="t1")])
@@ -180,6 +203,53 @@ class Rows(unittest.TestCase):
         a, _ = self.run_rows(hashed)
         b, _ = self.run_rows(hashed[1:])
         self.assertEqual(a[0]["source_txn_id"], b[0]["source_txn_id"])
+
+    def test_refiled_buy_keeps_only_the_latest_report(self):
+        # Georgia: Defend US PAC's $50,905 for Gooch under filings 241569 and 241612.
+        rows = [exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="a", filing_id="241569"),
+                exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="b", filing_id="241612")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 1)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:b:"))
+        # Numeric order, not string order: report 1000 is later than 999.
+        rows = [exp("1911", "2026-04-22", 10, "Paton for Georgia", "S", txn="x", filing_id="999"),
+                exp("1911", "2026-04-22", 10, "Paton for Georgia", "S", txn="y", filing_id="1000")]
+        out, _ = self.run_rows(rows)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:y:"))
+
+    def test_refiled_is_off_unless_the_state_opts_in(self):
+        rows = [exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="a", filing_id="241569"),
+                exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="b", filing_id="241612")]
+        out, stats = self.run_rows(rows, refiled=False)
+        self.assertEqual((len(out), stats["refiled"]), (2, 0))
+
+    def test_identical_rows_on_one_report_all_count(self):
+        rows = [exp("1911", "2026-07-21", 13423.12, "Paton for Georgia", "S", txn=t, filing_id="77")
+                for t in ("m1", "m2", "m3")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 0)
+        self.assertEqual(len(out), 3)
+
+    def test_without_report_ids_identical_rows_collapse_to_latest_txn(self):
+        # Arizona: no report id; the same buys in three transaction-id batches.
+        rows = [exp("1911", "2026-09-28", 17340.35, "Paton for Georgia", "S", txn=t)
+                for t in ("16251177", "16251215", "16251203")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 2)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:16251215:"))
+
+    def test_refiled_needs_every_field_to_agree(self):
+        base = dict(fid="1911", date="2026-04-22", amount=500, target="Paton for Georgia", stance="S")
+        rows = [exp(**base, txn="1", filing_id="1"),
+                exp(**{**base, "amount": 501}, txn="2", filing_id="2"),
+                exp(**{**base, "date": "2026-04-23"}, txn="3", filing_id="3"),
+                exp(**base, txn="4", filing_id="4", payee="Mail Co"),
+                exp(**{**base, "stance": "O"}, txn="5", filing_id="5")]
+        out, stats = self.run_rows(rows)
+        self.assertEqual(stats["refiled"], 0)
+        self.assertEqual(len(out), 5)
 
     def test_filters_and_unmatched_log(self):
         rows = [

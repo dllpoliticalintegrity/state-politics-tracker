@@ -191,15 +191,45 @@ def spender_key(row, by_name):
     return by_name.get(name) or "n:" + hashlib.md5(name.encode()).hexdigest()[:12]
 
 
+# Only a real independent expenditure counts as outside spending:
+#  - a row the state itself marks with a target and a stance (Michigan's IE
+#    rows, Georgia's IE export, Ohio's FEC rows) counts, unless it is money
+#    handed to another committee (a contribution, transfer or refund): that
+#    shows up in the recipient's own receipts, so counting it here would
+#    count the same dollars twice;
+#  - a row that only inherits its committee's affiliation (the hand-curated
+#    registries, src/registries/committees/<st>.csv) counts only when the
+#    state's own transaction type calls it an independent expenditure.
+#    Florida's data never does, and its registry lists candidate-chaired
+#    "Friends of" committees, whose spending (incl. $45.5M handed to the
+#    Republican Party of Florida in 2025-26) is not independent; all of it
+#    was counted before 2026-10-18.
+_IE_TYPE = re.compile(r"independent\s+expenditure", re.I)
+_PASS_THROUGH = re.compile(r"\b(contributions?|transfers?|refunds?)\b", re.I)
+
+
+def is_ie_type(row):
+    """True when the state's own transaction type names an IE."""
+    return bool(_IE_TYPE.search(row.get("transaction_type") or ""))
+
+
+def is_pass_through(row):
+    """True for money handed to another committee rather than spent:
+    a contribution, transfer or refund, by purpose or transaction type."""
+    text = f"{row.get('purpose') or ''} {row.get('transaction_type') or ''}"
+    return bool(_PASS_THROUGH.search(text)) and not _IE_TYPE.search(row.get("purpose") or "")
+
+
 def ie_target(row, affiliations):
-    """(target, stance) for an expenditure row, from the row itself or its
-    committee's affiliation; None when it is not an independent expenditure."""
+    """(target, stance) for a real independent expenditure, from the row
+    itself or, for rows the state types as IEs, its committee's affiliation;
+    None for anything else (see the rules above)."""
     stance = (row.get("support_oppose") or "").strip().upper()
     target = (row.get("affiliated_candidate_name") or "").strip()
     if stance in IE_STANCES and target:
-        return target, stance
+        return None if is_pass_through(row) else (target, stance)
     fid = (row.get("state_filer_id") or "").strip()
-    if fid in affiliations:
+    if fid in affiliations and is_ie_type(row) and not is_pass_through(row):
         return affiliations[fid]
     return None
 
@@ -215,12 +245,57 @@ def _superseded(row):
     return (row.get("superseded") or "").strip().lower() in ("1", "y", "yes", "true")
 
 
-def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print):
+def _id_key(s):
+    """Sort key putting numeric ids in numeric order ("99" < "100")."""
+    s = (s or "").strip()
+    return (0, int(s), "") if s.isdigit() else (1, 0, s)
+
+
+def drop_refiled(picked):
+    """Drop the same buy disclosed again on a later report.
+
+    States re-disclose IEs (a 24-hour notice, then the periodic report, then
+    any amendment), each copy with its own transaction id: Georgia's Defend
+    Arizona's az:101712 buys in three transaction-id batches, Wisconsin's
+    same buy under two report ids. Rows that agree on spender, target,
+    stance, amount, date, payee and purpose are one buy when they sit on
+    different reports, and only the latest report's copy is kept. Identical
+    rows on the same report are separate line items (three mailers at the
+    same price) and all stay. Arizona's IE rows carry no report id, so its
+    identical rows always collapse to the latest transaction id.
+    Only for states whose IE filing_id is the report (states.json
+    "ie_refiled"): Georgia's and Michigan's are per-transaction ids, and their
+    identical rows sit on one report (Georgia REALTORS' 2 x $91,514 on report
+    2036), so collapsing them there would delete real buys.
+    Returns (kept, dropped_count)."""
+    groups = defaultdict(list)
+    for i, (row, base, target, stance, cand, spender) in enumerate(picked):
+        key = (spender, cand, stance, mapping.money(row.get("amount")),
+               mapping.iso_date(row.get("date")), norm(row.get("payee_name")),
+               norm(row.get("purpose") or row.get("transaction_type")))
+        groups[key].append(i)
+    drop = set()
+    for idx in groups.values():
+        if len(idx) < 2:
+            continue
+        filings = [(picked[i][0].get("filing_id") or "").strip() for i in idx]
+        if all(filings):
+            latest = max(filings, key=_id_key)
+            drop.update(i for i, f in zip(idx, filings) if f != latest)
+        else:
+            keep = max(idx, key=lambda i: _id_key((picked[i][0].get("txn_id") or "").strip()))
+            # Copies of the keeper's own transaction are ie_rows' "repeated".
+            drop.update(i for i in idx if picked[i][1] != picked[keep][1])
+    return [p for i, p in enumerate(picked) if i not in drop], len(drop)
+
+
+def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print,
+            refiled=False):
     """Yield cf_independent_expenditures rows for the expenditure rows whose
     target resolves; the stats dict says what did not."""
     by_name = by_name or {}
     stats = {"ie_rows": 0, "matched": 0, "unmatched": 0, "before_since": 0,
-             "superseded": 0, "no_spender": 0, "repeated": 0}
+             "superseded": 0, "no_spender": 0, "repeated": 0, "refiled": 0}
     unmatched = defaultdict(float)
     picked = []                 # (row, base, target, stance, candidate_id, spender)
     targets = defaultdict(set)  # base -> distinct normalised targets
@@ -251,6 +326,8 @@ def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=
             continue
         stats["matched"] += 1
         picked.append((row, base, target, stance, cand, spender))
+    if refiled:
+        picked, stats["refiled"] = drop_refiled(picked)
 
     out = []
     seen = set()
@@ -377,7 +454,8 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     exp_reader = open_table(clean_dir, "expenditures")
     if exp_reader is None:
         raise SystemExit(f"{st}: expenditures missing from {clean_dir}")
-    ie_out, stats = ie_rows(st, exp_reader, index, affiliations, ids, since, cycle, by_name, log)
+    ie_out, stats = ie_rows(st, exp_reader, index, affiliations, ids, since, cycle, by_name, log,
+                            refiled=bool(entry.get("ie_refiled")))
     spenders = {rec["ie_filer_ident"].split(":", 1)[1] for rec in ie_out}
     comm_out = ie_committees(st, ie_out, committees)
     ie_out = strip_private(ie_out)
@@ -389,7 +467,7 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     for rec in ie_out:
         by_cand[rec["target_candidate_id"]][rec["support_oppose"]] += rec["amount"]
     log(f"   outside spending: {stats['ie_rows']} IE rows, {stats['matched']} matched to "
-        f"{len(by_cand)} tracked candidates ({len(ie_out)} kept, {stats['repeated']} repeats), "
+        f"{len(by_cand)} tracked candidates ({len(ie_out)} kept, {stats['repeated']} repeats, {stats['refiled']} re-filed), "
         f"{stats['unmatched']} unmatched ({stats['unmatched_targets']} targets), "
         f"{stats['no_spender']} without a spender; {len(comm_out)} spenders, "
         f"{len(contrib_out)} spender receipts{' (dry run)' if dry_run else ''}")

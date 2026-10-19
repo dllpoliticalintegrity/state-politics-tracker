@@ -102,6 +102,35 @@ def is_flag_set(v):
     return (v or "").strip().lower() in ("1", "y", "yes", "true")
 
 
+def _report_key(r):
+    s = (r or "").strip()
+    return (0, int(s), "") if s.isdigit() else (1, 0, s)
+
+
+def rereport_latest(clean_dir, refs, st):
+    """For states whose filing_id is the report a receipt came on
+    (states.json "rereports"): {gift: latest report} for every gift (same
+    committee, contributor, amount, date) listed on more than one report.
+    A pre-election 24-hour report and the regular report that follows both
+    list the same gift (Alaska: Claire Zabel's $90,000 to Kreiss-Tomkins on
+    2026-08-11, once bare, once with address and employer; Wisconsin's late
+    contribution reports); only the latest report's copy is kept. Identical
+    rows on one report are separate gifts and all stay."""
+    reports = defaultdict(set)
+    for row in open_table(clean_dir, "contributions") or []:
+        fid = (row.get("state_filer_id") or "").strip()
+        if not fid or f"{st}:{fid}" not in refs:
+            continue
+        reports[gift_key(row)].add((row.get("filing_id") or "").strip())
+    return {k: max(v, key=_report_key) for k, v in reports.items() if len(v) > 1 and all(v)}
+
+
+def gift_key(row):
+    return ((row.get("state_filer_id") or "").strip(),
+            " ".join((row.get("contributor_name") or "").upper().split()),
+            mapping.money(row.get("amount")), mapping.iso_date(row.get("date")))
+
+
 def rows_for_state(st, entry, clean_dir, refs):
     """Yield (cf_table, slug, row) for every tracked row, with its ids and
     candidate set."""
@@ -126,6 +155,7 @@ def rows_for_state(st, entry, clean_dir, refs):
                          f"use one of {mapping.LOAN_RECORD_TABLES}")
     seen = set()
     counts = defaultdict(int)
+    latest = rereport_latest(clean_dir, refs, st) if entry.get("rereports") else {}
     for table in TABLES:
         reader = open_table(clean_dir, table)
         if reader is None:
@@ -151,6 +181,11 @@ def rows_for_state(st, entry, clean_dir, refs):
             if is_flag_set(row.get("superseded")):
                 counts["superseded"] += 1
                 continue
+            if latest and table == "contributions":
+                want = latest.get(gift_key(row))
+                if want is not None and (row.get("filing_id") or "").strip() != want:
+                    counts["rereported"] += 1
+                    continue
             if "FEC_NONFEDERAL_IE" in (row.get("transaction_type"), row.get("category")):
                 continue                     # FEC outside spending, not the committee's own
             if (row.get("transaction_type") or "").strip().lower() in skip_types.get(t, ()):
