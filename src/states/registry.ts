@@ -142,12 +142,13 @@ const SLCF_READY = new Set([
 // here only while the tracker has no rows for it (docs/lpt-frontend-plan.md).
 // The tracker project is the unified store: every state reads it as soon as
 // its own pipeline reconciles. OR reads Henry's tables until its ORESTAR
-// scrape lands in the tracker; IA until its first SLCF load does (the
-// tracker's Iowa rows are the pilot's, frozen in May 2026, and it has no
-// Iowa row-office or legislative candidates yet). VITE_LPT_STATES ("or,oh")
-// overrides the set at build time, for previews and local checks.
+// scrape lands in the tracker. Iowa moved to the tracker on 2026-10-19 once
+// its SLCF load and LPT roster landed there (same candidates and statuses
+// per race, raised as current or newer, all statewide headshots; the admin
+// console's photos only reach the site from the tracker). VITE_LPT_STATES
+// ("or,ia") overrides the set at build time, for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or,ia")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
