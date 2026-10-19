@@ -1,23 +1,18 @@
-import { raceHeadline } from "@/states/nicknames";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   useCandidates,
   useCandidateTotals,
-  useFundingSources,
 } from "@/hooks/useCandidates";
 import { isGeneralMatchup, pollRowIsCandidate, readCandidatePct, useRacePolling, useRacePolls } from "@/hooks/usePolling";
 import PollingChart from "@/components/PollingChart";
 import PollingAveragesList from "@/components/PollingAveragesList";
-import CandidateCard, { type CandidateCardStats } from "@/components/CandidateCard";
+import type { CandidateCardStats } from "@/components/CandidateCard";
 import ContributionsTicker from "@/components/ContributionsTicker";
 import RaceSubnav from "@/components/RaceSubnav";
-import RaceSummary from "@/components/RaceSummary";
-import { formatCurrency } from "@/lib/finance";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
-import { offBallotLast } from "@/lib/candidateStatus";
-import PoweredBy from "@/components/PoweredBy";
+import HeadToHead from "@/pages/HeadToHead";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -25,9 +20,8 @@ export default function Index() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   const hasPollingSource = !!race.pollingSourceUrl;
-  const { data: candidates, isLoading } = useCandidates();
+  const { data: candidates } = useCandidates();
   const { data: totalsMap } = useCandidateTotals();
-  const { data: funding } = useFundingSources();
   const { data: polling } = useRacePolling();
   const { data: racePollsAll } = useRacePolls();
   const racePolls = (racePollsAll ?? []).filter((r) => isGeneralMatchup(r.matchup));
@@ -88,71 +82,20 @@ export default function Index() {
     }
   }
 
-  // Rank candidates. Polled races: by poll % desc (candidates without an
-  // average are hidden — the grid is labelled "ranked by polling"). Unpolled
-  // races: everyone, ranked by total raised. Candidates who are off the
-  // ballot (lost primary, withdrawn, …) stay on this race page but drop to
-  // the end, greyed out by CandidateCard.
-  const ranked = (candidates ?? [])
-    .map((c) => ({ c, stats: statsBySlug.get(c.slug)! }))
-    .filter((x) =>
-      hasPollingSource ? x.stats?.pollPct !== null && x.stats?.pollPct !== undefined : true,
-    )
-    .sort(
-      (a, b) =>
-        offBallotLast(a.c, b.c) ||
-        (hasPollingSource
-          ? (b.stats?.pollPct ?? -1) - (a.stats?.pollPct ?? -1) ||
-            (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)
-          : (b.stats?.raised ?? 0) - (a.stats?.raised ?? 0)),
-    );
-
-  const leader = ranked[0] ?? null;
-
   return (
     <div className="min-h-[80vh]">
       <ContributionsTicker />
       <RaceSubnav />
 
       {/* Hero */}
-      <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
-        <PoweredBy />
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {`${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
-        </p>
+      <section className="container pt-3 md:pt-4 pb-8 max-w-3xl text-center space-y-4">
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
-          {raceHeadline(stateCfg.name, race)}
+          {race.district ? `${stateCfg.name} ${race.title}` : `${stateCfg.name} ${race.title}'s Race`}
         </h1>
-        <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          {hasPollingSource
-            ? `Polling averages, campaign finance, and outside spending, synced from ${pollingSourceLabel(race)} and the ${stateCfg.agency?.name}.`
-            : `Campaign finance and outside spending, synced from the ${stateCfg.agency?.name}. No public polling is tracked for this race yet.`}
-        </p>
       </section>
 
-      {/* Summary: leader, raised & spent, funding sources, money by party */}
-      <section className="container pb-10">
-        <RaceSummary
-          leaderLabel={hasPollingSource ? "Polling leader" : "Money leader"}
-          leader={
-            leader
-              ? {
-                  name: leader.c.name,
-                  party: leader.c.party,
-                  photoUrl: leader.c.photo_url_medium ?? leader.c.photo_url ?? leader.c.photo_url_thumb,
-                  detail: hasPollingSource
-                    ? leader.stats.pollPct != null
-                      ? `${leader.stats.pollPct}% average`
-                      : "No average yet"
-                    : `${formatCurrency(leader.stats.raised)} raised`,
-                }
-              : null
-          }
-          candidates={candidates ?? []}
-          totals={totalsMap}
-          funding={funding}
-        />
-      </section>
+      <HeadToHead statsBySlug={statsBySlug} />
+
 
       {/* Polling chart (polled races only) */}
       {hasPollingSource && (
@@ -200,23 +143,6 @@ export default function Index() {
       </section>
       )}
 
-      {/* Field overview */}
-      <section className="container pb-16">
-        <div className="flex items-baseline justify-between pb-2.5 border-b mb-5">
-          <h2 className="font-display text-xl md:text-2xl font-semibold">The field</h2>
-          <div className="text-xs text-muted-foreground">
-            {hasPollingSource ? "Ranked by current poll average" : "Ranked by total raised"}
-          </div>
-        </div>
-        {isLoading && (
-          <div className="text-sm text-muted-foreground py-10 text-center">Loading…</div>
-        )}
-        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
-          {ranked.map(({ c, stats }, idx) => (
-            <CandidateCard key={c.slug} candidate={c} stats={stats} rank={idx + 1} />
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

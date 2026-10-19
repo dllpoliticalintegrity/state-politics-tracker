@@ -90,7 +90,7 @@ export default function PollingAveragesList() {
                 />
               </div>
             </div>
-            <span className="font-mono text-sm font-semibold tabular-nums">
+            <span className="font-sans text-sm font-semibold tabular-nums">
               {r.pct.toFixed(1)}
             </span>
           </li>

@@ -9,6 +9,10 @@ import { RaceProvider, useStateConfig } from "@/states/StateContext";
 import { SITE_STATE, isSingleStateSite } from "@/states/site";
 import { useSiteConfig } from "@/hooks/useSiteConfig";
 import { homeHeadline } from "@/states/nicknames";
+import MidtermsCountdown from "@/components/MidtermsCountdown";
+import CongressLookup from "@/components/CongressLookup";
+import RepresentativeLookup from "@/components/RepresentativeLookup";
+import { REPRESENTATIVE_LOOKUP_URLS } from "@/lib/representativeLookup";
 
 export default function Overview() {
   const state = useStateConfig();
@@ -16,6 +20,7 @@ export default function Overview() {
   // Same list as the menu: a dedicated site can hide races in the admin.
   const races = isSingleStateSite ? chrome.races : state.races ?? [];
   const year = races[0]?.generalDate.slice(0, 4) ?? "2026";
+  const representativeUrl = REPRESENTATIVE_LOOKUP_URLS[state.code];
 
   return (
     <div className="min-h-[80vh]">
@@ -26,7 +31,7 @@ export default function Overview() {
         </RaceProvider>
       )}
 
-      <section className="container pt-12 md:pt-16 pb-8 max-w-3xl text-center space-y-4">
+      <section className="container pt-6 md:pt-8 pb-8 max-w-3xl text-center space-y-4">
         <PoweredBy />
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {`${year} ${state.name} elections`}
@@ -34,11 +39,7 @@ export default function Overview() {
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
           {homeHeadline(state.code, state.name)}
         </h1>
-        <p className="text-base text-muted-foreground max-w-xl mx-auto">
-          {`Who's running statewide in ${state.name}, who's leading, and who's paying for it — campaign finance from the ${
-            state.agency?.name ?? "state disclosure agency"
-          }, plus polling where it's public.`}
-        </p>
+        <MidtermsCountdown />
         {state.source === "tracker" && (
           <CandidateSearch
             states={[state.code]}
@@ -46,6 +47,10 @@ export default function Overview() {
             className="pt-2"
           />
         )}
+        {representativeUrl && (
+          <RepresentativeLookup url={representativeUrl} stateName={state.name} />
+        )}
+        <CongressLookup />
       </section>
 
       <section className="container pb-16">

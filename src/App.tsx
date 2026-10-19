@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { useEffect } from "react";
-import { Header } from "@/components/Header";
+import { Header, MobileBottomNav } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "next-themes";
 import { StateProvider, RaceProvider, useRaceBase } from "@/states/StateContext";
@@ -111,6 +111,12 @@ function SubnavExceptHome() {
 }
 
 // The race-scoped dashboard pages, shared by statewide and district races.
+function ComparisonRedirect() {
+  const base = useRaceBase();
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: base, search, hash }} replace />;
+}
+
 function RaceRoutes({ race }: { race: RaceConfig }) {
   return (
     <RaceProvider race={race}>
@@ -118,6 +124,7 @@ function RaceRoutes({ race }: { race: RaceConfig }) {
       <Routes>
         <Route index element={<Index />} />
         <Route path="candidates" element={<Candidates />} />
+        <Route path="head-to-head" element={<ComparisonRedirect />} />
         <Route path="candidates/:slug" element={<CandidateDetail />} />
         {/* Relative to this route's own path (…/money), so "donors" → …/money/donors. */}
         <Route path="money" element={<Navigate to="donors" replace />} />
@@ -195,6 +202,7 @@ function AppShell() {
       </Routes>
       <Footer />
       <FloatingDonate />
+      <MobileBottomNav />
     </>
   );
 }

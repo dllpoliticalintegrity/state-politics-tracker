@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Sun, Moon, Menu, Mail, ExternalLink } from "lucide-react";
+import { Sun, Moon, Menu, Mail, ExternalLink, Home, Landmark, Users, Info, Vote } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
@@ -105,6 +105,55 @@ function useSiteMenu(navRaces: RaceConfig[]) {
   return items.map((i) => ({ ...i, active: (currentOffice ?? "") === i.key }));
 }
 
+function navIcon(key: string) {
+  if (key === "") return Home;
+  if (key === "committees") return Users;
+  if (key === "about") return Info;
+  if (/senate|house|assembly|legislat/.test(key)) return Landmark;
+  return Vote;
+}
+
+/** Mobile-only bar pinned to the bottom with the same tabs as the desktop menu. */
+export function MobileBottomNav() {
+  const activeState = useActiveState();
+  const chrome = useSiteConfig(isSingleStateSite ? SITE_STATE : null);
+  const navRaces = isSingleStateSite ? chrome.races : activeState?.races ?? [];
+  const menu = useSiteMenu(navRaces);
+  if (menu.length === 0) return null;
+  return (
+    <>
+      <div className="h-16 xl:hidden" aria-hidden="true" />
+      <nav
+        aria-label="Races (bottom)"
+        data-mobile-bottom-nav
+        className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 xl:hidden pb-[env(safe-area-inset-bottom)]"
+      >
+        <ul className="grid grid-cols-4">
+          {menu.slice(0, 4).map((item) => {
+            const Icon = navIcon(item.key);
+            return (
+              <li key={item.key} className="min-w-0">
+                <Link
+                  to={item.to}
+                  aria-current={item.active ? "page" : undefined}
+                  className={`flex h-14 flex-col items-center justify-center gap-1 px-1 transition-colors ${
+                    item.active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-5 w-5" strokeWidth={item.active ? 2.4 : 1.8} aria-hidden="true" />
+                  <span className={`w-full truncate text-center text-[11px] leading-none ${item.active ? "font-semibold" : "font-medium"}`}>
+                    {item.label}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    </>
+  );
+}
+
 export function Header() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -173,6 +222,12 @@ export function Header() {
             </span>
           </Link>
           {!isSingleStateSite && <StateSwitcher />}
+          <span
+            className="shrink-0 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
+            aria-label="Beta version"
+          >
+            Beta
+          </span>
         </div>
 
         {menu.length > 0 && (

@@ -129,6 +129,7 @@ function toCandidate(r: HubCandidateRow): TxCandidate {
     instagram_user: r.instagram_user,
     facebook_user: r.facebook_user,
     youtube_user: r.youtube_user,
+    is_incumbent: !!r.is_incumbent,
   };
 }
 
