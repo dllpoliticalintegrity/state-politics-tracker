@@ -13,7 +13,8 @@
     "inkind_types: raw transaction types (lower-cased) that are in-kind gifts though their text doesn't say so (IL's code 5a). entity_words: extra words that mark an organisation in the name fallback when the state gives no contributor type (PA's \"PA\", \"FRIENDS OF\"). type_from_name_parts: no contributor type in the source; a first name means a person, a whole name in last an organisation (FL, the pilot's rule). category_field null: store no spending category (the pilot stored none and SLCF's column is a raw code or payment method).",
     "soft_fail: why a failure is reported as a warning instead of failing the run; remove it the day the source works again.",
     "dry_run_only: the state may only be dispatched with dry_run on (a new SLCF state, before its first reconciliation). prune: delete live rows SLCF no longer has, after each load (load_cf.py --prune) prune_min_share: a lower truncation guard for a cutover run that deletes many pilot duplicates (default 0.9); remove it once that run is done.",
-    "rereports: filing_id is the report a receipt came on (AK's APOC Result, WI's Sunshine report id); a gift listed on more than one report (a 24-hour or late-contribution report, then the regular report) keeps only the latest report's copy (load_cf.rereport_latest)."
+    "rereports: filing_id is the report a receipt came on (AK's APOC Result, WI's Sunshine report id); a gift listed on more than one report (a 24-hour or late-contribution report, then the regular report) keeps only the latest report's copy (load_cf.rereport_latest).",
+    "ie_refiled: an IE re-disclosed on a later report keeps only the latest copy (ie.drop_refiled); only where the IE filing_id is the report (WI) or absent with re-disclosures in id batches (AZ), never where it is a per-transaction id (GA, MI)."
   ],
   "states": {
     "tx": { "pipeline": "tec", "note": "permanent: TEC importer, tx-finance-sync.yml" },
@@ -34,7 +35,7 @@
             "individual_types": ["individual", "candidate"],
             "unitemized": { "label": "Unitemized (small-dollar) contributions", "type": "ENTITY" },
             "note": "on SLCF since 2026-10-15: txn_id = Transaction ID (the pilot's ar:<id>)" },
-    "az": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "ie": true, "prune": true, "prune_min_share": 0.8,
+    "az": { "pipeline": "slcf", "ie_refiled": true, "cycle": "2026", "lpt_roster": true, "ie": true, "prune": true, "prune_min_share": 0.8,
             "individual_types": ["contribution from candidate or family", "contribution from individuals", "in-kind cont. candidate or family", "in-kind cont. from individual", "payment on candidate/family loan", "payment on individual loan", "receive loan from candidate or family member", "receive loan from individual", "refund candidate or family contribution", "refund contribution from individual"],
             "category_field": "transaction_type",
             "note": "on SLCF since 2026-10-18: no source transaction id (az:h: hashed ids); the first run's prune replaces the pilot's rows, incl. ~27k copies its overlapping pages stored (prune_min_share for that run only)" },
@@ -86,7 +87,7 @@
             "skip_types": { "contributions": ["Other Receipt"] },
             "entity_words": ["PA", "FRIENDS OF", "CITIZENS FOR"],
             "note": "held on the pilot until its SLCF scraper is signed off (statemoney.us scope, 2026-10-18); SLCF settings reconciled 2026-10-18: DOS has no transaction id, so rows are hashed (pa:h:); the first run replaces the pilot's hashed rows and prune deletes them; Other Receipts (bank interest, refunds) skipped as the pilot did" },
-    "wi": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "ie": true, "prune": true, "rereports": true, "individual_types": ["individual"],
+    "wi": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "ie": true, "ie_refiled": true, "prune": true, "rereports": true, "individual_types": ["individual"],
             "loan_records": { "Loan Forgiven": "contributions", "Personal Loan Payment": "expenditures",
                               "Incurred Obligation Paid": "expenditures" },
             "note": "on SLCF since 2026-10-15: state_filer_id = Sunshine entity id (payee on receipts, payer on disbursements), txn_id = Sunshine ID (the pilot's wi:<ID>); Incurred Obligation dropped (the pilot double-counted it against its payment); ~21 min nightly" },

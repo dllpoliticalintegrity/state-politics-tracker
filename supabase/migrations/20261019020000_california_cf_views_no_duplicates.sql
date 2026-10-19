@@ -20,7 +20,7 @@
 -- Raised (ca_cf_contributions):
 --  4. Form 496 Part 3 lists contributions an IE filer received that it also
 --     reports on its Form 460/497 (240 of 251 rows, $1.23M): a Part 3 row
---     with a twin (same candidate, contributor, amount, date) is dropped.
+--     with a twin (same committee, contributor, amount, date) is dropped.
 -- Spent (ca_cf_expenditures):
 --  5. Contributions a candidate committee made are listed on Schedule D and
 --     again as Schedule E payments (127 pairs, $1.70M): a Schedule D row with
@@ -73,6 +73,7 @@ where coalesce(d.source_form_type, ''::text) !~~ 'LOAN-%'::text
            and exists (
              select 1 from public.ca_contributions_deduped o
               where o.candidate_id = d.candidate_id
+                and o.committee_filer_id = d.committee_filer_id
                 and upper(coalesce(o.source_form_type, '')) <> 'F496P3'
                 and o.amount = d.amount
                 and o.contribution_date is not distinct from d.contribution_date

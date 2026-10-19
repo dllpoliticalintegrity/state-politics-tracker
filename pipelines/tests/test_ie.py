@@ -145,9 +145,9 @@ class Rows(unittest.TestCase):
         self.by_name = ie.committees_by_name(COMMITTEES)
         self.logs = []
 
-    def run_rows(self, rows, since="2025-01-01", ids=None):
+    def run_rows(self, rows, since="2025-01-01", ids=None, refiled=True):
         return ie.ie_rows("ga", rows, self.index, self.aff, ids or mapping.TxnIds("ga"), since, "2026",
-                          self.by_name, self.logs.append)
+                          self.by_name, self.logs.append, refiled=refiled)
 
     def test_matched_rows_become_cf_rows(self):
         out, stats = self.run_rows([exp("1911", "2026-03-01", 1000, "Paton for Georgia", "S", txn="t1")])
@@ -217,6 +217,12 @@ class Rows(unittest.TestCase):
                 exp("1911", "2026-04-22", 10, "Paton for Georgia", "S", txn="y", filing_id="1000")]
         out, _ = self.run_rows(rows)
         self.assertTrue(out[0]["source_txn_id"].startswith("ga:y:"))
+
+    def test_refiled_is_off_unless_the_state_opts_in(self):
+        rows = [exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="a", filing_id="241569"),
+                exp("1911", "2026-04-22", 50905, "Paton for Georgia", "S", txn="b", filing_id="241612")]
+        out, stats = self.run_rows(rows, refiled=False)
+        self.assertEqual((len(out), stats["refiled"]), (2, 0))
 
     def test_identical_rows_on_one_report_all_count(self):
         rows = [exp("1911", "2026-07-21", 13423.12, "Paton for Georgia", "S", txn=t, filing_id="77")

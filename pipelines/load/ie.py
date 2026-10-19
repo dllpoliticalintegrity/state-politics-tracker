@@ -256,13 +256,17 @@ def drop_refiled(picked):
 
     States re-disclose IEs (a 24-hour notice, then the periodic report, then
     any amendment), each copy with its own transaction id: Georgia's Defend
-    US PAC $50,905 for Gooch under filings 241569 and 241612, Arizona's
-    az:101712 buys in three id batches. Rows that agree on spender, target,
+    Arizona's az:101712 buys in three transaction-id batches, Wisconsin's
+    same buy under two report ids. Rows that agree on spender, target,
     stance, amount, date, payee and purpose are one buy when they sit on
     different reports, and only the latest report's copy is kept. Identical
     rows on the same report are separate line items (three mailers at the
     same price) and all stay. Arizona's IE rows carry no report id, so its
     identical rows always collapse to the latest transaction id.
+    Only for states whose IE filing_id is the report (states.json
+    "ie_refiled"): Georgia's and Michigan's are per-transaction ids, and their
+    identical rows sit on one report (Georgia REALTORS' 2 x $91,514 on report
+    2036), so collapsing them there would delete real buys.
     Returns (kept, dropped_count)."""
     groups = defaultdict(list)
     for i, (row, base, target, stance, cand, spender) in enumerate(picked):
@@ -285,7 +289,8 @@ def drop_refiled(picked):
     return [p for i, p in enumerate(picked) if i not in drop], len(drop)
 
 
-def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print):
+def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print,
+            refiled=False):
     """Yield cf_independent_expenditures rows for the expenditure rows whose
     target resolves; the stats dict says what did not."""
     by_name = by_name or {}
@@ -321,7 +326,8 @@ def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=
             continue
         stats["matched"] += 1
         picked.append((row, base, target, stance, cand, spender))
-    picked, stats["refiled"] = drop_refiled(picked)
+    if refiled:
+        picked, stats["refiled"] = drop_refiled(picked)
 
     out = []
     seen = set()
@@ -448,7 +454,8 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     exp_reader = open_table(clean_dir, "expenditures")
     if exp_reader is None:
         raise SystemExit(f"{st}: expenditures missing from {clean_dir}")
-    ie_out, stats = ie_rows(st, exp_reader, index, affiliations, ids, since, cycle, by_name, log)
+    ie_out, stats = ie_rows(st, exp_reader, index, affiliations, ids, since, cycle, by_name, log,
+                            refiled=bool(entry.get("ie_refiled")))
     spenders = {rec["ie_filer_ident"].split(":", 1)[1] for rec in ie_out}
     comm_out = ie_committees(st, ie_out, committees)
     ie_out = strip_private(ie_out)
