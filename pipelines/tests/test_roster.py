@@ -258,5 +258,67 @@ class StatewideExtraOffices(unittest.TestCase):
         self.assertEqual(self.asked, [{"governor"}])
 
 
+class StatewideRaces2026(unittest.TestCase):
+    """The down-ballot statewide races added 2026-10-18 (AZ, GA, TX, WI)."""
+
+    def test_credentials_leave_the_name(self):
+        self.assertEqual(roster.display_name("DAWN C. BUCKINGHAM MD"), "Dawn C. Buckingham")
+        self.assertEqual(roster.name_slug(roster.display_name("BUCKINGHAM, DAWN MD")), "dawn-buckingham")
+        self.assertEqual(roster.display_name("SMITH, JOHN, PH.D."), "John Smith")
+        self.assertEqual(roster.display_name("Mary Esq Jones"), "Mary Esq Jones")   # only trailing
+
+    def test_lpt_office_is_renamed_both_ways(self):
+        asked = []
+        orig = roster.lpt_get
+        def fake(path, page=1000):
+            asked.append(path)
+            return [{"race_id": "r1", "office": "ga-comptroller-general-insurance-commissioner"}] if path.startswith("races") else []
+        roster.lpt_get = fake
+        try:
+            races, _, _ = roster.fetch_lpt_statewide("ga", ["insurance-commissioner"])
+        finally:
+            roster.lpt_get = orig
+        self.assertIn("office=in.(ga-comptroller-general-insurance-commissioner)", asked[0])
+        self.assertEqual(races[0]["office"], "insurance-commissioner")
+
+    def _commission(self, unconfirmed):
+        races = [{"race_id": "cc", "office": "corporation-commissioner"}]
+        participants = [{"race_id": "cc", "candidate_id": "m", "candidate_name": "Nick Myers", "party": "Republican",
+                         "disposition": None, "on_ballot": None, "source": None}]
+        candidates = [{"candidate_id": "m", "candidate_name": "Nick Myers", "party": ["Republican"],
+                       "state_filer_id": "100484", "committee_name": ["Myers for AZ"]}]
+        return roster.plan_statewide("az", races, participants, candidates, [],
+                                     roster.FilerResolver([{"state_filer_id": "100484"}]),
+                                     unconfirmed_offices=unconfirmed)
+
+    def test_a_race_with_no_ballot_list_adds_nobody_unless_opted_in(self):
+        inserts, _, stats = self._commission(())
+        self.assertEqual(inserts, [])
+        inserts, _, stats = self._commission(["corporation-commissioner"])
+        self.assertEqual([(r["slug"], r["status"]) for r in inserts], [("nick-myers-az", "active")])
+        self.assertEqual(stats["unconfirmed_added"], 1)
+
+    def test_texas_statewide_rows_carry_the_tec_office(self):
+        races = [{"race_id": "c", "office": "comptroller"}]
+        participants = [
+            {"race_id": "c", "candidate_id": "h", "candidate_name": "DONALD HUFFINES", "party": "Republican",
+             "disposition": "Won primary", "on_ballot": True, "source": "greenpapers"},
+            {"race_id": "c", "candidate_id": "k", "candidate_name": "KELLY HANCOCK", "party": "Republican",
+             "disposition": "Lost primary", "on_ballot": False, "source": "greenpapers"},
+            {"race_id": "c", "candidate_id": "e", "candidate_name": "SARAH ECKHARDT", "party": "Democrat",
+             "disposition": None, "on_ballot": True, "source": "greenpapers"}]
+        candidates = [{"candidate_id": "h", "candidate_name": "DONALD HUFFINES", "state_filer_id": "00069651"},
+                      {"candidate_id": "k", "candidate_name": "KELLY HANCOCK", "state_filer_id": "00067555"},
+                      {"candidate_id": "e", "candidate_name": "SARAH ECKHARDT", "state_filer_id": "00084783"}]
+        # Eckhardt's TEC account already belongs to another tx_candidates row.
+        live = [{"id": "1", "slug": "sarah-eckhardt-tx-sd14", "name": "Sarah Eckhardt", "office": "STATESEN",
+                 "filer_ident": "84783"}]
+        rows, stats = roster.plan_texas_statewide(races, participants, candidates, live)
+        self.assertEqual([(r["slug"], r["office"], r["filer_ident"]) for r in rows],
+                         [("donald-huffines-tx", "COMPTROLLER", "69651")])
+        self.assertEqual(stats["skipped_off_ballot"], 1)
+        self.assertEqual(stats["skipped_no_or_dup_ident"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

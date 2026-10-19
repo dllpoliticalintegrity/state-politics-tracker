@@ -37,7 +37,13 @@ something other than "active" is never changed.
 Statewide races (sync_statewide): only offices the state already has in
 cf_candidates (LPT lists a few stray people under unrelated offices), plus
 any states.json lists under `lpt_statewide` — how a state's new statewide
-races get their first candidates (Iowa, 2026-10-18). An
+races get their first candidates (Iowa, 2026-10-18). A race LPT has no ballot
+list for adds nobody, unless its office is also under `lpt_unconfirmed`: then
+LPT's listed candidates are added as "active" (multi-seat commissions whose
+ballot LPT has not settled: Arizona Corporation Commission, Georgia PSC).
+LPT_OFFICE renames LPT's office where ours differs (Georgia's insurance
+commissioner). Texas statewide candidates go to tx_candidates
+(sync_texas_statewide). An
 existing candidate is matched by committee, then by surname within the
 office ("Alex" vs "Alexander Kolodin"); a missing committee ref is filled.
 A new candidate is added only when LPT has them on the ballot.
@@ -122,9 +128,16 @@ def id_key(fid):
     return v.lstrip("0") or v
 
 
+# Trailing professional credentials ("DAWN C. BUCKINGHAM MD"), which would
+# otherwise end up as the surname in the slug ("dawn-md").
+_CREDENTIALS = re.compile(r"(?:,?\s+(?:M\.?D\.?|PH\.?D\.?|D\.?D\.?S\.?|D\.?V\.?M\.?|ESQ\.?|CPA|R\.?N\.?))+\s*$",
+                          re.IGNORECASE)
+
+
 def display_name(raw):
-    """"BOTTOMS, KEISHA L." -> "Keisha L. Bottoms"; mixed case is kept."""
-    name = " ".join(str(raw or "").split())
+    """"BOTTOMS, KEISHA L." -> "Keisha L. Bottoms"; mixed case is kept;
+    trailing credentials (MD, PhD, Esq.) are dropped."""
+    name = _CREDENTIALS.sub("", " ".join(str(raw or "").split()))
     if "," in name:
         last, _, first = name.partition(",")
         name = f"{first.strip()} {last.strip()}".strip()
@@ -331,7 +344,8 @@ def drop_conflicting_refs(roster, claimed, stats, log=print):
         row["filer_refs"] = kept
 
 
-def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewide_offices=()):
+def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewide_offices=(),
+               unconfirmed_offices=()):
     """Seed / refresh one state's legislative roster. Returns the stats dict.
     Never raises on an LPT problem: the finance load must still run."""
     try:
@@ -405,7 +419,8 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewi
         patch_rows(updates)
     try:
         stats["statewide"] = sync_statewide(st, resolver, dry_run=dry_run, log=log,
-                                             extra_offices=statewide_offices)
+                                             extra_offices=statewide_offices,
+                                             unconfirmed_offices=unconfirmed_offices)
     except Exception as e:  # noqa: BLE001 — never cost the finance load
         log(f"   statewide roster: skipped ({type(e).__name__}: {e})")
     return stats
@@ -429,11 +444,19 @@ def name_key(name):
     return (words[-1], words[0][:1]) if words else ("", "")
 
 
+# Our office segment -> LPT's office name, where they differ.
+LPT_OFFICE = {"ga": {"insurance-commissioner": "ga-comptroller-general-insurance-commissioner"}}
+
+
 def fetch_lpt_statewide(st, offices):
     up = st.upper()
-    office_list = ",".join(sorted(offices))
+    to_lpt = LPT_OFFICE.get(st, {})
+    from_lpt = {v: k for k, v in to_lpt.items()}
+    office_list = ",".join(sorted(to_lpt.get(o, o) for o in offices))
     races = lpt_get(f"races?select=race_id,office&state_id=eq.{up}&year=eq.{CYCLE}"
                     f"&office=in.({office_list})&order=race_id")
+    for r in races:
+        r["office"] = from_lpt.get(r["office"], r["office"])
     ids = [r["race_id"] for r in races]
     participants, candidates = [], []
     if ids:
@@ -448,7 +471,8 @@ def fetch_lpt_statewide(st, offices):
     return races, participants, candidates
 
 
-def plan_statewide(st, races, participants, candidates, live, resolver, claimed_rows=None):
+def plan_statewide(st, races, participants, candidates, live, resolver, claimed_rows=None,
+                   unconfirmed_offices=()):
     """(inserts, updates, stats) for one state's statewide races.
     live: the state's statewide cf_candidates rows; resolver: FilerResolver;
     claimed_rows: every cf_candidates row in the state (default `live`), so a
@@ -513,9 +537,16 @@ def plan_statewide(st, races, participants, candidates, live, resolver, claimed_
             if patch:
                 updates.append((hit["id"], patch, hit["slug"]))
             continue
-        if on_ballot is not True:
+        # No ballot list for the race (on_ballot unknown): add only where the
+        # office is opted in (lpt_unconfirmed), and only as "active".
+        unconfirmed = (on_ballot is None and x["race_id"] not in confirmed
+                       and office in unconfirmed_offices)
+        if on_ballot is not True and not unconfirmed:
             stats["skipped_off_ballot"] += 1
             continue
+        if unconfirmed:
+            lpt_status = "active"
+            stats["unconfirmed_added"] += 1
         if (cand_party or "").replace("-", " ").lower() == "write in":
             stats["skipped_write_in"] += 1          # not printed on the ballot
             continue
@@ -545,7 +576,7 @@ def plan_statewide(st, races, participants, candidates, live, resolver, claimed_
     return inserts, updates, dict(stats)
 
 
-def sync_statewide(st, resolver, dry_run=False, log=print, extra_offices=()):
+def sync_statewide(st, resolver, dry_run=False, log=print, extra_offices=(), unconfirmed_offices=()):
     live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,office,party,status,filer_refs&order=id")
     statewide = [r for r in live if r.get("office") not in LEGISLATIVE]
     offices = {r["office"] for r in statewide} | {o for o in extra_offices if o not in LEGISLATIVE}
@@ -553,7 +584,7 @@ def sync_statewide(st, resolver, dry_run=False, log=print, extra_offices=()):
         return {}
     races, participants, candidates = fetch_lpt_statewide(st, offices)
     inserts, updates, stats = plan_statewide(st, races, participants, candidates, statewide, resolver,
-                                             claimed_rows=live)
+                                             claimed_rows=live, unconfirmed_offices=unconfirmed_offices)
     for row in inserts:
         log(f"   statewide roster: + {row['slug']} ({row['office']}, {row['party']}, {row['status']}, "
             f"refs {row['filer_refs']})")
@@ -581,6 +612,10 @@ def sync_statewide(st, resolver, dry_run=False, log=print, extra_offices=()):
 # same way, so no scrape is needed to resolve them.
 
 TX_OFFICE = {"state-senate": "STATESEN", "state-house": "STATEREP"}
+# Statewide offices seeded from LPT (LPT office -> TEC office code). Governor,
+# Lt. Governor and Attorney General were seeded by hand and stay curated.
+TX_STATEWIDE = {"comptroller": "COMPTROLLER", "land-commissioner": "LANDCOMM",
+                "agriculture-commissioner": "AGRICULTUR", "railroad-commissioner": "RRCOMM"}
 
 
 class IdentResolver:
@@ -633,7 +668,52 @@ def sync_texas(dry_run=False, log=print):
                   data=json.dumps(patch).encode(), method="PATCH",
                   headers=rest._headers({"Content-Type": "application/json",
                                          "Prefer": "return=minimal"}))
+    try:
+        stats["statewide"] = sync_texas_statewide(dry_run=dry_run, log=log)
+    except Exception as e:  # noqa: BLE001 — never block the TEC import
+        log(f"   texas statewide roster: skipped ({type(e).__name__}: {e})")
     return stats
+
+
+def plan_texas_statewide(races, participants, candidates, live):
+    """tx_candidates rows for LPT's on-ballot candidates in TX_STATEWIDE races
+    that tx_candidates lacks. live: tx_candidates rows (slug, filer_ident,
+    office). A filer already seeded under any office is left alone: the
+    importer keys candidates on their TEC ident."""
+    claimed = [{"slug": r["slug"], "filer_refs": [f"tx:{r['filer_ident']}"] if r.get("filer_ident") else []}
+               for r in live]
+    statewide = [{"id": r["id"], "slug": r["slug"], "name": r.get("name") or "",
+                  "office": {v: k for k, v in TX_STATEWIDE.items()}.get(r.get("office")),
+                  "party": r.get("party"), "status": r.get("status"),
+                  "filer_refs": [f"tx:{r['filer_ident']}"] if r.get("filer_ident") else []}
+                 for r in live if r.get("office") in TX_STATEWIDE.values()]
+    inserts, _, stats = plan_statewide("tx", races, participants, candidates, statewide,
+                                       IdentResolver(), claimed_rows=claimed + statewide)
+    rows = []
+    for r in inserts:
+        if not r["filer_refs"]:
+            stats["skipped_no_or_dup_ident"] = stats.get("skipped_no_or_dup_ident", 0) + 1
+            continue
+        rows.append({"slug": r["slug"], "name": r["name"], "party": r["party"],
+                     "filer_ident": r["filer_refs"][0].split(":", 1)[1],
+                     "committee_name": r["committee_name"], "office": TX_STATEWIDE[r["office"]],
+                     "district": None, "election_year": CYCLE, "status": r["status"], "featured": False})
+    return rows, stats
+
+
+def sync_texas_statewide(dry_run=False, log=print):
+    races, participants, candidates = fetch_lpt_statewide("tx", TX_STATEWIDE.keys())
+    live = rest.get_all("tx_candidates?select=id,slug,name,party,status,filer_ident,office&order=id")
+    rows, stats = plan_texas_statewide(races, participants, candidates, live)
+    for r in rows:
+        log(f"   texas statewide roster: + {r['slug']} ({r['office']}, {r['party']}, {r['status']}, ident {r['filer_ident']})")
+    log(f"   texas statewide roster: {len(races)} LPT races; {len(rows)} new, "
+        f"{stats.get('skipped_off_ballot', 0)} off-ballot not added, "
+        f"{stats.get('ref_conflict', 0) + stats.get('skipped_no_or_dup_ident', 0)} skipped (no or duplicate TEC ident)"
+        f"{' (dry run)' if dry_run else ''}")
+    if not dry_run and rows:
+        rest.upsert("tx_candidates", rows, conflict="slug", resolution="ignore")
+    return {"insert": len(rows), **stats}
 
 
 if __name__ == "__main__":

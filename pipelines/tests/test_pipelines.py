@@ -277,6 +277,14 @@ class ManifestTest(unittest.TestCase):
             self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "calaccess", "none"), st)
         self.assertEqual(states["ca"]["pipeline"], "calaccess")
 
+    def test_arizona_small_gift_lumps_are_individuals(self):
+        # "Multiple Contributors": a period's lump sum of in-state gifts of
+        # $100 or less, which SeeTheMoney reports without donor names.
+        az = set(json.loads((PIPELINES / "states.json").read_text())["states"]["az"]["individual_types"])
+        for raw in ("In-State Contributions $100 or Less", "Refund Contribution Less than $50"):
+            self.assertEqual(mapping.contributor_type(raw, "Multiple Contributors", az), "INDIVIDUAL")
+        self.assertEqual(mapping.contributor_type("Contribution from PACs", "Some PAC", az), "ENTITY")
+
     def test_schedule_covers_every_pilot_state_once(self):
         # Every state the pilot imported before the merge is still scheduled
         # by one finance pipeline; Texas never is. Michigan is in both lists:

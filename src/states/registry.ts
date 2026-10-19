@@ -298,6 +298,15 @@ const LIVE_CONFIG: Record<string, Pick<StateConfig, "races" | "agency" | "chambe
         generalDate: "2026-11-03",
         raceSlug: "georgia-secretary-of-state-2026",
       },
+      // Down-ballot statewide races (Oct 2026): candidates from the Local Politics
+      // Tracker (states.json lpt_statewide; LPT's office for Insurance Commissioner
+      // is renamed in roster.py LPT_OFFICE). The Public Service Commission has no
+      // ballot list in LPT, so its whole field shows.
+      { office: "superintendent-of-education", title: "School Superintendent", generalDate: "2026-11-03", raceSlug: "georgia-superintendent-of-education-2026" },
+      { office: "insurance-commissioner", title: "Insurance Commissioner", generalDate: "2026-11-03", raceSlug: "georgia-insurance-commissioner-2026" },
+      { office: "agriculture-commissioner", title: "Agriculture Commissioner", generalDate: "2026-11-03", raceSlug: "georgia-agriculture-commissioner-2026" },
+      { office: "labor-commissioner", title: "Labor Commissioner", generalDate: "2026-11-03", raceSlug: "georgia-labor-commissioner-2026" },
+      { office: "public-service-commissioner", title: "Public Service Commission", generalDate: "2026-11-03", raceSlug: "georgia-public-service-commissioner-2026" },
     ],
     // Legislature (Oct 2026): rosters from the Local Politics Tracker
     // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
@@ -335,6 +344,13 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency" | "cham
         generalDate: "2026-11-03",
         raceSlug: "arizona-secretary-of-state-2026",
       },
+      // Down-ballot statewide races (Oct 2026): candidates from the Local Politics
+      // Tracker (states.json lpt_statewide). The Corporation Commission elects two
+      // seats; LPT has no ballot list for it, so its whole field shows.
+      { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "arizona-treasurer-2026" },
+      { office: "superintendent-of-education", title: "Superintendent of Public Instruction", generalDate: "2026-11-03", raceSlug: "arizona-superintendent-of-education-2026" },
+      { office: "corporation-commissioner", title: "Corporation Commission", generalDate: "2026-11-03", raceSlug: "arizona-corporation-commissioner-2026" },
+      { office: "mine-inspector", title: "Mine Inspector", generalDate: "2026-11-03", raceSlug: "arizona-mine-inspector-2026" },
     ],
     // Legislature (Oct 2026): rosters from the Local Politics Tracker
     // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
@@ -571,6 +587,12 @@ const LIVE_CONFIG_3: Record<string, Pick<StateConfig, "races" | "agency" | "cham
         raceSlug: "wisconsin-governor-2026",
         pollingSourceUrl: fpoGovernor("Wisconsin"),
       },
+      // Down-ballot statewide races (Oct 2026): candidates from the Local Politics
+      // Tracker (states.json lpt_statewide).
+      { office: "lt-governor", title: "Lt. Governor", generalDate: "2026-11-03", raceSlug: "wisconsin-lt-governor-2026" },
+      { office: "attorney-general", title: "Attorney General", generalDate: "2026-11-03", raceSlug: "wisconsin-attorney-general-2026" },
+      { office: "secretary-of-state", title: "Secretary of State", generalDate: "2026-11-03", raceSlug: "wisconsin-secretary-of-state-2026" },
+      { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "wisconsin-treasurer-2026" },
     ],
     // Legislature (Oct 2026): rosters from the Local Politics Tracker
     // (pipelines/load/roster.py), finance from the nightly SLCF load; maps
@@ -757,6 +779,12 @@ const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "leg
         generalDate: "2026-11-03",
         raceSlug: "texas-attorney-general-2026",
       },
+      // Down-ballot statewide races (Oct 2026): candidates seeded into tx_candidates
+      // from the Local Politics Tracker (roster.py sync_texas_statewide).
+      { office: "comptroller", title: "Comptroller", generalDate: "2026-11-03", raceSlug: "texas-comptroller-2026" },
+      { office: "railroad-commissioner", title: "Railroad Commissioner", generalDate: "2026-11-03", raceSlug: "texas-railroad-commissioner-2026" },
+      { office: "agriculture-commissioner", title: "Agriculture Commissioner", generalDate: "2026-11-03", raceSlug: "texas-agriculture-commissioner-2026" },
+      { office: "land-commissioner", title: "Land Commissioner", generalDate: "2026-11-03", raceSlug: "texas-land-commissioner-2026" },
     ],
     // Legislature (Oct 2026): candidates seeded into tx_candidates from the
     // Local Politics Tracker (pipelines/load/roster.py --texas), finance from
