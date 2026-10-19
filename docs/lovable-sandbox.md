@@ -40,21 +40,41 @@ deploys.
    `/mi/state-senate/11` show state pages with live data. A per-state site
    (texaspoliticstracker.com) is the same pages without the `/tx` prefix.
 
-## The loop
+## The loop (automatic)
 
-1. Edit visually in Lovable. Lovable commits to its own repo.
-2. When a change is ready, run from this repo:
+`.github/workflows/lovable-sandbox.yml` runs `scripts/lovable/sync.sh` both
+ways. The sandbox repo's `.sandbox-base` records the main commit its code
+was last synced from, so neither direction overwrites the other.
 
-   ```bash
-   scripts/lovable/pull-sandbox.sh https://github.com/dllpoliticalintegrity/state-politics-tracker-template
-   ```
+- **Pull: Lovable to here.** Daily at 13:00 UTC, and on demand (Actions >
+  Lovable sandbox sync > Run workflow > pull). If Lovable changed any app
+  file since `.sandbox-base`, the workflow lays the sandbox's app files over
+  that commit on the branch `lovable/sync` and opens or updates one PR,
+  "Design updates from Lovable", listing the files. Because the branch
+  starts from the sync point, the PR shows only Lovable's changes, and
+  GitHub merges them over anything that changed here since. The PR body
+  warns when Lovable touched the data layer (`src/integrations`,
+  `src/hooks`, `shared/`).
+- **Push: here to Lovable.** On every merge to main that touches the app
+  files, and daily: main's app files are copied into the sandbox and
+  `.sandbox-base` moves to main. It refuses while the sandbox holds Lovable
+  edits that main does not have yet, so a design in progress is never
+  overwritten; merge the pull PR and the next run updates the sandbox.
 
-   It fetches the sandbox into a temporary folder and prints the files that
-   differ from ours, with the full diff in `dist-lovable/sandbox.diff`.
-3. Bring the wanted changes over on a branch, run the tests and build, and
-   open a PR. Leave out anything Lovable changed in the data layer
-   (`src/integrations/supabase`, `src/hooks`, `shared/`) unless it is meant.
-4. Merge the PR; the normal deploy publishes the hub and every state site.
+Only the app files sync: `src` (not `src/test`), `shared`, `public`,
+`index.html`, `tailwind.config.ts`. The sandbox keeps its own
+`.lovable/`, `vite.config.ts` (port 8080) and package files; a new npm
+package added in Lovable has to be added here by hand.
+
+Access: the secret `LOVABLE_SANDBOX_DEPLOY_KEY` is an SSH deploy key with
+write access to the sandbox repo only (created 2026-10-18). Opening the PR
+needs the repo setting "Allow GitHub Actions to create and approve pull
+requests"; without it the run pushes `lovable/sync` and prints a link to
+open the PR by hand.
+
+By hand: `DRY_RUN=1 scripts/lovable/sync.sh pull|push <sandbox checkout>`
+previews either direction; `scripts/lovable/pull-sandbox.sh <url>` prints a
+plain diff.
 
 ## Keeping the sandbox current
 

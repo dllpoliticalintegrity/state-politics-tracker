@@ -36,3 +36,4 @@ __pycache__/
 
 # Lovable design-sandbox exports (scripts/lovable)
 dist-lovable/
+.lovable-sync-files

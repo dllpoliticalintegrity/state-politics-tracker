@@ -1,0 +1,100 @@
+name: Lovable sandbox sync
+
+# Two-way sync with the Lovable design sandbox
+# (dllpoliticalintegrity/state-politics-tracker-template; docs/lovable-sandbox.md):
+#   pull: design changes made in Lovable -> branch lovable/sync + one open PR
+#         "Design updates from Lovable" (daily, and on demand)
+#   push: this repo's main -> the sandbox after site changes merge, so Lovable
+#         designs on current code. Skipped while Lovable edits are unmerged.
+# Needs secret LOVABLE_SANDBOX_DEPLOY_KEY: an SSH deploy key with write
+# access to the sandbox repo. Opening the PR needs the repo setting "Allow
+# GitHub Actions to create and approve pull requests"; without it the run
+# still pushes lovable/sync and prints a link to open the PR by hand.
+
+on:
+  schedule:
+    - cron: "0 13 * * *"          # daily, 13:00 UTC
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: "pull (Lovable -> PR), push (main -> Lovable), or both"
+        type: choice
+        options: [both, pull, push]
+        default: both
+  push:
+    branches: [main]
+    paths: ["src/**", "shared/**", "public/**", "index.html", "tailwind.config.ts"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: lovable-sandbox
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SANDBOX_REPO: dllpoliticalintegrity/state-politics-tracker-template
+      DIRECTION: ${{ github.event_name == 'push' && 'push' || inputs.direction || 'both' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone the sandbox
+        env:
+          KEY: ${{ secrets.LOVABLE_SANDBOX_DEPLOY_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::LOVABLE_SANDBOX_DEPLOY_KEY is not set (docs/lovable-sandbox.md)"; exit 1
+          fi
+          mkdir -p ~/.ssh && printf '%s\n' "$KEY" > ~/.ssh/sandbox && chmod 600 ~/.ssh/sandbox
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/sandbox -o IdentitiesOnly=yes"
+          git clone -q "git@github.com:${SANDBOX_REPO}.git" sandbox
+          echo "GIT_SSH_COMMAND=$GIT_SSH_COMMAND" >> "$GITHUB_ENV"
+
+      - name: Pull design changes from Lovable
+        if: env.DIRECTION != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="$(scripts/lovable/sync.sh pull sandbox)"
+          echo "pull: $out"
+          [ "$out" = "pushed" ] || exit 0
+          files="$(sed 's/^/- `/; s/$/`/' .lovable-sync-files)"
+          data_layer="$(grep -E '^(src/integrations/|src/hooks/|shared/)' .lovable-sync-files || true)"
+          body="Design changes made in the [Lovable sandbox](https://lovable.dev/projects/99c80ba2-0077-4976-ba5b-978280ec7123), collected by the Lovable sandbox sync workflow.
+
+          **Files changed in Lovable:**
+          ${files}"
+          if [ -n "$data_layer" ]; then
+            body="${body}
+
+          > **Check before merging:** Lovable changed data-layer files, which the sandbox rules say to leave alone:
+          $(echo "$data_layer" | sed 's/^/> - `/; s/$/`/')"
+          fi
+          body="${body}
+
+          Review the preview and the diff; merging deploys the hub and every state site. After merging, the next sync updates the sandbox to the merged code."
+          pr="$(gh pr list --head lovable/sync --state open --json number --jq '.[0].number')"
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body "$body" && echo "updated PR #$pr"
+          elif gh pr create --base main --head lovable/sync --title "Design updates from Lovable" --body "$body"; then
+            echo "opened PR"
+          else
+            echo "::warning::Could not open the PR (enable 'Allow GitHub Actions to create and approve pull requests'). Open it here: https://github.com/${GITHUB_REPOSITORY}/compare/main...lovable/sync?expand=1"
+          fi
+
+      - name: Push current code to Lovable
+        if: env.DIRECTION != 'pull'
+        run: |
+          git fetch -q origin main && git checkout -q origin/main
+          out="$(scripts/lovable/sync.sh push sandbox)"
+          echo "push: $out"
+          if [ "$out" = "pending" ]; then
+            echo "::notice::The sandbox has Lovable edits not merged here yet; merge the 'Design updates from Lovable' PR and the sandbox updates on the next run."
+          fi
