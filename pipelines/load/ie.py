@@ -191,15 +191,45 @@ def spender_key(row, by_name):
     return by_name.get(name) or "n:" + hashlib.md5(name.encode()).hexdigest()[:12]
 
 
+# Only a real independent expenditure counts as outside spending:
+#  - a row the state itself marks with a target and a stance (Michigan's IE
+#    rows, Georgia's IE export, Ohio's FEC rows) counts, unless it is money
+#    handed to another committee (a contribution, transfer or refund): that
+#    shows up in the recipient's own receipts, so counting it here would
+#    count the same dollars twice;
+#  - a row that only inherits its committee's affiliation (the hand-curated
+#    registries, src/registries/committees/<st>.csv) counts only when the
+#    state's own transaction type calls it an independent expenditure.
+#    Florida's data never does, and its registry lists candidate-chaired
+#    "Friends of" committees, whose spending (incl. $45.5M handed to the
+#    Republican Party of Florida in 2025-26) is not independent; all of it
+#    was counted before 2026-10-18.
+_IE_TYPE = re.compile(r"independent\s+expenditure", re.I)
+_PASS_THROUGH = re.compile(r"\b(contributions?|transfers?|refunds?)\b", re.I)
+
+
+def is_ie_type(row):
+    """True when the state's own transaction type names an IE."""
+    return bool(_IE_TYPE.search(row.get("transaction_type") or ""))
+
+
+def is_pass_through(row):
+    """True for money handed to another committee rather than spent:
+    a contribution, transfer or refund, by purpose or transaction type."""
+    text = f"{row.get('purpose') or ''} {row.get('transaction_type') or ''}"
+    return bool(_PASS_THROUGH.search(text)) and not _IE_TYPE.search(row.get("purpose") or "")
+
+
 def ie_target(row, affiliations):
-    """(target, stance) for an expenditure row, from the row itself or its
-    committee's affiliation; None when it is not an independent expenditure."""
+    """(target, stance) for a real independent expenditure, from the row
+    itself or, for rows the state types as IEs, its committee's affiliation;
+    None for anything else (see the rules above)."""
     stance = (row.get("support_oppose") or "").strip().upper()
     target = (row.get("affiliated_candidate_name") or "").strip()
     if stance in IE_STANCES and target:
-        return target, stance
+        return None if is_pass_through(row) else (target, stance)
     fid = (row.get("state_filer_id") or "").strip()
-    if fid in affiliations:
+    if fid in affiliations and is_ie_type(row) and not is_pass_through(row):
         return affiliations[fid]
     return None
 

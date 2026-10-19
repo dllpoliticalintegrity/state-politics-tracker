@@ -102,9 +102,32 @@ class Affiliations(unittest.TestCase):
         aff = ie.committee_affiliations(COMMITTEES)
         row = exp("1911", "2026-03-01", 100, "Paton for Georgia", "S")
         self.assertEqual(ie.ie_target(row, aff), ("Paton for Georgia", "S"))
-        plain = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": ""}
+        plain = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                 "transaction_type": "Independent Expenditures"}
         self.assertEqual(ie.ie_target(plain, aff), ("BURT JONES", "S"))
         self.assertIsNone(ie.ie_target({"state_filer_id": "76", "support_oppose": ""}, aff))
+
+    def test_only_real_independent_expenditures_count(self):
+        aff = ie.committee_affiliations(COMMITTEES)
+        # A committee-level affiliation alone is not enough: the row's own
+        # type must say IE (Florida's "Friends of" committees never do).
+        for ttype in ("MON", "Direct Expenditures", "", "Fundraising Expenses"):
+            row = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                   "transaction_type": ttype, "purpose": "PLACED MEDIA"}
+            self.assertIsNone(ie.ie_target(row, aff), ttype)
+        # Money handed to another committee is never outside spending,
+        # whether the row is marked by the state or inherits the committee.
+        for purpose in ("CONTRIBUTION", "Transfer", "REFUND", "Contributions to committees"):
+            marked = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), purpose=purpose)
+            self.assertIsNone(ie.ie_target(marked, aff), purpose)
+            inherited = {"state_filer_id": "0606134", "support_oppose": "", "affiliated_candidate_name": "",
+                         "transaction_type": "Independent Expenditures", "purpose": purpose}
+            self.assertIsNone(ie.ie_target(inherited, aff), purpose)
+        marked = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), transaction_type="Transfer", purpose="")
+        self.assertIsNone(ie.ie_target(marked, aff))
+        # Real IEs still count.
+        ad = dict(exp("1911", "2026-03-01", 100, "Paton for Georgia", "S"), purpose="Digital ads")
+        self.assertEqual(ie.ie_target(ad, aff), ("Paton for Georgia", "S"))
 
     def test_spender_key(self):
         by_name = ie.committees_by_name(COMMITTEES)
