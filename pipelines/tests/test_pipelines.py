@@ -277,6 +277,29 @@ class ManifestTest(unittest.TestCase):
             self.assertIn(e["pipeline"], ("slcf", "pilot", "tec", "calaccess", "none"), st)
         self.assertEqual(states["ca"]["pipeline"], "calaccess")
 
+    def test_arizona_small_gift_lumps_are_individuals(self):
+        # "Multiple Contributors": a period's lump sum of in-state gifts of
+        # $100 or less, which SeeTheMoney reports without donor names.
+        az = set(json.loads((PIPELINES / "states.json").read_text())["states"]["az"]["individual_types"])
+        for raw in ("In-State Contributions $100 or Less", "Refund Contribution Less than $50"):
+            self.assertEqual(mapping.contributor_type(raw, "Multiple Contributors", az), "INDIVIDUAL")
+        self.assertEqual(mapping.contributor_type("Contribution from PACs", "Some PAC", az), "ENTITY")
+
+    def test_arizona_lumps_take_the_unitemized_label_whatever_the_filer_named_them(self):
+        az = json.loads((PIPELINES / "states.json").read_text())["states"]["az"]
+        for name in ("Multiple Contributors", "Multiple Vendors"):
+            row = {"contributor_name": name, "contributor_type": "In-State Contributions $100 or Less",
+                   "transaction_type": "In-State Contributions $100 or Less", "amount": "513371.38",
+                   "date": "2026-09-30"}
+            table, out = mapping.to_cf("contributions", row, set(az["individual_types"]),
+                                       az["category_field"], az["unitemized"])
+            self.assertEqual((table, out["contributor_type"], out["contributor_last_name"], out["contributor_first_name"]),
+                             ("cf_contributions", "INDIVIDUAL", "Unitemized (small-dollar) contributions", None))
+        named = {"contributor_name": "Smith, Jane", "contributor_type": "Contribution from Individuals",
+                 "transaction_type": "Contribution from Individuals", "amount": "500", "date": "2026-09-30"}
+        _, out = mapping.to_cf("contributions", named, set(az["individual_types"]), az["category_field"], az["unitemized"])
+        self.assertEqual((out["contributor_last_name"], out["contributor_first_name"]), ("Smith", "Jane"))
+
     def test_schedule_covers_every_pilot_state_once(self):
         # Every state the pilot imported before the merge is still scheduled
         # by one finance pipeline; Texas never is. Michigan is in both lists:

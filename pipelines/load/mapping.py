@@ -235,7 +235,9 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
     small gifts. {"label": ..., "type": ...}: nameless ones get
     contributor_last_name = the label and contributor_type = `type` (null in
     GA, ENTITY in AR), so the individual / organisation split and the donor
-    lists don't move. {"form_type": ...}: unitemized rows that aren't in-kind
+    lists don't move. "raw_types": raw transaction types (lower-cased) that
+    are always such a lump, whatever name the filer gave it (AZ's "In-State
+    Contributions $100 or Less"). {"form_type": ...}: unitemized rows that aren't in-kind
     get that source_form_type (AL: "NON-ITEMIZED").
 
     type_from_name_parts (states.json): the state gives no contributor type
@@ -264,7 +266,12 @@ def to_cf(table, row, individual_types=None, category_field="category", unitemiz
         else:
             last, first = split_name(name, ctype != "ENTITY")
         label = (unitemized or {}).get("label")
-        if label and name in (None, label) and not text(row.get("contributor_first")) \
+        lump_types = (unitemized or {}).get("raw_types") or ()
+        if label and (row.get("transaction_type") or "").strip().lower() in lump_types:
+            # The state's own type for a lump sum, whatever name the filer
+            # typed (Arizona: "Multiple Contributors", "Multiple Vendors").
+            ctype, last, first = unitemized.get("type"), label, None
+        elif label and name in (None, label) and not text(row.get("contributor_first")) \
                 and (name == label or is_unitemized(row.get("transaction_type"))):
             ctype, last, first = unitemized.get("type"), label, None
         if not loan_record and is_loan_receipt(row.get("transaction_type")):
