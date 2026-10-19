@@ -124,5 +124,102 @@ class Build(unittest.TestCase):
         self.assertEqual(stats["unresolved"], 1)
 
 
+class Settle(unittest.TestCase):
+    def test_only_unsettled_statuses_move(self):
+        self.assertEqual(roster.settle("active", "not_on_ballot"), "not_on_ballot")
+        self.assertEqual(roster.settle(None, "won_primary"), "won_primary")
+        self.assertIsNone(roster.settle("active", "active"))
+        self.assertIsNone(roster.settle("won_primary", "not_on_ballot"))   # curated / settled
+        self.assertIsNone(roster.settle("withdrawn", "won_primary"))
+
+
+class BallotStatus(unittest.TestCase):
+    def test_only_a_ballot_sourced_race_settles_and_blank_is_not_off_ballot(self):
+        self.assertEqual(roster.ballot_status(None, False, False, "Republican"), "active")   # no source
+        self.assertEqual(roster.ballot_status(None, None, True, "Republican"), "active")     # blank
+        self.assertEqual(roster.ballot_status(None, False, True, "Republican"), "not_on_ballot")
+        self.assertEqual(roster.ballot_status(None, True, True, "Democrat"), "won_primary")
+        self.assertEqual(roster.ballot_status(None, True, True, "Green"), "nominee")
+        self.assertEqual(roster.ballot_status("eliminated", None, True, None), "lost_primary")
+
+
+class Statewide(unittest.TestCase):
+    """Arizona Secretary of State, 2026-10-18: Collier missing, Kolodin's
+    committee unlinked, Swoboda off the ballot."""
+
+    def plan(self, live):
+        races = [{"race_id": "sos", "office": "secretary-of-state"}]
+        participants = [
+            {"race_id": "sos", "candidate_id": "f", "candidate_name": "Adrian Fontes", "party": "Democratic",
+             "disposition": "Renominated", "on_ballot": True, "source": "greenpapers"},
+            {"race_id": "sos", "candidate_id": "k", "candidate_name": "Alex Kolodin", "party": "Republican",
+             "disposition": None, "on_ballot": True, "source": "greenpapers"},
+            {"race_id": "sos", "candidate_id": "c", "candidate_name": "Duwayne Collier", "party": "Green",
+             "disposition": None, "on_ballot": True, "source": "greenpapers"},
+            {"race_id": "sos", "candidate_id": "s", "candidate_name": "Gina Swoboda", "party": None,
+             "disposition": "Not listed by Green Papers", "on_ballot": False, "source": None},
+            {"race_id": "sos", "candidate_id": "g", "candidate_name": "Mark Gordon", "party": None,
+             "disposition": "Not listed by Green Papers", "on_ballot": False, "source": None},
+        ]
+        candidates = [
+            {"candidate_id": "f", "candidate_name": "Adrian Fontes", "party": ["Democratic"],
+             "state_filer_id": "100622", "committee_name": ["Fontes for AZ"]},
+            {"candidate_id": "k", "candidate_name": "Alex Kolodin", "party": ["Republican"],
+             "state_filer_id": "100625", "committee_name": ["Alex For Arizona"]},
+            {"candidate_id": "c", "candidate_name": "Duwayne Collier", "party": ["Green"],
+             "state_filer_id": "102163", "committee_name": ["Duwayne Collier for Secretary of State"]},
+            {"candidate_id": "s", "candidate_name": "Gina Swoboda", "party": None,
+             "state_filer_id": "102117", "committee_name": ["Gina Swoboda for Arizona Secretary of State"]},
+            {"candidate_id": "g", "candidate_name": "Mark Gordon", "party": None,
+             "state_filer_id": "201800312", "committee_name": None},
+        ]
+        resolver = roster.FilerResolver([{"state_filer_id": i} for i in ("100622", "100625", "102163", "102117")])
+        return roster.plan_statewide("az", races, participants, candidates, live, resolver)
+
+    def test_arizona_secretary_of_state(self):
+        live = [
+            {"id": "1", "slug": "adrian-fontes", "name": "Adrian Fontes", "office": "secretary-of-state",
+             "party": "Democrat", "status": "active", "filer_refs": ["az:100622"]},
+            {"id": "2", "slug": "alexander-kolodin", "name": "Alexander Kolodin", "office": "secretary-of-state",
+             "party": "Republican", "status": "active", "filer_refs": []},
+            {"id": "3", "slug": "gina-swoboda", "name": "Gina Swoboda", "office": "secretary-of-state",
+             "party": "Republican", "status": "active", "filer_refs": ["az:102117"]},
+        ]
+        inserts, updates, stats = self.plan(live)
+        self.assertEqual([r["slug"] for r in inserts], ["duwayne-collier-az"])
+        c = inserts[0]
+        self.assertEqual((c["party"], c["status"], c["filer_refs"]), ("Green", "nominee", ["az:102163"]))
+        patches = {slug: patch for _, patch, slug in updates}
+        self.assertEqual(patches["alexander-kolodin"], {"status": "won_primary", "filer_refs": ["az:100625"]})
+        self.assertEqual(patches["adrian-fontes"], {"status": "won_primary"})
+        self.assertEqual(patches["gina-swoboda"], {"status": "not_on_ballot"})
+        self.assertEqual(stats["skipped_off_ballot"], 1)   # Mark Gordon: never added
+
+    def test_surname_match_needs_the_first_initial(self):
+        self.assertEqual(roster.name_key("Alex Kolodin"), roster.name_key("Alexander Kolodin"))
+        self.assertNotEqual(roster.name_key("Rick Jackson"), roster.name_key("Olu Jackson"))
+
+    def test_a_namesake_with_another_first_name_is_held_for_review(self):
+        live = [{"id": "7", "slug": "duwayne-x", "name": "Bob Collier", "office": "secretary-of-state",
+                 "party": None, "status": "active", "filer_refs": []}]
+        inserts, updates, stats = self.plan(live)
+        self.assertNotIn("duwayne-collier-az", [r["slug"] for r in inserts])
+        self.assertEqual(stats["possible_duplicate"], 1)
+
+    def test_curated_status_and_claimed_refs_are_left_alone(self):
+        live = [
+            {"id": "3", "slug": "gina-swoboda", "name": "Gina Swoboda", "office": "secretary-of-state",
+             "party": "Republican", "status": "nominee", "filer_refs": ["az:102117"]},
+            # Another office's candidate already holds Collier's committee id.
+            {"id": "9", "slug": "someone-else", "name": "Someone Else", "office": "attorney-general",
+             "party": None, "status": "nominee", "filer_refs": ["az:102163"]},
+        ]
+        inserts, updates, stats = self.plan(live)
+        self.assertNotIn("gina-swoboda", {slug for _, _, slug in updates})
+        collier = next(r for r in inserts if r["slug"] == "duwayne-collier-az")
+        self.assertEqual(collier["filer_refs"], [])        # 102163 already held
+        self.assertGreaterEqual(stats["ref_conflict"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

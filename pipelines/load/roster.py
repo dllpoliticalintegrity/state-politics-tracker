@@ -1,5 +1,6 @@
 """
-Legislative rosters from the Local Politics Tracker (LPT) -> cf_candidates.
+Rosters from the Local Politics Tracker (LPT) -> cf_candidates: every
+legislative race, and the statewide races the tracker already covers.
 
 Henry's LPT project lists every 2026 state-senate / state-representative race
 (races.office_num = the real district number) with its participants and their
@@ -27,6 +28,18 @@ already held by another candidate, or used by the scrape for more than one
 committee are refused and logged. An LPT failure skips the roster, never the
 finance load.
 
+Status: a candidate still "active" (no ballot listing has settled them)
+takes LPT's settled status — off the ballot, lost the primary, or on the
+November ballot — so Henry's ballot updates (The Green Papers, the states'
+certified lists) reach us on the next run. A status anyone has set to
+something other than "active" is never changed.
+
+Statewide races (sync_statewide): only offices the state already has in
+cf_candidates (LPT lists a few stray people under unrelated offices). An
+existing candidate is matched by committee, then by surname within the
+office ("Alex" vs "Alexander Kolodin"); a missing committee ref is filled.
+A new candidate is added only when LPT has them on the ballot.
+
 LPT is read with its publishable (anon) key; writes go through rest.py with
 the tracker's service key.
 """
@@ -47,6 +60,38 @@ CYCLE = 2026
 _PUNCT = re.compile(r"[^A-Z0-9 ]+")
 _KNOWN_STATUS = {"active", "won_primary", "nominee", "lost_primary", "withdrawn",
                  "disqualified", "not_on_ballot"}
+LEGISLATIVE = ("state-senate", "state-house")
+
+
+def ballot_status(disposition, on_ballot, confirmed, cand_party):
+    """The settled status LPT's ballot data supports, or "active" when it
+    supports none. Only a race whose list came from a ballot source
+    (`confirmed`) settles anyone, and a blank on_ballot never counts as off
+    the ballot: an incomplete list must not knock a real candidate off."""
+    if not confirmed:
+        return "active"
+    d = (disposition or "").strip().lower()
+    if d in _KNOWN_STATUS and d != "active":
+        return d
+    if d == "eliminated":
+        return "lost_primary"
+    if d in ("dropped_out", "dropped out"):
+        return "withdrawn"
+    if on_ballot is True:
+        return "won_primary" if cand_party in ("Democrat", "Republican") else "nominee"
+    if on_ballot is False:
+        return "not_on_ballot"
+    return "active"
+
+
+def settle(cur_status, new_status):
+    """The status to write over cur_status, or None. Only an unset or
+    "active" (unsettled) status is replaced, and only by a settled one."""
+    if cur_status not in (None, "", "active"):
+        return None
+    if not new_status or new_status == "active" or new_status == cur_status:
+        return None
+    return new_status
 
 
 def lpt_get(path, page=1000):
@@ -192,6 +237,7 @@ def build_roster(st, races, participants, candidates, resolver):
     """cf_candidates rows for LPT's 2026 legislative participants."""
     race_by_id = {r["race_id"]: r for r in races}
     cand_by_id = {c["candidate_id"]: c for c in candidates}
+    confirmed = {p["race_id"] for p in participants if p.get("source")}
     out = {}
     stats = defaultdict(int)
     for p in participants:
@@ -231,6 +277,10 @@ def build_roster(st, races, participants, candidates, resolver):
             "committee_name": committees[0] if committees else None,
             "filer_refs": [f"{st}:{fid}"] if fid else [],
             "featured": False,
+            # What an existing row's unsettled status may move to (settle()).
+            "_settled": ballot_status(p.get("disposition"), p.get("on_ballot"),
+                                      p["race_id"] in confirmed,
+                                      party(p.get("party") or cand.get("party"))),
         }
     return list(out.values()), dict(stats)
 
@@ -246,7 +296,7 @@ def fetch_lpt(st):
         chunk = ",".join(ids[i:i + 150])
         participants += lpt_get(
             "race_participants?select=race_id,candidate_id,candidate_name,party,disposition,"
-            f"on_ballot&race_id=in.({chunk})&order=race_id")
+            f"on_ballot,source&race_id=in.({chunk})&order=race_id")
     cids = sorted({p["candidate_id"] for p in participants if p.get("candidate_id")})
     candidates = []
     for i in range(0, len(cids), 150):
@@ -317,14 +367,16 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
             continue
         seen.add(row["slug"])
         cur = by_slug.get(row["slug"])
+        settled = row.pop("_settled", None)
         if cur is None:
             inserts.append(row)
             continue
-        # Status and party are editorial once a row exists (the admin curates
-        # them, as Michigan's roster leaves them): fill them only when unset.
+        # Party is editorial once a row exists (fill only when unset); status
+        # moves only from unset / "active" to a settled one (settle()).
         patch = {}
-        if not cur.get("status") and row["status"]:
-            patch["status"] = row["status"]
+        new_status = settle(cur.get("status"), settled)
+        if new_status:
+            patch["status"] = new_status
         if not cur.get("party") and row["party"]:
             patch["party"] = row["party"]
         refs = list(cur.get("filer_refs") or [])
@@ -345,16 +397,177 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=()):
         f"ambiguous ids refused, {stats.get('ref_conflict', 0)} shared refs refused); "
         f"{len(inserts)} new {dict(status_mix)}, {len(updates)} updated"
         f"{' (dry run)' if dry_run else ''}")
-    if dry_run:
-        return stats
-    for i in range(0, len(inserts), 200):
-        rest.upsert("cf_candidates", inserts[i:i + 200], conflict="slug", resolution="ignore")
+    if not dry_run:
+        for i in range(0, len(inserts), 200):
+            rest.upsert("cf_candidates", inserts[i:i + 200], conflict="slug", resolution="ignore")
+        patch_rows(updates)
+    try:
+        stats["statewide"] = sync_statewide(st, resolver, dry_run=dry_run, log=log)
+    except Exception as e:  # noqa: BLE001 — never cost the finance load
+        log(f"   statewide roster: skipped ({type(e).__name__}: {e})")
+    return stats
+
+
+def patch_rows(updates):
     for cid, patch in updates:
         rest.http(f"{rest.SUPABASE_URL}/rest/v1/cf_candidates?id=eq.{parse.quote(cid)}",
                   data=json.dumps(patch).encode(), method="PATCH",
                   headers=rest._headers({"Content-Type": "application/json",
                                          "Prefer": "return=minimal"}))
-    return stats
+
+
+# ─── Statewide races ──────────────────────────────────────────────────────
+
+def name_key(name):
+    """(surname, first initial) in comparison form: "Alex Kolodin" and
+    "Alexander Kolodin" agree, two different Jacksons do not."""
+    words = [w for w in norm(display_name(name) or name or "").split()
+             if w not in {"JR", "SR", "II", "III", "IV"}]
+    return (words[-1], words[0][:1]) if words else ("", "")
+
+
+def fetch_lpt_statewide(st, offices):
+    up = st.upper()
+    office_list = ",".join(sorted(offices))
+    races = lpt_get(f"races?select=race_id,office&state_id=eq.{up}&year=eq.{CYCLE}"
+                    f"&office=in.({office_list})&order=race_id")
+    ids = [r["race_id"] for r in races]
+    participants, candidates = [], []
+    if ids:
+        participants = lpt_get(
+            "race_participants?select=race_id,candidate_id,candidate_name,party,disposition,"
+            f"on_ballot,source&race_id=in.({','.join(ids)})&order=race_id")
+        cids = sorted({x["candidate_id"] for x in participants if x.get("candidate_id")})
+        for i in range(0, len(cids), 150):
+            candidates += lpt_get(
+                "candidates?select=candidate_id,candidate_name,party,state_filer_id,committee_name"
+                f"&candidate_id=in.({','.join(cids[i:i + 150])})&order=candidate_id")
+    return races, participants, candidates
+
+
+def plan_statewide(st, races, participants, candidates, live, resolver, claimed_rows=None):
+    """(inserts, updates, stats) for one state's statewide races.
+    live: the state's statewide cf_candidates rows; resolver: FilerResolver;
+    claimed_rows: every cf_candidates row in the state (default `live`), so a
+    committee already held by a legislative row is never given to a second
+    candidate."""
+    race_by_id = {r["race_id"]: r for r in races}
+    cand_by_id = {c["candidate_id"]: c for c in candidates}
+    # A race whose list came from a ballot source (The Green Papers, a state's
+    # certified list) has settled who is on the ballot.
+    confirmed = {x["race_id"] for x in participants if x.get("source")}
+    claimed = {}
+    for r in (claimed_rows if claimed_rows is not None else live):
+        for ref in r.get("filer_refs") or []:
+            claimed.setdefault(ref, r["slug"])
+    all_slugs = {r["slug"] for r in (claimed_rows if claimed_rows is not None else live)}
+    by_office = defaultdict(list)
+    for r in live:
+        by_office[r["office"]].append(r)
+    inserts, updates = [], []
+    stats = defaultdict(int)
+    seen = set()
+    for x in participants:
+        race = race_by_id.get(x["race_id"])
+        if not race:
+            continue
+        office = race["office"]
+        cand = cand_by_id.get(x.get("candidate_id")) or {}
+        raw = cand.get("candidate_name") or x.get("candidate_name")
+        name = display_name(raw)
+        if not name or (office, name) in seen:
+            continue
+        seen.add((office, name))
+        committees = cand.get("committee_name") or []
+        if isinstance(committees, str):
+            committees = [committees]
+        fid = resolver.resolve(cand.get("state_filer_id"), committees, raw)
+        ref = f"{st}:{fid}" if fid else None
+        on_ballot = x.get("on_ballot")
+        cand_party = party(x.get("party") or cand.get("party"))
+        lpt_status = ballot_status(x.get("disposition"), on_ballot, x["race_id"] in confirmed, cand_party)
+        # Match an existing row: committee, then surname within the office.
+        pool = by_office.get(office, [])
+        hit = next((r for r in pool if ref and ref in (r.get("filer_refs") or [])), None)
+        if hit is None:
+            same = [r for r in pool if name_key(r["name"]) == name_key(name)]
+            hit = same[0] if len(same) == 1 else None
+        if hit is not None:
+            patch = {}
+            new_status = settle(hit.get("status"), lpt_status)
+            if new_status:
+                patch["status"] = new_status
+            if not hit.get("party") and cand_party:
+                patch["party"] = cand_party
+            refs = list(hit.get("filer_refs") or [])
+            if ref and ref not in refs:
+                owner = claimed.get(ref)
+                if owner and owner != hit["slug"]:
+                    stats["ref_conflict"] += 1
+                else:
+                    patch["filer_refs"] = refs + [ref]
+                    claimed[ref] = hit["slug"]
+            if patch:
+                updates.append((hit["id"], patch, hit["slug"]))
+            continue
+        if on_ballot is not True:
+            stats["skipped_off_ballot"] += 1
+            continue
+        if (cand_party or "").replace("-", " ").lower() == "write in":
+            stats["skipped_write_in"] += 1          # not printed on the ballot
+            continue
+        # Same surname as someone already in the race but a different first
+        # initial ("Robert" vs "Brian Strickland", one committee): likely the
+        # same person under another name. Never guess; leave it for review.
+        twin = next((r for r in pool if name_key(r["name"])[0] == name_key(name)[0]), None)
+        if twin is not None:
+            stats["possible_duplicate"] += 1
+            stats.setdefault("review", []).append(f"{name} ({office}) vs {twin['slug']}")
+            continue
+        if ref and claimed.get(ref):
+            stats["ref_conflict"] += 1
+            ref = None
+        base = name_slug(name)
+        slug = next(s for s in [f"{base}-{st}", f"{base}-{st}-{office}"]
+                    + [f"{base}-{st}-{office}-{n}" for n in range(2, 100)] if s not in all_slugs)
+        all_slugs.add(slug)
+        if ref:
+            claimed[ref] = slug
+        inserts.append({
+            "state": st, "office": office, "district": None, "slug": slug, "name": name,
+            "party": cand_party, "election_year": CYCLE,
+            "status": lpt_status, "committee_name": committees[0] if committees else None,
+            "filer_refs": [ref] if ref else [], "featured": False,
+        })
+    return inserts, updates, dict(stats)
+
+
+def sync_statewide(st, resolver, dry_run=False, log=print):
+    live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,office,party,status,filer_refs&order=id")
+    statewide = [r for r in live if r.get("office") not in LEGISLATIVE]
+    offices = {r["office"] for r in statewide}
+    if not offices:
+        return {}
+    races, participants, candidates = fetch_lpt_statewide(st, offices)
+    inserts, updates, stats = plan_statewide(st, races, participants, candidates, statewide, resolver,
+                                             claimed_rows=live)
+    for row in inserts:
+        log(f"   statewide roster: + {row['slug']} ({row['office']}, {row['party']}, {row['status']}, "
+            f"refs {row['filer_refs']})")
+    for _, patch, slug in updates:
+        log(f"   statewide roster: ~ {slug}: {patch}")
+    log(f"   statewide roster: {len(races)} LPT races over {sorted(offices)}; {len(inserts)} new, "
+        f"{len(updates)} updated, {stats.get('skipped_off_ballot', 0)} off-ballot and "
+        f"{stats.get('skipped_write_in', 0)} write-ins not added, "
+        f"{stats.get('ref_conflict', 0)} refs refused, {stats.get('possible_duplicate', 0)} possible "
+        f"duplicates held for review{' (dry run)' if dry_run else ''}")
+    for item in stats.get("review", []):
+        log(f"   statewide roster: review: {item}")
+    if not dry_run:
+        if inserts:
+            rest.upsert("cf_candidates", inserts, conflict="slug", resolution="ignore")
+        patch_rows([(cid, patch) for cid, patch, _ in updates])
+    return {"insert": len(inserts), "update": len(updates), **stats}
 
 
 # ─── Texas ────────────────────────────────────────────────────────────────
