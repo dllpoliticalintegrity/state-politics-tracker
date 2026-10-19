@@ -93,7 +93,10 @@ full sitemap). Nothing is forked: the state is pinned per request by the
 `shared/site.ts`), the Worker injects a `<meta name="site-state">` tag
 so the SPA agrees, and hub-style links such as `/mi/governor` redirect
 to the prefix-less path. Data, importers and design are shared with the
-hub — see `docs/plan.md`, "Dedicated single-state sites".
+hub — see `docs/plan.md`, "Dedicated single-state sites". On the hub, a
+state with a published site of its own (`state_sites`) opens that site by
+default from the landing grid and the header switcher; the tile's "View
+here" link keeps the hub's `/:state` page reachable.
 
 The dedicated sites are not separate Workers: each hostname is a custom
 domain attached to the one `state-politics-tracker` Worker in the Cloudflare
