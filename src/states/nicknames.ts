@@ -60,3 +60,19 @@ export function homeHeadline(code: string, name: string): string {
   const nick = STATE_NICKNAMES[code.toLowerCase()];
   return nick ? `Follow the Money across the ${nick}` : `Follow the Money across ${name}`;
 }
+
+/**
+ * A race page's headline: "Follow the Money in the Georgia Governor's Race";
+ * a district race drops the possessive ("… the Michigan State Senate
+ * District 11 Race").
+ */
+export function raceHeadline(stateName: string, race: { title: string; district?: string | null }): string {
+  return race.district
+    ? `Follow the Money in the ${stateName} ${race.title} Race`
+    : `Follow the Money in the ${stateName} ${race.title}'s Race`;
+}
+
+/** A legislative chamber overview's headline: "Follow the Money in the Michigan State Senate". */
+export function chamberHeadline(stateName: string, chamberTitle: string): string {
+  return `Follow the Money in the ${stateName} ${chamberTitle}`;
+}

@@ -1,3 +1,4 @@
+import { chamberHeadline } from "@/states/nicknames";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import DistrictMap from "@/components/DistrictMap";
@@ -45,7 +46,7 @@ export default function Chamber({ chamber }: { chamber: ChamberConfig }) {
           {`${year} ${stateCfg.name} ${chamber.title} races`}
         </p>
         <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight leading-tight">
-          {`Who's paying for the ${stateCfg.name} ${chamber.title}`}
+          {chamberHeadline(stateCfg.name, chamber.title)}
         </h1>
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           {`Campaign finance for ${chamberScope(chamber)}, synced nightly from the ${stateCfg.agency?.name ?? "state disclosure agency"}. Pick a district to see its candidates, donors and spending.`}
