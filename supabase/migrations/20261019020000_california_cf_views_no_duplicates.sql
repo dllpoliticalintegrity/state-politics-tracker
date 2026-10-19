@@ -26,9 +26,12 @@
 --     again as Schedule E payments (127 pairs, $1.70M): a Schedule D row with
 --     a Schedule E twin in the same filing (payee, amount, date) is dropped.
 --
+-- security_invoker is restated on each view: CREATE OR REPLACE resets view
+-- options, and these run with the caller's rights since 20261018160000.
+--
 -- Applied to the tracker project (lohxdfrxnxuxjdvvyfjc) via the Supabase MCP.
 
-create or replace view public.ca_cf_independent_expenditures as
+create or replace view public.ca_cf_independent_expenditures with (security_invoker = true) as
 select id,
   'ca:'::text || ie_committee_filer_id as ie_filer_ident,
   target_candidate_id,
@@ -47,7 +50,7 @@ where target_candidate_id is not null and ie_committee_filer_id is not null
            and coalesce(description, '') !~* 'independent\s+expenditure')
   and coalesce(description, '') !~* '(duplicate\s+payment|processed\s+in\s+error)';
 
-create or replace view public.ca_cf_contributions as
+create or replace view public.ca_cf_contributions with (security_invoker = true) as
 select d.id,
   d.candidate_id,
   'ca:'::text || d.committee_filer_id as committee_id,
@@ -106,7 +109,7 @@ join public.ca_summaries s on s.filing_id = f.filing_id and s.amend_id = f.amend
                           and s.form_type = 'A'::text and s.line_item = '2'::text
 where coalesce(s.amount_a, 0::numeric) <> 0::numeric and f.rpt_end >= '2025-01-01'::date;
 
-create or replace view public.ca_cf_expenditures as
+create or replace view public.ca_cf_expenditures with (security_invoker = true) as
 with max_amend as (
   select ca_expenditures.filing_id, max(ca_expenditures.amend_id) as max_amend_id
     from public.ca_expenditures
