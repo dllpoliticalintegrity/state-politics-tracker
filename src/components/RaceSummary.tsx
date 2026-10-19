@@ -54,7 +54,7 @@ export default function RaceSummary({
   const leaderColor = leader ? partyColor(leader.party) : undefined;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)]">
+    <div className="grid grid-cols-1 gap-4 [&>*]:min-w-0 md:grid-cols-2 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1.25fr)]">
       {/* Leader, coloured by party */}
       <Card className="p-5 flex flex-col overflow-hidden relative">
         <span className="absolute inset-y-0 left-0 w-1.5" style={{ background: leaderColor ?? "hsl(var(--border))" }} />
