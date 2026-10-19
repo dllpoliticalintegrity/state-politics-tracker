@@ -83,7 +83,8 @@ ZIP_PATH = WORK_DIR / "TEC_CF_CSV.zip"
 # --office flag; the DCE stage accepts a benefited candidate from any of these.
 # STATESEN / STATEREP since 2026-10-18: the legislature's candidates are seeded
 # into tx_candidates from the Local Politics Tracker (pipelines/load/roster.py).
-TARGET_OFFICES = ("GOVERNOR", "LTGOVERNOR", "ATTYGEN", "STATESEN", "STATEREP")
+TARGET_OFFICES = ("GOVERNOR", "LTGOVERNOR", "ATTYGEN", "COMPTROLLER", "LANDCOMM", "AGRICULTUR",
+                  "RRCOMM", "STATESEN", "STATEREP")
 
 PRIMARY_DATE = date(2026, 3, 3)
 RUNOFF_DATE = date(2026, 5, 26)

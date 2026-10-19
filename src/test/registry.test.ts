@@ -56,12 +56,15 @@ describe("state registry", () => {
     expect(legacyRedirect(ca, "/governor")).toBeNull();
   });
 
-  it("tracks Texas as a live state with its three statewide races", () => {
+  it("tracks Texas as a live state with its seven statewide races", () => {
     const tx = getState("tx")!;
     expect(tx.status).toBe("live");
     expect(tx.externalUrl).toBeUndefined();
     expect(tx.agency?.name).toBe("Texas Ethics Commission");
-    expect(tx.races!.map((r) => r.office)).toEqual(["governor", "lt-governor", "attorney-general"]);
+    expect(tx.races!.map((r) => r.office)).toEqual([
+      "governor", "lt-governor", "attorney-general",
+      "comptroller", "railroad-commissioner", "agriculture-commissioner", "land-commissioner",
+    ]);
     // Only the governor's race is polled.
     const [gov, ltgov] = tx.races!;
     expect(pollingSourceKey(gov)).toBe("fiftyplusone");

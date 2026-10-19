@@ -360,7 +360,8 @@ def main(argv=None):
                     yield row
         roster.sync_state(st, scrape_rows(), dry_run=args.dry_run,
                           committees=list(open_table(clean_dir, "committees") or []),
-                          statewide_offices=entry.get("lpt_statewide") or ())
+                          statewide_offices=entry.get("lpt_statewide") or (),
+                          unconfirmed_offices=entry.get("lpt_unconfirmed") or ())
 
     refs = candidate_refs(st)
     print(f"== loading {st} from {clean_dir} ({len(refs)} tracked committees, "
