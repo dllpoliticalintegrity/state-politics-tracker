@@ -259,6 +259,17 @@ export type DonorKind = "all" | "individual" | "pac";
 // lands in ENTITY.
 const PAC_TYPES = ["ENTITY"];
 
+/**
+ * The name the importers give a lump sum of small gifts reported without
+ * donors (Arizona's "In-State Contributions $100 or Less", California's
+ * Schedule A unitemized line). cf_top_donors groups it as one "donor"; the
+ * donor rankings leave it out (it is in every total), so that a candidate's
+ * top donor is a real one. At most one such row per candidate.
+ */
+export const UNITEMIZED_LABEL = "Unitemized (small-dollar) contributions";
+const isNamedDonor = (d: { contributor_last_name: string | null }) =>
+  d.contributor_last_name !== UNITEMIZED_LABEL;
+
 export function useTopDonors(
   candidateId: string | undefined,
   limit = 10,
@@ -280,12 +291,12 @@ export function useTopDonors(
         )
         .eq("candidate_id", candidateId)
         .order("total_amount", { ascending: false })
-        .limit(limit);
+        .limit(limit + 1); // + the unitemized row, which is dropped below
       if (kind === "individual") q = q.eq("contributor_type", "INDIVIDUAL");
       else if (kind === "pac") q = q.in("contributor_type", PAC_TYPES);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as TxAggregatedDonor[];
+      return ((data ?? []) as TxAggregatedDonor[]).filter(isNamedDonor).slice(0, limit);
     },
   });
 }
@@ -355,7 +366,7 @@ async function fetchTrackerRaceTopDonors(
   else if (kind === "pac") q = q.in("contributor_type", PAC_TYPES);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as TxAggregatedDonor[];
+  return ((data ?? []) as TxAggregatedDonor[]).filter(isNamedDonor);
 }
 
 export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
