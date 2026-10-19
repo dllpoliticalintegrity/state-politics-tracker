@@ -84,9 +84,11 @@ export function useLatestContributions(limit = 20, minAmount?: number) {
             .limit(limit),
         ),
       );
-      const failed = results.find((r) => r.error);
-      if (failed) throw failed.error;
-      const data = results
+      // One candidate's query failing (a cold-cache timeout) drops only that
+      // candidate's gifts; the ticker fails only when every query does.
+      const ok = results.filter((r) => !r.error);
+      if (ok.length === 0) throw results[0].error;
+      const data = ok
         .flatMap((r) => (r.data ?? []) as any[])
         .sort((a, b) => String(b.contribution_date).localeCompare(String(a.contribution_date)))
         .slice(0, limit);
