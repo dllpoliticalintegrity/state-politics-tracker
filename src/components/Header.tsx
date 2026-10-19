@@ -97,12 +97,13 @@ function useSiteMenu(navRaces: RaceConfig[]) {
   const officeIdx = stateBase ? 2 : 1;
   const currentOffice = pathname.split("/")[officeIdx];
   const items = [
+    { to: stateBase || "/", label: "Overview", key: "" },
     ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
     ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
     { to: `${stateBase}/committees`, label: "Committees", key: "committees" },
     { to: `${stateBase}/about`, label: "About", key: "about" },
   ];
-  return items.map((i) => ({ ...i, active: currentOffice === i.key }));
+  return items.map((i) => ({ ...i, active: (currentOffice ?? "") === i.key }));
 }
 
 export function Header() {
