@@ -32,6 +32,7 @@ import MoneyRiver from "./pages/MoneyRiver";
 import Polling from "./pages/Polling";
 import About from "./pages/About";
 import Overview from "./pages/Overview";
+import FloatingDonate from "./components/FloatingDonate";
 import Committees from "./pages/Committees";
 import CandidateRedirect from "./pages/CandidateRedirect";
 import NotFound from "./pages/NotFound";
@@ -193,6 +194,7 @@ function AppShell() {
         )}
       </Routes>
       <Footer />
+      <FloatingDonate />
     </>
   );
 }
