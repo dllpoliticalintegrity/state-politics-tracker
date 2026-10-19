@@ -26,7 +26,7 @@ export default function RaceSubnav() {
 
   return (
     <div className="border-b bg-card/60">
-      <div className="container flex items-center gap-4 overflow-x-auto scrollbar-hide">
+      <div className="container flex flex-wrap items-center gap-x-4 sm:flex-nowrap">
         {chamber && (
           <Link
             to={`${statePath(state.code)}/${chamber.office}`}
@@ -39,7 +39,7 @@ export default function RaceSubnav() {
         <div className="text-sm font-semibold whitespace-nowrap shrink-0 py-2.5 pr-2 border-r hidden sm:block">
           {race.title}
         </div>
-        <nav aria-label={`${race.title} sections`} className="flex gap-5 -mb-px">
+        <nav aria-label={`${race.title} sections`} className="flex w-full justify-between gap-3 sm:w-auto sm:justify-start sm:gap-5 -mb-px">
           {tabs.map((t) => (
             <NavLink
               key={t.to}

@@ -105,11 +105,11 @@ export default function RaceSummary({
           earlier years.
         </p>
         <dl className="mt-4 space-y-3">
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">Raised</dt>
             <dd className="font-display text-2xl font-bold tabular-nums">{loading ? "…" : usd(raised)}</dd>
           </div>
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <dt className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">Spent</dt>
             <dd className="font-display text-2xl font-bold tabular-nums">{loading ? "…" : usd(spent)}</dd>
           </div>
@@ -186,7 +186,7 @@ function DonutCard({
                       <Cell key={s.key} fill={s.color} />
                     ))}
                 </Pie>
-                <Tooltip formatter={(v: number, n: string) => [usd(v), n]} />
+                <Tooltip position={{ x: 0, y: 0 }} wrapperClassName="max-w-[calc(100vw-6rem)] whitespace-normal" formatter={(v: number, n: string) => [usd(v), n]} />
               </PieChart>
             </ResponsiveContainer>
           </div>

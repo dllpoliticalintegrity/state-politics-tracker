@@ -132,7 +132,7 @@ export default function CandidateDetail() {
     <div className="min-h-[80vh]">
       <div className="container py-8 space-y-6">
         {/* Breadcrumb */}
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
           <Link to={`${raceBase}/candidates`} className="hover:text-foreground">
             Candidates
           </Link>
@@ -165,7 +165,7 @@ export default function CandidateDetail() {
                   .toUpperCase()}
               </div>
             )}
-            <div className="flex-1 space-y-2">
+            <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span
                   className="text-[11px] font-semibold px-1.5 py-0.5 rounded-sm"
@@ -209,7 +209,7 @@ export default function CandidateDetail() {
                         href={l.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+                        className="inline-flex max-w-full flex-wrap items-center gap-1 text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
                       >
                         <span className="font-semibold">{l.label}</span>
                         <span className="font-mono">{l.handle}</span>
@@ -220,7 +220,7 @@ export default function CandidateDetail() {
                 </ul>
               )}
             </div>
-            <div className="flex gap-4 md:gap-6">
+            <div className="flex flex-wrap gap-4 md:gap-6">
               {(() => {
                 const pct = readCandidatePct(polling?.average, candidate.name, candidate.id);
                 return <Stat label="Poll average" value={pct !== null ? `${pct}%` : "—"} />;
@@ -309,7 +309,7 @@ export default function CandidateDetail() {
                   Independent expenditures by committees targeting this candidate.
                 </p>
               </div>
-              <div className="flex gap-6">
+              <div className="flex flex-wrap gap-6">
                 <div className="text-right">
                   <div className="font-mono font-semibold text-xl tabular-nums text-success">
                     {formatCurrency(ieSupporting)}
@@ -457,7 +457,7 @@ export default function CandidateDetail() {
             </Card>
             {loans && loans.length > 0 && (
               <Card className="p-4 md:p-6">
-                <h2 className="font-display text-lg font-semibold mb-4 flex items-baseline">
+                <h2 className="font-display text-lg font-semibold mb-4 flex flex-wrap items-baseline gap-2">
                   Self-funding & loans
                   <span className="ml-auto text-xs font-sans font-normal text-muted-foreground tabular-nums">
                     {formatCurrencyFull(totalLoans)}
@@ -582,7 +582,7 @@ function SourceBar({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
         <span>{label}</span>
         <span className="font-mono tabular-nums">
           <span className="font-semibold">{formatCurrency(value)}</span>

@@ -5,6 +5,7 @@ import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useCandidateSearch } from "@/hooks/useCandidateSearch";
 import { partyColor, partyLabel } from "@/lib/finance";
 import { MIN_QUERY, cleanQuery } from "@/lib/candidateSearch";
@@ -12,11 +13,14 @@ import { MIN_QUERY, cleanQuery } from "@/lib/candidateSearch";
 export default function CandidateSearch({
   states,
   placeholder,
+  mobilePlaceholder,
   className = "",
 }: {
   /** Two-letter codes to search. */
   states: string[];
   placeholder: string;
+  /** Shorter hint for phone widths. */
+  mobilePlaceholder?: string;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
@@ -25,6 +29,7 @@ export default function CandidateSearch({
   const { results, isFetching, ready } = useCandidateSearch(query, states);
   const navigate = useNavigate();
   const listId = useId();
+  const isMobile = useIsMobile();
   const inputRef = useRef<HTMLInputElement>(null);
   const showList = open && cleanQuery(query).length >= MIN_QUERY;
 
@@ -72,7 +77,7 @@ export default function CandidateSearch({
         autoComplete="off"
         spellCheck={false}
         value={query}
-        placeholder={placeholder}
+        placeholder={isMobile && mobilePlaceholder ? mobilePlaceholder : placeholder}
         onChange={(e) => {
           setQuery(e.target.value);
           setActive(0);
@@ -90,7 +95,7 @@ export default function CandidateSearch({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-40 mt-1.5 w-full overflow-hidden rounded-md border bg-popover shadow-lg"
+          className="relative z-[60] mt-1.5 max-h-[40dvh] w-full overflow-y-auto overscroll-contain rounded-md border bg-popover shadow-lg sm:absolute sm:max-h-[min(24rem,50dvh)]"
         >
           {results.map((r, i) => (
             <li key={r.href} id={`${listId}-${i}`} role="option" aria-selected={i === active}>
@@ -111,10 +116,10 @@ export default function CandidateSearch({
                   role="img"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className={`block truncate font-medium ${r.offBallot ? "text-muted-foreground" : ""}`}>
+                  <span className={`block break-words font-medium ${r.offBallot ? "text-muted-foreground" : ""}`}>
                     {r.name}
                   </span>
-                  <span className="block truncate text-xs text-muted-foreground">
+                  <span className="block break-words text-xs text-muted-foreground">
                     {r.context}
                     {r.statusLabel ? ` · ${r.statusLabel}` : ""}
                   </span>
@@ -123,7 +128,7 @@ export default function CandidateSearch({
             </li>
           ))}
           {ready && !isFetching && results.length === 0 && (
-            <li className="px-3.5 py-3 text-sm text-muted-foreground">No candidates match “{cleanQuery(query)}”.</li>
+            <li className="break-words px-3.5 py-3 text-sm text-muted-foreground">No candidates match “{cleanQuery(query)}”.</li>
           )}
         </ul>
       )}

@@ -143,9 +143,9 @@ export default function PollingChart() {
   }
 
   return (
-    <div className="w-full h-[320px] md:h-[420px]">
+    <div className="min-w-0 w-full h-[320px] md:h-[420px]">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
+        <LineChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" opacity={0.4} />
           <XAxis
             dataKey="date"
@@ -161,9 +161,10 @@ export default function PollingChart() {
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "Inter" }}
             stroke="hsl(var(--border))"
             domain={[0, "dataMax + 5"]}
-            width={36}
+            width={40}
           />
           <Tooltip
+            position={{ x: 0, y: 0 }}
             cursor={{ stroke: "hsl(var(--muted-foreground))", strokeDasharray: "3 3" }}
             content={({ active, payload, label }) => {
               if (!active || !payload || payload.length === 0) return null;
@@ -179,18 +180,7 @@ export default function PollingChart() {
                 .filter((p) => typeof p.value === "number")
                 .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
               return (
-                <div
-                  style={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                    fontFamily: "Inter",
-                    fontSize: 12,
-                    padding: "10px 12px",
-                    minWidth: 200,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
-                  }}
-                >
+                <div className="w-52 max-w-[calc(100vw-6rem)] rounded-md border bg-card p-3 font-sans text-xs shadow-md whitespace-normal">
                   <div
                     style={{
                       fontSize: 10,
@@ -242,7 +232,7 @@ export default function PollingChart() {
                             }}
                           />
                         )}
-                        <span style={{ color: "hsl(var(--card-foreground))", flex: 1, whiteSpace: "nowrap" }}>
+                        <span className="min-w-0 flex-1 break-words text-card-foreground">
                           {lastName}
                         </span>
                         <span
@@ -271,6 +261,7 @@ export default function PollingChart() {
                 : value;
               return (
                 <span
+                  className="whitespace-normal break-words"
                   style={{
                     color: "hsl(var(--foreground))",
                     opacity: s?.withdrawn ? 0.5 : 1,

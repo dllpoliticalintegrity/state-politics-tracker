@@ -40,7 +40,7 @@ export default function StatePicker() {
         <p className="text-base text-muted-foreground max-w-xl mx-auto">
           State-level polling averages, campaign spending, and Super PAC spending — synced from each state's disclosure agency and FiftyPlusOne.
         </p>
-        <CandidateSearch states={SEARCH_STATES} placeholder="Search any candidate by name" className="pt-2" />
+        <CandidateSearch states={SEARCH_STATES} placeholder="Search any candidate by name" mobilePlaceholder="Search candidates" className="pt-2" />
         <MidtermsCountdown />
         <CongressLookup />
       </section>

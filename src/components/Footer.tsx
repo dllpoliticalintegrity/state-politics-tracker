@@ -43,7 +43,7 @@ export function Footer() {
               </a>
             </p>
           </div>
-          <nav aria-label="Footer" className="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
+          <nav aria-label="Footer" className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 text-sm break-words md:gap-x-10">
             {links.map(({ to, label }) => (
               <Link key={to} to={to} className="text-muted-foreground hover:text-foreground">
                 {label}

@@ -44,6 +44,7 @@ export default function Overview() {
           <CandidateSearch
             states={[state.code]}
             placeholder={`Search any ${state.name} candidate by name`}
+            mobilePlaceholder="Search candidates"
             className="pt-2"
           />
         )}

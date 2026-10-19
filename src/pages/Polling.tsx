@@ -147,7 +147,7 @@ export default function Polling() {
                     {cand.party ?? "—"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate">{cand.name}</div>
+                    <div className="text-sm break-words">{cand.name}</div>
                     <div className="font-mono font-semibold tabular-nums">{avgPct}%</div>
                   </div>
                 </div>
@@ -214,7 +214,7 @@ export default function Polling() {
                     {Object.entries(g.pcts)
                       .sort((a, b) => b[1] - a[1])
                       .map(([s, p]) => (
-                        <span key={s} className="tabular-nums">
+                        <span key={s} className="min-w-0 break-words tabular-nums">
                           <span className="text-muted-foreground">{s}</span>{" "}
                           <span className="font-semibold">{p}%</span>
                         </span>
