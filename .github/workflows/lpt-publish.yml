@@ -1,8 +1,8 @@
 name: LPT publish
 
 # Nightly: refreshes the hub caches in the Local Politics Tracker project
-# for the states the site still reads from Henry's tables (Oregon, as of
-# 2026-10-18), after his weekday 15:00 UTC refresh.
+# for the states the site still reads from Henry's tables (Oregon and Iowa,
+# as of 2026-10-18), after his weekday 15:00 UTC refresh.
 #
 # On manual dispatch with a state list it also runs the bridge: copies that
 # state's settled cf_* rows from the tracker into LPT's <st>_* tables
@@ -80,11 +80,18 @@ jobs:
         env:
           LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
           LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
-          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'OR' }}
+          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'OR IA' }}
         run: |
           if [ -z "$LPT_SERVICE_ROLE_KEY" ]; then exit 0; fi
-          arr=$(printf '"%s",' $HIS_STATES); arr="[${arr%,}]"
-          curl -fsS -X POST "${LPT_SUPABASE_URL}/rest/v1/rpc/hub_refresh_cache" \
-            -H "apikey: ${LPT_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${LPT_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" -m 3600 \
-            -d "{\"p_states\": ${arr}}"
+          # One call per state: the refresh is one transaction, and PostgREST
+          # cancels a service-role statement after 30 s, so a slow state
+          # (Iowa took 69 s on 2026-10-18) must not roll back the others.
+          status=0
+          for st in $HIS_STATES; do
+            echo "refreshing $st"
+            curl -fsS -X POST "${LPT_SUPABASE_URL}/rest/v1/rpc/hub_refresh_cache" \
+              -H "apikey: ${LPT_SERVICE_ROLE_KEY}" -H "Authorization: Bearer ${LPT_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" -m 3600 \
+              -d "{\"p_states\": [\"${st}\"]}" || { echo "::warning::hub_refresh_cache failed for $st"; status=1; }
+          done
+          exit $status

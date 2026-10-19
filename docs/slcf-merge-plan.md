@@ -26,7 +26,8 @@ Written 2026-10-14 against tracker `main` @ `1f33fff` and SLCF `main` @ `135cdec
 **Scope (decided 2026-10-18):** before the election, SLCF feeds only the
 states live on statemoney.us (AK, AZ, FL, GA, MI, OH, OR, TX, WI) plus
 California's own importer; MI and TX keep their importers. CO, AR, ID and KY
-were already cut over and stay. IL, PA, MN, CT, HI, MD, AL and IA reconciled
+were already cut over and stay. Iowa joined the scope on 2026-10-18 (cut over
+and un-hidden). IL, PA, MN, CT, HI, MD and AL reconciled
 (rows below) but stay on the pilot until their SLCF scrapers are signed off;
 their manifest entries keep the reconciled settings, so each cutover is one
 line.
@@ -54,7 +55,7 @@ found this; the cutover's `prune` fixes it.
 | AK | 2026-10-18 | Kreiss-Tomkins appears ($4.49M raised; the pilot's Office filter dropped his filings); Wilson, Bronson and Walker gain their pre-ticket filings |
 | HI | held on the pilot (reconciled) | the pilot re-inserted every CKAN reload: Green $7.83M → $3.64M raised, $5.21M → $2.52M spent; Cordery likewise |
 | FL | 2026-10-18 | this week's governor reports (Donalds $802k, Jolly $1.01M) the pilot misses since the Division started returning 502; 2,062 double-counted rows |
-| IA | held on the pilot (reconciled) | the pilot's Data Hub export froze in July: nothing after 05-27 (Sand +$9.4M raised); SLCF's `--search` mode has it |
+| IA | 2026-10-18 | the pilot's Data Hub export froze in July: nothing after 05-27 (Sand +$9.4M raised); SLCF's `--search` mode has it |
 | MA | pilot until after the election (decided 2026-10-18) | contributions and loans reconcile (Healey's $2.9M savings transfer is booked as a gift today); spending differs by model: OCPF's search shows itemized line items where SLCF's bulk export has the bank payment, and transfers to savings count as spending. The parser work (swap a payment for its itemization, drop savings transfers) is prototyped in the reconciliation notes |
 | KS | pilot, soft-fail | CAPTCHA |
 | OH, ME | — | Cloudflare blocks datacenter IPs, GitHub's runners included; need a runner outside a datacenter |

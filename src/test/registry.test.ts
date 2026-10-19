@@ -11,15 +11,15 @@ import {
 } from "@/states/registry";
 
 describe("state registry", () => {
-  it("covers the statemoney.us states plus Michigan and California, reading Georgia from LPT", () => {
-    expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "or", "tx", "wi"]);
+  it("covers the statemoney.us states plus Michigan, California and Iowa, reading Georgia from LPT", () => {
+    expect(liveStates().map((s) => s.code).sort()).toEqual(["ak", "az", "ca", "fl", "ga", "ia", "mi", "oh", "or", "tx", "wi"]);
     // Only the states the tracker has no rows for yet read LPT (plan doc).
-    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["or"]);
+    expect(liveStates().filter((s) => s.source === "lpt").map((s) => s.code)).toEqual(["ia", "or"]);
     expect(liveStates().filter((s) => s.source === "tracker").map((s) => s.code)).toEqual(["ak", "az", "ca", "fl", "ga", "mi", "oh", "tx", "wi"]);
     for (const s of STATES) expect(["lpt", "tracker"]).toContain(s.source);
     // Hidden states keep their dashboards and pipelines; the hub just does not list them as live.
     const hidden = hiddenStates().map((s) => s.code).sort();
-    expect(hidden).toEqual(["al", "ar", "co", "ct", "hi", "ia", "id", "il", "ks", "ky", "ma", "md", "me", "mn", "nv", "pa"]);
+    expect(hidden).toEqual(["al", "ar", "co", "ct", "hi", "id", "il", "ks", "ky", "ma", "md", "me", "mn", "nv", "pa"]);
     for (const s of hiddenStates()) {
       expect(s.status).not.toBe("live");
       expect(s.races?.length).toBeGreaterThan(0);
@@ -111,16 +111,16 @@ describe("state registry", () => {
   });
 
   it("marks the live states live, hidden and other SLCF states ready, the rest planned", () => {
-    for (const code of ["fl", "mi", "ga", "az", "oh", "or", "wi", "ak", "tx", "ca"]) {
+    for (const code of ["fl", "mi", "ga", "az", "oh", "or", "wi", "ak", "ia", "tx", "ca"]) {
       expect(getState(code)?.status).toBe("live");
     }
     // Hidden states with an SLCF pipeline read as ready; Nevada has no SLCF pipeline.
-    for (const code of ["ky", "me", "pa", "ma", "mn", "co", "ia", "md", "hi", "al", "ar", "ct", "id", "il", "ks", "de", "in", "la", "ms"]) {
+    for (const code of ["ky", "me", "pa", "ma", "mn", "co", "md", "hi", "al", "ar", "ct", "id", "il", "ks", "de", "in", "la", "ms"]) {
       expect(getState(code)?.status).toBe("ready");
     }
     expect(getState("nv")?.status).toBe("planned");
-    // 24 SLCF states minus the 5 live SLCF states (OH, WI, TX and CA have other pipelines).
-    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(19);
+    // 24 SLCF states minus the 6 live SLCF states (OH, WI, TX and CA have other pipelines).
+    expect(STATES.filter((s) => s.status === "ready")).toHaveLength(18);
   });
 
   it("live states carry the config the dashboard needs", () => {
