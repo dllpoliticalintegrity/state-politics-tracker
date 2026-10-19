@@ -19,18 +19,23 @@ deploys.
    This writes `dist-lovable/state-politics-tracker-frontend-<sha>.zip`. It
    holds `src/` (minus tests), `shared/`, `public/`, `index.html`, the
    build config and `LOVABLE.md` (the sandbox's rules), and nothing else.
-2. **Put it in the sandbox repo, then import that into Lovable.** Lovable's
-   new default stack (TanStack Start) can't take our Vite + react-router
-   code unchanged, and a ZIP attached to a new project lands in that stack.
-   So the export goes into its own private repo,
-   `dllpoliticalintegrity/state-politics-tracker-design` (created
-   2026-10-18), and Lovable imports that repo with **Import from GitHub**,
-   which keeps the files and the stack as they are and syncs edits back to
-   the repo. To refresh the repo, unzip a new export over a clone of it and
-   push.
-   - If Lovable offers **Lovable Cloud** or a Supabase connection, decline.
-     The app already reads the tracker database with its public read-only
-     key, and connecting anything else empties every page.
+2. **Put it in the sandbox's repo.** The Lovable project is
+   **State Politics Tracker Template**
+   (https://lovable.dev/projects/99c80ba2-0077-4976-ba5b-978280ec7123), synced
+   with the private repo `dllpoliticalintegrity/state-politics-tracker-template`.
+   Lovable created it on its new TanStack Start starter, which cannot take
+   our Vite + react-router code through a ZIP upload (Lovable's agent
+   unpacked it and stopped rather than rewrite it). So the export was
+   pushed to that repo directly, replacing the starter but keeping
+   `.lovable/project.json`, and Lovable's sync pulled it in (2026-10-18,
+   commit 9184dea). The one sandbox-only change is the dev server on port
+   8080, Lovable's preview port. The project's knowledge (Lovable's
+   per-project instructions) repeats LOVABLE.md and forbids migrating the
+   stack. To refresh the sandbox, unzip a new export over a clone of that
+   repo, keep `.lovable/` and the port, and push.
+   - Never enable **Lovable Cloud** or a Supabase connection. The app
+     already reads the tracker database with its public read-only key, and
+     connecting anything else empties every page.
 3. **Check the preview.** `/` shows the hub; `/tx`, `/tx/governor`,
    `/mi/state-senate/11` show state pages with live data. A per-state site
    (texaspoliticstracker.com) is the same pages without the `/tx` prefix.
@@ -41,7 +46,7 @@ deploys.
 2. When a change is ready, run from this repo:
 
    ```bash
-   scripts/lovable/pull-sandbox.sh https://github.com/dllpoliticalintegrity/state-politics-tracker-design
+   scripts/lovable/pull-sandbox.sh https://github.com/dllpoliticalintegrity/state-politics-tracker-template
    ```
 
    It fetches the sandbox into a temporary folder and prints the files that
