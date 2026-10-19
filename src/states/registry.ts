@@ -144,10 +144,12 @@ const SLCF_READY = new Set([
 // its own pipeline reconciles. OR reads Henry's tables until its ORESTAR
 // scrape lands in the tracker; IA until its first SLCF load does (the
 // tracker's Iowa rows are the pilot's, frozen in May 2026, and it has no
-// Iowa row-office or legislative candidates yet). VITE_LPT_STATES ("or,oh")
-// overrides the set at build time, for previews and local checks.
+// Iowa row-office or legislative candidates yet). TX reads LPT since
+// 2026-10-18 for its down-ballot statewide races, which only LPT has
+// candidates for. VITE_LPT_STATES ("or,oh") overrides the set at build time,
+// for previews and local checks.
 const LPT_STATES: Set<string> = new Set(
-  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or,ia")
+  ((import.meta.env?.VITE_LPT_STATES as string | undefined) ?? "or,ia,tx")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),

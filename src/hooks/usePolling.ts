@@ -112,6 +112,13 @@ export function useRacePolling() {
   return useQuery({
     queryKey: ["race_polling", stateCfg.source, stateCfg.code, race.raceSlug, pollingSourceKey(race)],
     queryFn: async () => {
+      // A race with a FiftyPlusOne page reads the tracker's FiftyPlusOne
+      // import even when the state's finance comes from LPT (TX, IA): LPT has
+      // no FiftyPlusOne polls, and the import keeps every live governor race.
+      if (stateCfg.source === "lpt" && race.pollingSourceUrl) {
+        const own = await fetchRacePolling(race);
+        if (own) return own;
+      }
       // LPT stores one row per poll and no aggregate; the average is the
       // site's own, over the most recent polls (src/lib/lpt.ts).
       if (stateCfg.source === "lpt") {
@@ -154,25 +161,35 @@ export function useRacePolls() {
   return useQuery({
     queryKey: ["race_polls", stateCfg.source, stateCfg.code, raceCfg.raceSlug, pollingSourceKey(raceCfg)],
     queryFn: async (): Promise<RacePollRow[]> => {
-      if (stateCfg.source === "lpt") return toRacePollRows((await fetchRacePolls(stateCfg.code, raceCfg)).polls);
-      const { data: race } = await (supabase as any)
-        .from("races")
-        .select("race_id")
-        .eq("slug", raceCfg.raceSlug)
-        .maybeSingle();
-      if (!race) return [];
-      const { data, error } = await (supabase as any)
-        .from("race_polls")
-        .select(
-          "candidate_name,candidate_party,pct,pollster,field_end,sample_size,sample_kind,source_url,matchup",
-        )
-        .eq("race_id", race.race_id)
-        .eq("source", pollingSourceKey(raceCfg))
-        .order("field_end", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as RacePollRow[];
+      if (stateCfg.source === "lpt") {
+        // As useRacePolling: the tracker's FiftyPlusOne rows first, LPT's when
+        // it has none for the race (Oregon).
+        const own = raceCfg.pollingSourceUrl ? await fetchTrackerPolls(raceCfg) : [];
+        if (own.length) return own;
+        return toRacePollRows((await fetchRacePolls(stateCfg.code, raceCfg)).polls);
+      }
+      return fetchTrackerPolls(raceCfg);
     },
   });
+}
+
+async function fetchTrackerPolls(raceCfg: RaceConfig): Promise<RacePollRow[]> {
+  const { data: race } = await (supabase as any)
+    .from("races")
+    .select("race_id")
+    .eq("slug", raceCfg.raceSlug)
+    .maybeSingle();
+  if (!race) return [];
+  const { data, error } = await (supabase as any)
+    .from("race_polls")
+    .select(
+      "candidate_name,candidate_party,pct,pollster,field_end,sample_size,sample_kind,source_url,matchup",
+    )
+    .eq("race_id", race.race_id)
+    .eq("source", pollingSourceKey(raceCfg))
+    .order("field_end", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as RacePollRow[];
 }
 
 

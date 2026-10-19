@@ -1,8 +1,8 @@
 name: LPT publish
 
 # Nightly: refreshes the hub caches in the Local Politics Tracker project
-# for the states the site still reads from Henry's tables (Oregon and Iowa,
-# as of 2026-10-18), after his weekday 15:00 UTC refresh.
+# for the states the site still reads from Henry's tables (Oregon, Iowa and
+# Texas, as of 2026-10-18), after his weekday 15:00 UTC refresh.
 #
 # On manual dispatch with a state list it also runs the bridge: copies that
 # state's settled cf_* rows from the tracker into LPT's <st>_* tables
@@ -80,7 +80,7 @@ jobs:
         env:
           LPT_SUPABASE_URL: https://rwiueylzgcgnzypdyszi.supabase.co
           LPT_SERVICE_ROLE_KEY: ${{ secrets.LPT_SERVICE_ROLE_KEY }}
-          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'OR IA' }}
+          HIS_STATES: ${{ vars.LPT_HIS_STATES || 'OR IA TX' }}
         run: |
           if [ -z "$LPT_SERVICE_ROLE_KEY" ]; then exit 0; fi
           # One call per state: the refresh is one transaction, and PostgREST
