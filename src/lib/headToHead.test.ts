@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparisonDefaults, comparisonPair } from "./headToHead";
+import { comparisonDefaults, comparisonPair, overviewOrder } from "./headToHead";
 
 const candidates = [
   { id: "a", slug: "a", name: "A", status: "lost_primary", raised: 1000, poll: 60 },
@@ -48,5 +48,24 @@ describe("two-candidate election comparisons", () => {
     const dem = { slug: "dem", party: "D" };
     expect(comparisonPair([rep], [rep], null, null)).toEqual([undefined, rep]);
     expect(comparisonPair([dem], [dem], null, null)).toEqual([dem, undefined]);
+  });
+});
+describe("state overview card order", () => {
+  const row = (id: string, party: string, raised: number, pct: number | null = null) =>
+    ({ c: { id, party }, raised, pct });
+  it("shows both major-party nominees in an unpolled race, leader by money", () => {
+    // Arizona Secretary of State, 2026-10-19
+    const rows = [row("fontes", "Democrat", 2_650_000), row("collier", "Green", 739_000),
+                  row("kolodin", "Republican", 400_000)];
+    expect(overviewOrder(rows, false).map((r) => r.c.id)).toEqual(["fontes", "kolodin", "collier"]);
+  });
+  it("ranks the top two by money between themselves", () => {
+    const rows = [row("d", "Democrat", 100), row("g", "Green", 900), row("r", "Republican", 500)];
+    expect(overviewOrder(rows, false).map((r) => r.c.id)).toEqual(["r", "d", "g"]);
+  });
+  it("lets polling decide where the race is polled", () => {
+    const rows = [row("d", "Democrat", 900, 30), row("i", "Independent", 10, 35),
+                  row("r", "Republican", 500, 32)];
+    expect(overviewOrder(rows, true).map((r) => r.c.id)).toEqual(["i", "r", "d"]);
   });
 });
