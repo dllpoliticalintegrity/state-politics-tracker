@@ -100,7 +100,7 @@
                               "Incurred Obligation Paid": "expenditures" },
             "note": "on SLCF since 2026-10-15: state_filer_id = Sunshine entity id (payee on receipts, payer on disbursements), txn_id = Sunshine ID (the pilot's wi:<ID>); Incurred Obligation dropped (the pilot double-counted it against its payment); ~21 min nightly" },
 
-    "oh": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "ie": true, "fec_ie": true, "prune": true, "nightly": false,
+    "oh": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "ie": true, "fec_ie": true, "ie_filing_is_report": true, "prune": true, "nightly": false,
             "note": "on SLCF since 2026-10-18 (first load from a Mac: 22 tracked committees, 1.18M rows). ohiosos.gov blocks GitHub's runner IPs (403, impersonation or not) and also blocks deployed Cloudflare Workers' subrequests (its zone can match cf.worker.upstream_zone; a wrangler dev --remote preview passed, the deployed workers/ohio-fetch-proxy got 403 on 2026-10-18), so nightly is off until a non-datacenter runner exists; load by hand with python pipelines/run_state.py oh; filer_refs oh:<id>" },
 
     "or": { "pipeline": "slcf", "cycle": "2026", "lpt_roster": true, "nightly": false, "playwright": true, "prune": true,
