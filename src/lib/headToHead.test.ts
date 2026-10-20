@@ -31,6 +31,18 @@ describe("two-candidate election comparisons", () => {
     expect(pair.map((c) => c.slug)).toEqual(["dem", "rep"]);
     expect(comparisonPair([rep, dem], pair, "rep", "dem").map((c) => c?.slug)).toEqual(["dem", "rep"]);
   });
+  it("prefers the major-party nominees over a better-funded third party in an unpolled race", () => {
+    const fontes = { id: "f", slug: "f", name: "Fontes", party: "Democrat", status: "won_primary", raised: 2_650_000 };
+    const collier = { id: "c", slug: "c", name: "Collier", party: "Green", status: "nominee", raised: 739_000 };
+    const kolodin = { id: "k", slug: "k", name: "Kolodin", party: "Republican", status: "won_primary", raised: 511_000 };
+    expect(comparisonDefaults([fontes, collier, kolodin], (c) => c.raised, () => null).map((c) => c.slug)).toEqual(["f", "k"]);
+  });
+  it("still pairs a third party that polls ahead of a major-party nominee", () => {
+    const dem = { id: "d", slug: "d", name: "Dem", party: "Democrat", status: "nominee", poll: 40 };
+    const ind = { id: "i", slug: "i", name: "Ind", party: "Independent", status: "nominee", poll: 35 };
+    const rep = { id: "r", slug: "r", name: "Rep", party: "Republican", status: "nominee", poll: 12 };
+    expect(comparisonDefaults([dem, ind, rep], () => 0, (c) => c.poll).map((c) => c.slug)).toEqual(["d", "i"]);
+  });
   it("keeps a lone Republican on the right and a lone Democrat on the left", () => {
     const rep = { slug: "rep", party: "R" };
     const dem = { slug: "dem", party: "D" };
