@@ -234,10 +234,20 @@ def ie_target(row, affiliations):
     return None
 
 
-def ie_txn_base(row, ids):
+def ie_txn_base(row, ids, filing_is_report=False):
     """The expenditure's own id: the source's transaction id (txn_id, or the
-    filing_id Georgia's IE export keeps it in), else the hashed id."""
-    sid = (row.get("txn_id") or "").strip() or (row.get("filing_id") or "").strip()
+    filing_id Georgia's IE export keeps it in), else the hashed id.
+
+    Where filing_id is the whole report (states.json "ie_filing_is_report":
+    Ohio), it is not an expenditure's id: every IE on the report shared it, so
+    the report's rows were taken for one buy listed per target. V-PAC's
+    report 512315395 has a $7,963,282 buy against Acton and other lines; the
+    big buy was halved "across 2 targets" and its $20,515 neighbour against
+    Acton dropped as a repeat, so Acton showed $3.98M opposed of ~$8M
+    (2026-10-19). Those rows take the hashed id."""
+    sid = (row.get("txn_id") or "").strip()
+    if not sid and not filing_is_report:
+        sid = (row.get("filing_id") or "").strip()
     return ids.source("expenditures", sid) if sid else ids.hashed("expenditures", row)
 
 
@@ -290,7 +300,7 @@ def drop_refiled(picked):
 
 
 def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=print,
-            refiled=False):
+            refiled=False, filing_is_report=False):
     """Yield cf_independent_expenditures rows for the expenditure rows whose
     target resolves; the stats dict says what did not."""
     by_name = by_name or {}
@@ -306,7 +316,7 @@ def ie_rows(st, rows, index, affiliations, ids, since, cycle, by_name=None, log=
         stats["ie_rows"] += 1
         target, stance = hit
         # Ids first, before any filter, so they never depend on what matched.
-        base = ie_txn_base(row, ids)
+        base = ie_txn_base(row, ids, filing_is_report)
         targets[base].add(norm(target))
         if _superseded(row):
             stats["superseded"] += 1
@@ -455,7 +465,8 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     if exp_reader is None:
         raise SystemExit(f"{st}: expenditures missing from {clean_dir}")
     ie_out, stats = ie_rows(st, exp_reader, index, affiliations, ids, since, cycle, by_name, log,
-                            refiled=bool(entry.get("ie_refiled")))
+                            refiled=bool(entry.get("ie_refiled")),
+                            filing_is_report=bool(entry.get("ie_filing_is_report")))
     spenders = {rec["ie_filer_ident"].split(":", 1)[1] for rec in ie_out}
     comm_out = ie_committees(st, ie_out, committees)
     ie_out = strip_private(ie_out)

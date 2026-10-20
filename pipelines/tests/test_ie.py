@@ -189,6 +189,25 @@ class Rows(unittest.TestCase):
         self.assertAlmostEqual(out[0]["amount"], 100643.25 / 2, places=1)
         self.assertIn("1 of 2 targets", out[0]["description"])
 
+    def test_a_report_level_filing_id_is_not_one_buy(self):
+        # Ohio, V-PAC report 512315395: two buys against Acton and one for
+        # another target on the same report. With the report id taken for a
+        # transaction id, the $7,963,282 buy was halved and the $20,515.50
+        # one dropped as a repeat.
+        rows = [exp("16182", "2026-06-05", 7963282, "Paton for Georgia", "O", payee="FLEXPOINT", filing_id="512315395"),
+                exp("16182", "2026-06-09", 20515.5, "Paton for Georgia", "O", payee="JAMESTOWN", filing_id="512315395"),
+                exp("16182", "2026-06-09", 75000, "Burt Jones for Georgia", "S", payee="JAMESTOWN", filing_id="512315395")]
+        out, stats = ie.ie_rows("oh", rows, self.index, self.aff, mapping.TxnIds("oh"), "2025-01-01", "2026",
+                                self.by_name, self.logs.append, filing_is_report=True)
+        self.assertEqual(stats["repeated"], 0)
+        self.assertEqual(sorted((r["target_candidate_id"], r["amount"]) for r in out),
+                         [("c-jones", 75000.0), ("c-paton", 20515.5), ("c-paton", 7963282.0)])
+        self.assertTrue(all("targets" not in (r["description"] or "") for r in out))
+        self.assertEqual(len({r["source_txn_id"] for r in out}), 3)
+        # Where the filing id is per transaction (Georgia), it is still the id.
+        out, _ = self.run_rows(rows[:1])
+        self.assertTrue(out[0]["source_txn_id"].startswith("ga:512315395:"))
+
     def test_repeated_pair_is_kept_once_and_ids_ignore_matching(self):
         rows = [exp("1911", "2026-03-01", 3000, t, "S", txn="t9")
                 for t in ("Paton for Georgia", "Paton for Georgia", "Hatchett for House")]
