@@ -661,20 +661,77 @@ _PILOT_ENTITY = re.compile(
 )
 
 
-def contributor_name_parts(name: str) -> tuple[str, str]:
+# Organisation markers the old importer's list missed, which put "FRIENDS OF
+# COREY SIMON", "SHARP ENERGY", "ABC MERIT SHOP PC" and "GRIMES GALVANO PL"
+# among candidates' top individual donors, split as people ("Of Corey Simon
+# Friends"); checked against 2025-26 Florida contributions on 2026-10-20.
+# Only words AFTER the first count: Florida writes a person surname first,
+# and LAW, CHURCH, HOMES are surnames too ("LAW HEATHER BEAUCHAMP").
+_ORG_WORDS = re.compile(
+    r"\b(OF|FOR|THE|AND|P\.?\s?A|P\.?L|P\.?C|PLC|LLLP|LTD|CO|INCORPORATED|LIMITED|"
+    r"STRATEGIES|STRATEGY|SPECIALISTS|HOSPITALS?|COOPERATIVE|CO-OP|FOUNDATION|INSTITUTE|"
+    r"SOCIETY|COUNCIL|DEMOCRATS|REPUBLICANS|DEMOCRATIC|REPUBLICAN|DEC|REC|PBA|IAFF|LOCAL|"
+    r"ASSOCIATES|SOLUTIONS|MANAGEMENT|DEVELOPMENT|DEVELOPERS|CONSTRUCTION|CONTRACTORS|"
+    r"INDUSTRIES|INTERNATIONAL|NATIONAL|AMERICAN|SYSTEMS|TECHNOLOGIES|TECHNOLOGY|NETWORK|"
+    r"MEDIA|MARKETING|INSURANCE|AGENCY|TITLE|LAW|ADVISORS|ADVISORY|CAPITAL|INVESTMENTS|"
+    r"INVESTORS|VENTURES|EQUITY|FINANCIAL|HEALTHCARE|HEALTH|MEDICAL|CLINIC|CENTERS?|"
+    r"PHARMACY|LABS|LABORATORIES|ACADEMY|SCHOOLS?|UNIVERSITY|COLLEGE|CHURCH|MINISTRIES|"
+    r"RANCH|NURSERY|NURSERIES|GROVES|DAIRY|ENERGY|ELECTRIC|UTILITIES|GAS|OIL|POWER|MOTORS|"
+    r"AUTO|AUTOMOTIVE|DEALERSHIP|HOMES|HOMEBUILDERS|BUILDERS|ENGINEERING|ARCHITECTS|"
+    r"PRODUCTS|SUPPLY|DISTRIBUTORS|DISTRIBUTING|BEVERAGES?|FOODS|RESTAURANTS|HOTELS?|"
+    r"RESORTS?|CASINO|GAMING|ENTERTAINMENT|AUTHORITY|DISTRICT|COUNTY|CITY|CAUCUS|VOTERS|"
+    r"ACTION|VICTORY|MAJORITY|LEADERSHIP|PROSPERITY|TRIBE|PARTNERSHIP|ENTERPRISE|LOGISTICS|"
+    r"TRANSPORT|TRANSPORTATION|AVIATION|MARINE|FARM|PLAZA|VILLAGE|VILLAS|APARTMENTS|"
+    r"COMMUNITIES|LIVING|CARE|SERVICE|CORPS|BROTHERHOOD|WORKERS|EMPLOYEES|EDUCATORS|"
+    r"TEACHERS|FIREFIGHTERS|OFFICERS|PROFESSIONALS|PHYSICIANS|DENTAL|DENTISTS|CHIROPRACTIC|"
+    r"ORTHOPAEDIC|ORTHOPEDIC|SURGERY|SURGICAL|ANESTHESIA|RADIOLOGY|IMAGING|REHAB|"
+    r"REHABILITATION|THERAPY|HOSPICE|NURSING|PHARMACEUTICALS)\b|[&@/]|\d",
+    re.I,
+)
+# An occupation only an organisation files ("FRIENDS OF ..." gifts say
+# POLITICAL ORGANIZATION; a law firm, LAW FIRM).
+_ORG_OCCUPATION = re.compile(
+    r"^(POLITICAL (COMMITTEE|ORGANIZATION|PARTY|ACTION COMMITTEE)|PAC|LAW FIRM|CPA FIRM|"
+    r"CORPORATION|TRADE ASSOCIATION)$", re.I)
+_NAME_SUFFIX = {"JR", "JR.", "SR", "SR.", "II", "III", "IV", "V"}
+
+
+def is_florida_org(name: str, occupation: str = "") -> bool:
+    """Whether a Florida contributor name is an organisation: the old
+    importer's entity words, a single word, an organisation word after the
+    first, or an organisation-only occupation."""
+    name = clean(name)
+    if not name:
+        return False
+    if _PILOT_ENTITY.search(name) or " " not in name:
+        return True
+    if _ORG_WORDS.search(name.split(None, 1)[1]):
+        return True
+    return bool(_ORG_OCCUPATION.match(clean(occupation)))
+
+
+def contributor_name_parts(name: str, occupation: str = "") -> tuple[str, str]:
     """(first, last) for the loader-only contributor_first / contributor_last
     (columns.py, TRANSACTION_IDS), as state-politics-tracker has always
     stored Florida donors. Florida writes a person "LAST FIRST MIDDLE" with
     no separator, so the split is the old importer's: the first word is the
     surname, the rest the first name, both title-cased ("BLOOM JOHN" ->
-    "John", "Bloom"). An organisation -- a name matching its entity words,
-    or a single word -- stays whole in last, as written, with no first.
-    The contributor_type column keeps SLCF's own classifier."""
+    "John", "Bloom"); a suffix stays with the surname ("MANUEL III CLIFFORD
+    E." -> "Clifford E.", "Manuel III", not "Iii Clifford E. Manuel"). An
+    organisation (is_florida_org) stays whole in last, as written, with no
+    first. The contributor_type column keeps SLCF's own classifier."""
     name = clean(name)
-    if not name or _PILOT_ENTITY.search(name) or " " not in name:
+    if not name or is_florida_org(name, occupation):
         return "", name
     words = name.split()
-    return " ".join(words[1:]).title(), words[0].title()
+    last = [words[0]]
+    rest = []
+    for w in words[1:]:
+        (last if w.upper().strip(",") in _NAME_SUFFIX else rest).append(w.strip(","))
+    if not rest:
+        return "", name
+    return " ".join(rest).title(), " ".join(
+        w.upper() if w.upper().strip(".") in {"II", "III", "IV", "V"} else w.title() for w in last)
 
 
 def _parse_contrib_row(row: dict, raw_file: str, row_num: int,
@@ -739,7 +796,7 @@ def _parse_contrib_row(row: dict, raw_file: str, row_num: int,
             "counterparty_zip":    zip_,
         }
 
-    first, last = contributor_name_parts(base["contributor_name"])
+    first, last = contributor_name_parts(base["contributor_name"], base["occupation"])
     return {**base, "transaction_type": txn_type,
             "contributor_first": first, "contributor_last": last}, None
 
