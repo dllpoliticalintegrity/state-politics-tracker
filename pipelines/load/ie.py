@@ -493,13 +493,19 @@ def load_ie(st, entry, clean_dir, cands, dry_run, since, cycle, ids, open_table,
     if comm_out:
         rest.upsert("cf_ie_committees", comm_out, conflict="filer_ident")
     for table, rows in (("cf_independent_expenditures", ie_out), ("cf_ie_contributions", contrib_out)):
+        # What was live before this run writes anything, as load_cf does: read
+        # after the upsert, a run whose ids changed counts its own new rows
+        # beside the old ones (Ohio 2026-10-20: 30 new + 6 old = 36 live, and
+        # 30 < 90% of 36 refused the prune, leaving the halved V-PAC row up
+        # beside the corrected one).
+        live = rest.get_all(f"{table}?select=id,source_txn_id&{_prefix_filter(st)}&order=id") \
+            if do_prune else []
         for i in range(0, len(rows), 500):
             rest.upsert(table, rows[i:i + 500])
         if not do_prune:
             log(f"   {table}: loaded {len(rows)} (no prune)")
             continue
         keep = {r["source_txn_id"] for r in rows}
-        live = rest.get_all(f"{table}?select=id,source_txn_id&{_prefix_filter(st)}&order=id")
         if live and len(keep) < min_share * len(live):
             raise SystemExit(f"{st}: refusing to prune {table} — this run produced {len(keep)} "
                              f"rows against {len(live)} live (below {min_share:.0%})")

@@ -304,3 +304,43 @@ class Rows(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PruneGuard(unittest.TestCase):
+    """load_ie judges the prune against what was live BEFORE its upsert."""
+
+    def test_new_ids_replace_old_ones_without_tripping_the_guard(self):
+        from unittest import mock
+        import rest
+        live = [{"id": f"old{i}", "source_txn_id": f"oh:51231539{i}:x"} for i in range(6)]
+        store = {"cf_independent_expenditures": list(live), "cf_ie_contributions": []}
+        deleted = []
+
+        def get_all(path):
+            return list(store[path.split("?")[0]])
+
+        def upsert(table, rows, **kw):
+            store[table] += [{"id": r["source_txn_id"], "source_txn_id": r["source_txn_id"]} for r in rows]
+
+        def delete(path):
+            deleted.append(path)
+
+        new = [{"ie_filer_ident": "oh:16182", "target_candidate_id": "c-paton",
+                "source_txn_id": f"oh:h:{i:016x}:x", "support_oppose": "O", "amount": 1.0,
+                "expenditure_date": "2026-06-05", "description": None, "cycle": "2026",
+                "source": "slcf"} for i in range(30)]
+        with mock.patch.object(ie, "ie_rows", return_value=(new, {
+                "ie_rows": 30, "matched": 30, "repeated": 0, "refiled": 0, "unmatched": 0,
+                "unmatched_targets": 0, "no_spender": 0})), \
+             mock.patch.object(ie, "ie_committees", return_value=[]), \
+             mock.patch.object(ie, "ie_contributions", return_value=[]), \
+             mock.patch.object(rest, "get_all", side_effect=get_all), \
+             mock.patch.object(rest, "upsert", side_effect=upsert), \
+             mock.patch.object(rest, "delete", side_effect=delete):
+            tables = {"committees": [], "expenditures": [], "contributions": []}
+            ie.load_ie("oh", {}, Path("."), [], False, "2025-01-01", "2026", mapping.TxnIds("oh"),
+                       lambda _d, t: tables[t], log=lambda *a: None, do_prune=True, min_share=0.9)
+        # 30 kept against 6 live before the run: no refusal, and the 6 old rows go.
+        self.assertEqual(len(deleted), 1)
+        for i in range(6):
+            self.assertIn(f"old{i}", deleted[0])
