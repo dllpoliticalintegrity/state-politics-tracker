@@ -365,7 +365,8 @@ def main(argv=None):
         roster.sync_state(st, scrape_rows(), dry_run=args.dry_run,
                           committees=list(open_table(clean_dir, "committees") or []),
                           statewide_offices=entry.get("lpt_statewide") or (),
-                          unconfirmed_offices=entry.get("lpt_unconfirmed") or ())
+                          unconfirmed_offices=entry.get("lpt_unconfirmed") or (),
+                          unique_ids=entry.get("filer_ids_unique", False))
 
     refs = candidate_refs(st)
     print(f"== loading {st} from {clean_dir} ({len(refs)} tracked committees, "
