@@ -124,18 +124,21 @@ export default function CandidateDetail() {
     .reduce((s, l) => s + l.total_amount, 0);
   const sourcesBase = totals.totalRaised + loansOnly;
   const shareOf = (v: number) => (sourcesBase > 0 ? Math.round((v / sourcesBase) * 100) : 0);
-  // Public financing (Clean Elections, matching funds) is filed as an
-  // organisation's contribution, so it sits inside entity_contributions. It
-  // gets its own bar, as on the race overview's Funding Sources chart, and
-  // comes out of the entity bar so nothing is counted twice. The race-level
-  // funding rows are the overview's own query (cached); null for LPT states.
-  const publicFinancing = Math.min(
-    totals.pac,
+  // Public financing (Clean Elections, matching funds) and party money are
+  // filed as organisations' contributions, so both sit inside
+  // entity_contributions. Each gets its own bar, as on the race overview's
+  // Funding Sources chart, and comes out of the entity bar so nothing is
+  // counted twice (Tom Tiffany: $34.6M of his $35.1M "entity" money is from
+  // party committees). The race-level funding rows are the overview's own
+  // query (cached); null for LPT states. Clamped so the three never exceed
+  // entity_contributions if the two views were refreshed at different times.
+  const fundingFor = (category: string) =>
     (funding ?? [])
-      .filter((r) => r.candidate_id === candidate.id && r.category === "public")
-      .reduce((s, r) => s + Number(r.amount ?? 0), 0),
-  );
-  const entityExPublic = Math.max(0, totals.pac - publicFinancing);
+      .filter((r) => r.candidate_id === candidate.id && r.category === category)
+      .reduce((s, r) => s + Number(r.amount ?? 0), 0);
+  const publicFinancing = Math.max(0, Math.min(totals.pac, fundingFor("public")));
+  const partyMoney = Math.max(0, Math.min(totals.pac - publicFinancing, fundingFor("party")));
+  const entityExPublic = Math.max(0, totals.pac - publicFinancing - partyMoney);
   const indPct = shareOf(individualExSelf);
   const pacPct = shareOf(entityExPublic);
   const smallDollarPct =
@@ -301,6 +304,14 @@ export default function CandidateDetail() {
                     value={publicFinancing}
                     pct={shareOf(publicFinancing)}
                     color={PUBLIC_FINANCING_COLOR}
+                  />
+                )}
+                {partyMoney > 0 && (
+                  <SourceBar
+                    label="Party committees"
+                    value={partyMoney}
+                    pct={shareOf(partyMoney)}
+                    color={PARTY_MONEY_COLOR}
                   />
                 )}
                 <SourceBar
@@ -592,9 +603,11 @@ function FinanceStat({
   );
 }
 
-// The overview's Funding Sources colour for public financing, so the two match.
+// The overview's Funding Sources colours, so the two charts match.
 const PUBLIC_FINANCING_COLOR =
   FUNDING_CATEGORIES.find((c) => c.key === "public")?.color ?? "hsl(var(--chart-4))";
+const PARTY_MONEY_COLOR =
+  FUNDING_CATEGORIES.find((c) => c.key === "party")?.color ?? "hsl(var(--chart-1))";
 
 function SourceBar({
   label,
