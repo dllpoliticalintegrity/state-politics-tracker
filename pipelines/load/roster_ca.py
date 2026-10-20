@@ -9,10 +9,13 @@ An asterisk marks an incumbent.
 
 Committee and candidate ids come from the CAL-ACCESS bulk export the CA
 finance import already downloads (scripts/data-import/cal-access):
-  - committee: the FILER_ID of the candidate's most recent 2025-26 cover page
-    (CVR_CAMPAIGN_DISCLOSURE_CD) for the same office and district, matched on
-    surname and first name (or initial); committees whose cover pages name
-    several candidates (supporting committees) are excluded;
+  - committee: the FILER_ID of the candidate's most recent 2025-26 Form 460 /
+    450 cover page (CVR_CAMPAIGN_DISCLOSURE_CD) for the same office and
+    district, matched on surname and first name (or initial). Only the
+    candidate's own statements count (is_candidate_cover): an IE report
+    (F496, F461, ...) names the candidate it supports or opposes, and would
+    link an opposing party committee to them. Committees whose cover pages
+    name several candidates (supporting committees) are excluded;
   - candidate: the CANDIDATE/OFFICEHOLDER filer id in FILERNAME_CD with the
     same surname and first name (most recent effective date).
 The CA importer loads money for candidates with a committee id in
@@ -110,10 +113,33 @@ def split_display(name):
     return (" ".join(words[:-1]), words[-1]) if len(words) > 1 else ("", name)
 
 
+# Cover pages that say "this committee is the candidate's own": Form 460 (the
+# semi-annual / pre-election statement) and Form 450 (the short form). Every
+# other form with a CAND_NAML is somebody else's filing *about* a candidate:
+# F496 late independent-expenditure reports, F461 / F465 IE statements, F497
+# late contributions, F410 and the like, where CAND_NAML names the person
+# supported or opposed. Matching on those links a party committee, PAC or
+# other outside spender to the candidate it supports or opposes, and the
+# importer then loads that committee's whole book of money under the
+# candidate (see scripts/data-fixes/2026-10-20-ca-sd40-committees.sql for
+# a real case).
+CANDIDATE_COMMITTEE_FORMS = {"F460", "F450"}
+
+
+def is_candidate_cover(row):
+    """True if a CVR_CAMPAIGN_DISCLOSURE_CD row is a candidate-controlled committee's own statement."""
+    if (row.get("FORM_TYPE") or "").strip().upper() not in CANDIDATE_COMMITTEE_FORMS:
+        return False
+    # Belt and braces: a support/oppose code only appears on IE-type filings.
+    return not (row.get("SUP_OPP_CD") or "").strip()
+
+
 def committees_index(calaccess_dir):
     """{(OFFICE_CD, district): [(surname, first, date, FILER_ID)]} from 2025-26 cover pages."""
     idx = defaultdict(list)
     for row in tsv_rows(Path(calaccess_dir) / "CVR_CAMPAIGN_DISCLOSURE_CD.TSV"):
+        if not is_candidate_cover(row):
+            continue
         rd = row.get("RPT_DATE") or ""
         if "2025" not in rd and "2026" not in rd:
             continue

@@ -41,6 +41,30 @@ class Helpers(unittest.TestCase):
         self.assertEqual(b["row"]["filer_refs"], [])
         self.assertEqual(stats, {"committee": 1, "no_committee": 1, "candidate_id": 1, "no_candidate_id": 1})
 
+class CoverFilter(unittest.TestCase):
+    def test_only_own_statements_count(self):
+        # F460: the committee's own semi-annual statement -> kept.
+        self.assertTrue(roster_ca.is_candidate_cover({"FORM_TYPE": "F460", "SUP_OPP_CD": ""}))
+        self.assertTrue(roster_ca.is_candidate_cover({"FORM_TYPE": "F450"}))
+        # F496 / F461: another committee's report that names the candidate it
+        # opposes (Republican Party of San Diego County vs Mara Elliott, SD40).
+        self.assertFalse(roster_ca.is_candidate_cover({"FORM_TYPE": "F496", "SUP_OPP_CD": "O"}))
+        self.assertFalse(roster_ca.is_candidate_cover({"FORM_TYPE": "F461", "SUP_OPP_CD": ""}))
+        self.assertFalse(roster_ca.is_candidate_cover({"FORM_TYPE": "F460", "SUP_OPP_CD": "S"}))
+        self.assertFalse(roster_ca.is_candidate_cover({}))
+
+    def test_committees_index_ignores_ie_covers(self):
+        import tempfile
+        hdr = "FILER_ID\tFORM_TYPE\tSUP_OPP_CD\tRPT_DATE\tOFFICE_CD\tDIST_NO\tCAND_NAML\tCAND_NAMF"
+        rows = [
+            "741949\tF496\tO\t10/1/2026 12:00:00 AM\tSEN\t40\tElliott\tMara",
+            "1483627\tF460\t\t10/17/2026 12:00:00 AM\tSEN\t40\tElliott\tMara",
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "CVR_CAMPAIGN_DISCLOSURE_CD.TSV").write_text(hdr + "\n" + "\n".join(rows) + "\n", encoding="latin-1")
+            idx = roster_ca.committees_index(d)
+        self.assertEqual(roster_ca.match_committee(idx, "state-senate", 40, "Mara", "Elliott"), 1483627)
+
 
 if __name__ == "__main__":
     unittest.main()
