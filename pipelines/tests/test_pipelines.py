@@ -264,6 +264,19 @@ class RunStateTest(unittest.TestCase):
                 self.assertEqual(run_state.scrape_errors("r1"), ["2026-09.csv: HTTP 500"])
                 self.assertTrue(run_state.scrape_errors("missing"))   # no log = not clean
 
+    def test_prune_guard_is_per_table(self):
+        flags = run_state.prune_flags
+        self.assertEqual(flags([]), [])
+        # Arizona 2026-10-19: one IE file timed out; contributions still prune.
+        ie = ("IndependentExpenditures_2026.csv: summary fetch failed: "
+              "HTTPSConnectionPool(host='seethemoney.az.gov', port=443): Read timed out.")
+        self.assertEqual(flags([ie]), ["--no-prune-ie"])
+        self.assertEqual(flags([ie, "committee: HTTP 500"]), ["--no-prune-ie"])
+        # A lost transaction file still holds every prune back.
+        self.assertEqual(flags(["2026-09.csv: HTTP 500"]), ["--no-prune"])
+        self.assertEqual(flags([ie, "Contributions_2026.csv: HTTP 500"]), ["--no-prune"])
+        self.assertEqual(flags(["no SLCF run log at /x"]), ["--no-prune"])
+
 
 class ManifestTest(unittest.TestCase):
     def test_texas_keeps_its_infrastructure_and_michigan_keeps_its_rosters(self):

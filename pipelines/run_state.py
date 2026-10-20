@@ -24,13 +24,20 @@ exits 0, as the pilot importer does for Kansas.
 Prune guard: a scraper that loses a file or a date window logs the error and
 carries on (Wisconsin skips a window that fails all retries), so a run can
 look complete while a month is missing — and the loader's prune would delete
-that month's live rows. When the run's log holds any scrape error, the load
-goes ahead without prune, with a warning; the next clean run prunes.
+that month's live rows. When the run's log holds a scrape error, the load
+goes ahead without prune, with a warning; the next clean run prunes. The
+guard is per table (prune_flags): an error confined to the outside-spending
+files (IndependentExpenditures_*.csv) or to committee detail pages can't
+lose a contribution or expenditure, so those tables still prune and only the
+outside-spending prune is held back. Before this, one timed-out IE file kept
+Arizona's relabelled small-gift lumps from replacing their old copies, and
+both stayed live (2026-10-19).
 """
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -67,6 +74,22 @@ def scrape_errors(run_id):
         if ev.get("operation") == "scrape" and ev.get("status") == "error":
             errors.append(f"{ev.get('filename') or ev.get('entity') or '?'}: {ev.get('error', '')}")
     return errors
+
+
+# Scrape errors that can't touch a contribution or expenditure row: the
+# outside-spending files, and committee detail pages (registry metadata —
+# names, officers — that the transaction tables never read).
+IE_ERROR = re.compile(r"^independent[ _-]?expenditure|(^|[_/ ])ie[_.]", re.I)
+COMMITTEE_PAGE_ERROR = re.compile(r"^committee:", re.I)
+
+
+def prune_flags(errors):
+    """load_cf.py flags for a run with these scrape errors (scrape_errors)."""
+    if not errors:
+        return []
+    if all(IE_ERROR.search(e) or COMMITTEE_PAGE_ERROR.search(e) for e in errors):
+        return ["--no-prune-ie"]
+    return ["--no-prune"]
 
 
 def sync(st, entry):
@@ -123,10 +146,13 @@ def main(argv=None):
         errors = sync(st, entry)
         load_args = ["--state", st]
         if errors and not args.dry_run:
-            print(f"::warning::{st}: {len(errors)} scrape error(s) — loading without prune "
+            flags = prune_flags(errors)
+            held = ("outside spending" if flags == ["--no-prune-ie"]
+                    else "any table")
+            print(f"::warning::{st}: {len(errors)} scrape error(s) — not pruning {held} "
                   f"this run, so a missing file can't delete live rows. First: {errors[0]}",
                   flush=True)
-            load_args.append("--no-prune")
+            load_args += flags
         if args.dry_run:
             load_args.append("--dry-run")
         if args.report:
