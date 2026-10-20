@@ -35,7 +35,7 @@
             "individual_types": ["individual", "candidate"],
             "unitemized": { "label": "Unitemized (small-dollar) contributions", "type": "ENTITY" },
             "note": "on SLCF since 2026-10-15: txn_id = Transaction ID (the pilot's ar:<id>)" },
-    "az": { "pipeline": "slcf", "ie_refiled": true, "cycle": "2026", "lpt_roster": true, "ie": true, "prune": true, "prune_min_share": 0.8,
+    "az": { "pipeline": "slcf", "ie_refiled": true, "filer_ids_unique": true, "cycle": "2026", "lpt_roster": true, "ie": true, "prune": true, "prune_min_share": 0.8,
             "lpt_statewide": ["treasurer", "corporation-commissioner", "superintendent-of-education", "mine-inspector"], "lpt_unconfirmed": ["corporation-commissioner"],
             "individual_types": ["contribution from candidate or family", "contribution from individuals", "in-kind cont. candidate or family", "in-kind cont. from individual", "payment on candidate/family loan", "payment on individual loan", "receive loan from candidate or family member", "receive loan from individual", "refund candidate or family contribution", "refund contribution from individual",
                                  "in-state contributions $100 or less", "refund contribution less than $50"],

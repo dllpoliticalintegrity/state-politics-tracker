@@ -195,7 +195,7 @@ def status(disposition, on_ballot):
 class FilerResolver:
     """Committee ids our scrape actually uses, with a name index."""
 
-    def __init__(self, rows, committees=()):
+    def __init__(self, rows, committees=(), unique_ids=False):
         self.by_id = {}          # id_key -> fid as the scrape writes it
         self.by_name = {}        # norm(committee_name or fid) -> fid
         # committees.csv: another id system's id -> its committee name
@@ -219,8 +219,13 @@ class FilerResolver:
                 if k:
                     self.by_name.setdefault(k, fid)
         # An id the scrape uses for more than one committee (Alaska keys
-        # filers by surname: "Bauer" is two people) is never attached.
-        self.ambiguous = {fid for fid, names in names_by_fid.items() if len(names) > 1}
+        # filers by surname: "Bauer" is two people) is never attached. Where
+        # the id is the state's own committee number (states.json
+        # "filer_ids_unique"), two names under it are one committee renamed —
+        # Arizona's 101897 filed as "Nick Mansour for State Treasurer", then
+        # "MANSOUR FOR ARIZONA" — and refusing it left him at $0 (2026-10-19).
+        self.ambiguous = set() if unique_ids else {
+            fid for fid, names in names_by_fid.items() if len(names) > 1}
         self.how = None          # "id" | "committee" | "candidate" after resolve()
 
     def resolve(self, lpt_fid, committee_names=(), candidate_name=None):
@@ -425,11 +430,11 @@ def drop_conflicting_refs(roster, claimed, stats, log=print):
 
 
 def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewide_offices=(),
-               unconfirmed_offices=()):
+               unconfirmed_offices=(), unique_ids=False):
     """Seed / refresh one state's legislative roster. Returns the stats dict.
     Never raises on an LPT problem: the finance load must still run."""
     try:
-        resolver = FilerResolver(scrape_rows, committees)
+        resolver = FilerResolver(scrape_rows, committees, unique_ids=unique_ids)
         races, participants, candidates = fetch_lpt(st)
     except Exception as e:  # noqa: BLE001 — LPT down must not cost a night's load
         log(f"   roster: skipped ({type(e).__name__}: {e})")
@@ -573,22 +578,50 @@ def plan_statewide(st, races, participants, candidates, live, resolver, claimed_
         by_office[r["office"]].append(r)
     inserts, updates = [], []
     stats = defaultdict(int)
+
+    def resolved(x):
+        cand = cand_by_id.get(x.get("candidate_id")) or {}
+        raw = cand.get("candidate_name") or x.get("candidate_name")
+        committees = cand.get("committee_name") or []
+        if isinstance(committees, str):
+            committees = [committees]
+        return cand, raw, committees, resolver.resolve(cand.get("state_filer_id"), committees, raw)
+
+    # LPT can list one person twice in a race under two candidate records:
+    # Arizona's Mine Inspector race has "Les Presmyk" (the ballot source's,
+    # linked to an exploratory committee with no money) and "Walter "Les"
+    # Presmyk" (linked to Presmyk for Mine Inspector). The first record sets
+    # the row; a committee that only the other one resolves is used for it.
+    # The two match on the quoted nickname.
+    def aliases(name):
+        out = {name}
+        nick = re.search(r'["\u201c]([^"\u201d]+)["\u201d]', name or "")
+        if nick and name.split():
+            out.add(f"{nick.group(1).strip()} {name.split()[-1]}")
+        return out
+
+    fallback = {}
+    for x in participants:
+        race = race_by_id.get(x["race_id"])
+        if race:
+            cand, raw, committees, fid = resolved(x)
+            name = display_name(raw)
+            if name and fid:
+                for alias in aliases(name):
+                    fallback.setdefault((race["office"], alias), (fid, committees))
     seen = set()
     for x in participants:
         race = race_by_id.get(x["race_id"])
         if not race:
             continue
         office = race["office"]
-        cand = cand_by_id.get(x.get("candidate_id")) or {}
-        raw = cand.get("candidate_name") or x.get("candidate_name")
+        cand, raw, committees, fid = resolved(x)
         name = display_name(raw)
         if not name or (office, name) in seen:
             continue
         seen.add((office, name))
-        committees = cand.get("committee_name") or []
-        if isinstance(committees, str):
-            committees = [committees]
-        fid = resolver.resolve(cand.get("state_filer_id"), committees, raw)
+        if not fid and (office, name) in fallback:
+            fid, committees = fallback[(office, name)]
         ref = f"{st}:{fid}" if fid else None
         on_ballot = x.get("on_ballot")
         cand_party = party(x.get("party") or cand.get("party"))

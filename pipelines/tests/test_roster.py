@@ -69,6 +69,12 @@ class Conflicts(unittest.TestCase):
         self.assertIsNone(r.resolve("Bauer"))
         self.assertEqual(r.how, "ambiguous")
 
+    def test_renamed_committee_keeps_its_unique_id(self):
+        rows = [{"state_filer_id": "101897", "committee_name": "Nick Mansour for State Treasurer"},
+                {"state_filer_id": "101897", "committee_name": "MANSOUR FOR ARIZONA"}]
+        self.assertIsNone(roster.FilerResolver(rows).resolve("101897"))
+        self.assertEqual(roster.FilerResolver(rows, unique_ids=True).resolve("101897"), "101897")
+
     def test_shared_and_claimed_refs_are_dropped(self):
         rows = [{"slug": "william-harris-ga-hd126", "filer_refs": ["ga:100918"]},
                 {"slug": "william-harris-ga-hd82", "filer_refs": ["ga:100918"]},
@@ -361,6 +367,27 @@ class StatewideRaces2026(unittest.TestCase):
         inserts, _, stats = self._commission(["corporation-commissioner"])
         self.assertEqual([(r["slug"], r["status"]) for r in inserts], [("nick-myers-az", "active")])
         self.assertEqual(stats["unconfirmed_added"], 1)
+
+    def test_a_second_record_for_the_same_person_supplies_the_committee(self):
+        # Arizona Mine Inspector, 2026-10-19: the ballot source's record is
+        # linked to an exploratory committee with no money; LPT's other record
+        # for him ("Walter "Les" Presmyk") carries the real one.
+        races = [{"race_id": "mi", "office": "mine-inspector"}]
+        participants = [
+            {"race_id": "mi", "candidate_id": "a", "candidate_name": "Les Presmyk", "party": "Republican",
+             "disposition": None, "on_ballot": True, "source": "greenpapers"},
+            {"race_id": "mi", "candidate_id": "b", "candidate_name": 'Walter "Les" Presmyk', "party": None,
+             "disposition": None, "on_ballot": None, "source": None}]
+        candidates = [
+            {"candidate_id": "a", "candidate_name": "LES PRESMYK", "state_filer_id": "200693293",
+             "committee_name": None},
+            {"candidate_id": "b", "candidate_name": 'Walter "Les" Presmyk', "state_filer_id": "102016",
+             "committee_name": None}]
+        resolver = roster.FilerResolver([{"state_filer_id": "102016",
+                                          "committee_name": "Presmyk for Mine Inspector"}])
+        inserts, _, _ = roster.plan_statewide("az", races, participants, candidates, [], resolver)
+        self.assertEqual([(r["slug"], r["filer_refs"]) for r in inserts],
+                         [("les-presmyk-az", ["az:102016"])])
 
     def test_texas_statewide_rows_carry_the_tec_office(self):
         races = [{"race_id": "c", "office": "comptroller"}]
