@@ -337,6 +337,9 @@ def main(argv=None):
     ap.add_argument("--prune", action=argparse.BooleanOptionalAction, default=None,
                     help="after loading, delete live rows in the window that SLCF no "
                          "longer has (default: the state's `prune` in states.json)")
+    ap.add_argument("--prune-ie", action=argparse.BooleanOptionalAction, default=None,
+                    help="prune the outside-spending tables too (default: same as --prune); "
+                         "run_state.py passes --no-prune-ie when only an IE file failed")
     args = ap.parse_args(argv)
     st = args.state.lower()
 
@@ -346,6 +349,7 @@ def main(argv=None):
     entry = manifest_entry(st)
     since = since_of(entry)
     do_prune = entry.get("prune", False) if args.prune is None else args.prune
+    do_prune_ie = do_prune if args.prune_ie is None else (do_prune and args.prune_ie)
     clean_dir = cleaned_dir(st, args.data_dir)
     if clean_dir is None:
         sys.exit(f"{st}: no SLCF cleaned data under {args.data_dir} — run "
@@ -408,7 +412,7 @@ def main(argv=None):
         cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name&order=id")
         ie.load_ie(st, entry, clean_dir, cands, args.dry_run, since, entry.get("cycle", "2026"),
                    mapping.TxnIds(st, entry.get("id_format")), open_table,
-                   do_prune=do_prune, min_share=entry.get("prune_min_share", PRUNE_MIN_SHARE))
+                   do_prune=do_prune_ie, min_share=entry.get("prune_min_share", PRUNE_MIN_SHARE))
     return 0
 
 

@@ -78,7 +78,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.slcf != '[]' && needs.plan.outputs.slcf != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Arizona's full committee-details sweep (~8,900 pages, ~75 min with the
+    # scrape) runs once a month (cache below); 180 leaves room for it.
+    timeout-minutes: 180
     strategy:
       fail-fast: false          # one state's outage must not cancel the others
       max-parallel: 6
@@ -94,6 +96,26 @@ jobs:
             pipelines/requirements.txt
             pipelines/slcf/requirements.txt
       - run: pip install -r pipelines/requirements.txt
+
+      # Arizona fetches one SeeTheMoney page per committee (~8,900) and skips
+      # the ids already in az_committee_details.csv, but a fresh runner has
+      # none, so every run fetched them all and came within minutes of the
+      # timeout (2026-10-19). Keep the file between runs. The key carries the
+      # month, so each month starts from scratch and refreshes every
+      # committee's details once; within the month only new committees are
+      # fetched. Saved with always(), so a run that times out keeps what it
+      # fetched and the rerun resumes.
+      - name: Arizona committee-details cache key
+        id: azcache
+        if: matrix.state == 'az'
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - name: Restore Arizona committee details
+        if: matrix.state == 'az'
+        uses: actions/cache/restore@v4
+        with:
+          path: pipelines/slcf/data/Arizona/raw/az_committee_details.csv
+          key: az-committee-details-${{ steps.azcache.outputs.month }}-${{ github.run_id }}
+          restore-keys: az-committee-details-${{ steps.azcache.outputs.month }}-
 
       - name: SLCF sync + load
         env:
@@ -119,6 +141,13 @@ jobs:
           else
             python3 pipelines/run_state.py "$STATE"
           fi
+
+      - name: Save Arizona committee details
+        if: always() && matrix.state == 'az' && hashFiles('pipelines/slcf/data/Arizona/raw/az_committee_details.csv') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: pipelines/slcf/data/Arizona/raw/az_committee_details.csv
+          key: az-committee-details-${{ steps.azcache.outputs.month }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # SLCF's per-run log.jsonl + validation JSON, and a dry run's reconciliation.
       - uses: actions/upload-artifact@v4
