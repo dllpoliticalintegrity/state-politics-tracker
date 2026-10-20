@@ -44,6 +44,9 @@ import mapping  # noqa: E402  (pipelines/load on sys.path, as load_cf does)
 import rest  # noqa: E402
 
 IE_STANCES = {"S", "O", "U"}
+# cf_candidates.status values for someone out of the race (src/lib/candidateStatus.ts):
+# those who ran this cycle and are out, and roster rows never on the ballot.
+RAN_AND_OUT = {"withdrawn", "dropped_out", "eliminated", "lost_primary", "disqualified"}
 NICKNAMES_CSV = Path(__file__).resolve().parents[1] / "slcf" / "src" / "aliases" / "nicknames.csv"
 
 _PUNCT = re.compile(r"[^A-Z0-9 ]+")
@@ -96,22 +99,33 @@ class TargetIndex:
 
     A person-name target must agree on the surname AND the first name (a
     nickname counts: Rick = Richard); a bare surname matches only when one
-    tracked candidate carries it. A committee-style name that fails the
-    committee lookups is never reduced to its last word, so "Friends of Jack
+    tracked candidate carries it. Where several tracked rows fit (the same
+    person on a statewide row and on a stale legislative row, as Arizona's
+    Andy Biggs is for governor and for a 2016 SD12 seat), the row still in the
+    race wins, then one who ran this cycle and is out (lost the primary,
+    withdrew), then a roster row never on the ballot; within a tier the first
+    row, as before. Before 2026-10-20 the first row always won, which put
+    $8.6M of IEs for Biggs on his not-on-ballot SD12 row.
+
+    A committee-style name that fails the committee lookups is never reduced to its last word, so "Friends of Jack
     Miller" cannot land on a tracked Miller.
     """
 
     def __init__(self, cands, committees=(), nicknames=None):
         self.nick = load_nicknames() if nicknames is None else nicknames
         self.by_committee = {}      # norm(committee_name) -> candidate id
-        self.by_name = {}           # norm(name) -> candidate id
+        self.by_name = defaultdict(list)  # norm(name) -> candidate ids
         self.by_last = defaultdict(set)   # LAST -> ids
         self.first = {}             # id -> canonical first name
+        self.tier = {}              # id -> 0 in the race, 1 ran and out, 2 never on the ballot
         for c in cands:
             cid = c["id"]
+            status = c.get("status") or ""
+            self.tier[cid] = 2 if status == "not_on_ballot" else 1 if status in RAN_AND_OUT else 0
             if c.get("committee_name"):
                 self.by_committee.setdefault(norm(c["committee_name"]), cid)
-            self.by_name.setdefault(norm(c["name"]), cid)
+            if cid not in self.by_name[norm(c["name"])]:
+                self.by_name[norm(c["name"])].append(cid)
             last, first = name_parts(c["name"])
             if last:
                 self.by_last[last].add(cid)
@@ -124,11 +138,17 @@ class TargetIndex:
     def _canon(self, first):
         return self.nick.get(first, first)
 
+    def _pick(self, ids):
+        """The id among `ids` in the best tier (see the class docstring), the
+        first of them on a tie; None for no ids."""
+        ids = list(dict.fromkeys(ids))
+        return min(ids, key=lambda cid: self.tier.get(cid, 0)) if ids else None
+
     def _by_person(self, name):
         last, first = name_parts(name)
         if not last:
             return None
-        hit = self.by_name.get(norm(name))
+        hit = self._pick(self.by_name.get(norm(name), ()))
         if hit:
             return hit
         ids = self.by_last.get(last, set())
@@ -137,7 +157,14 @@ class TargetIndex:
             ids = {cid for cid in ids
                    if self.first.get(cid) == want
                    or (len(first) == 1 and self.first.get(cid, "").startswith(first))}
-        return next(iter(ids)) if len(ids) == 1 else None
+        if len(ids) == 1:
+            return next(iter(ids))
+        # Several rows by surname and first name: only a single best-tier row
+        # is taken (Biggs's governor row over his SD12 one); a tie stays
+        # unmatched, as any ambiguous surname match always has.
+        best = min((self.tier.get(cid, 0) for cid in ids), default=None)
+        top = [cid for cid in ids if self.tier.get(cid, 0) == best]
+        return top[0] if len(top) == 1 else None
 
     def resolve(self, target):
         t = norm(target)

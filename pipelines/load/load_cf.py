@@ -410,7 +410,7 @@ def main(argv=None):
     # receipts -> cf_ie_* (pipelines/load/ie.py). Needs committees.csv, so
     # run_state scrapes entities as well for these states.
     if entry.get("ie"):
-        cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name&order=id")
+        cands = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,committee_name,status&order=id")
         ie.load_ie(st, entry, clean_dir, cands, args.dry_run, since, entry.get("cycle", "2026"),
                    mapping.TxnIds(st, entry.get("id_format")), open_table,
                    do_prune=do_prune_ie, min_share=entry.get("prune_min_share", PRUNE_MIN_SHARE))
