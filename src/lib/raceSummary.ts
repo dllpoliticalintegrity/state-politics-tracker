@@ -52,10 +52,10 @@ export function fundingSlices(rows: FundingRow[], candidateIds: Set<string>, inc
 export function partyBucket(party: string | null | undefined): string {
   const p = (party ?? "").trim().toLowerCase();
   if (!p) return "Other";
-  if (p === "d" || p.startsWith("dem")) return "Democrat";
-  if (p === "r" || p.startsWith("rep")) return "Republican";
+  if (p === "d" || p.startsWith("dem") || /\bdemocrat/.test(p)) return "Democrat";   // "Florida Democratic Party"
+  if (p === "r" || p.startsWith("rep") || /\brepublican/.test(p)) return "Republican";
   if (p === "l" || p.startsWith("lib")) return "Libertarian";
-  if (p === "g" || p.startsWith("green")) return "Green";
+  if (p === "g" || /\bgreens?\b/.test(p)) return "Green";   // "Florida Green Party" too
   if (p === "i" || p.startsWith("ind") || p.includes("no party")) return "Independent";
   return "Other";
 }
@@ -65,7 +65,7 @@ export const PARTY_SLICE_COLOR: Record<string, string> = {
   Democrat: "hsl(var(--dem))",
   Republican: "hsl(var(--rep))",
   Libertarian: "hsl(48 90% 50%)",
-  Green: "hsl(130 45% 42%)",
+  Green: "hsl(var(--grn))",
   Independent: "hsl(var(--ind))",
   Other: "hsl(335 65% 58%)",
 };

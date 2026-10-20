@@ -57,6 +57,7 @@ export default {
         dem: "hsl(var(--dem))",
         rep: "hsl(var(--rep))",
         ind: "hsl(var(--ind))",
+        grn: "hsl(var(--grn))",
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",

@@ -62,6 +62,10 @@
     --dem: 213 60% 40%;
     --rep: 4 66% 45%;
     --ind: 32 80% 36%;
+    /* Green Party: --map-other's hue (CVD-checked against --dem/--rep),
+       darkened from 34% to 30% lightness so white badge text and green names
+       on the page surface both pass 4.5:1 (5.1 and 4.7). */
+    --grn: 157 64% 30%;
     /* District maps: "other party leads" — a third hue that stays apart from
        --dem/--rep under colour-vision deficiency (validated: #1f8f66). --ind
        is too close to --rep for deutan readers, so it is not reused there. */
@@ -118,6 +122,7 @@
     --dem: 213 70% 62%;
     --rep: 2 75% 62%;
     --ind: 35 85% 55%;
+    --grn: 158 50% 43%; /* = --map-other: 5.3:1 on the dark surface */
     --map-other: 158 50% 43%; /* #37a57c — validated against the dark surface */
 
     --sidebar-background: 40 8% 12%;
