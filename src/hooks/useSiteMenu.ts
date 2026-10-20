@@ -18,7 +18,7 @@ export function useSiteMenu(navRaces: RaceConfig[]) {
   const currentOffice = pathname.split("/")[officeIdx];
   const items = [
     { to: stateBase || "/", label: "Overview", key: "" },
-    ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.title, key: r.office })),
+    ...navRaces.map((r) => ({ to: `${stateBase}/${r.office}`, label: r.navLabel ?? r.title, key: r.office })),
     ...(activeState.chambers ?? []).map((c) => ({ to: `${stateBase}/${c.office}`, label: c.title, key: c.office })),
     { to: `${stateBase}/committees`, label: "Committees", key: "committees" },
     { to: `${stateBase}/about`, label: "About", key: "about" },
