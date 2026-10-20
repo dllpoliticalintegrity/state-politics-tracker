@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { featureLabelAnchor, featurePath, fitMercator, type FeatureCollection } from "@/lib/geo";
-import { formatCurrency } from "@/lib/finance";
+import { formatCurrency, partyKey } from "@/lib/finance";
 import type { TxCandidate } from "@/hooks/useCandidates";
 
 export interface DistrictRow {
@@ -22,9 +22,10 @@ export type LeadClass = "dem" | "rep" | "other" | "none" | "off";
 export function leadClass(row: DistrictRow | undefined, raised: (c: TxCandidate) => number): LeadClass {
   const top = row?.cands[0];
   if (!top || raised(top) <= 0) return "none";
-  const p = (top.party ?? "").trim().toUpperCase();
-  if (p.startsWith("D")) return "dem";
-  if (p.startsWith("R")) return "rep";
+  // partyKey, so "Florida Democratic Party" shades blue, not "other party".
+  const p = partyKey(top.party);
+  if (p === "D") return "dem";
+  if (p === "R") return "rep";
   return "other";
 }
 

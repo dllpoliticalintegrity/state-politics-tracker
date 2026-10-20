@@ -6,7 +6,7 @@ type ComparisonCandidate = PartyCandidate & { id: string; name: string; status: 
 
 export function comparisonTextClass(party: string | null | undefined): string {
   const label = partyLabel(party);
-  return label === "Democrat" ? "text-dem" : label === "Republican" ? "text-rep" : label === "Independent" ? "text-ind" : "text-muted-foreground";
+  return label === "Democrat" ? "text-dem" : label === "Republican" ? "text-rep" : label === "Independent" ? "text-ind" : label === "Green" ? "text-grn" : "text-muted-foreground";
 }
 
 function partyPosition(candidate: PartyCandidate | undefined): number {
