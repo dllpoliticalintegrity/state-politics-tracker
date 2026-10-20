@@ -44,7 +44,10 @@ export function fundingSlices(rows: FundingRow[], candidateIds: Set<string>, inc
   return withShares(
     FUNDING_CATEGORIES.filter(
       (c) => (sums.get(c.key) ?? 0) > 0 || c.key === "individuals" || c.key === "pac" || c.key === "self" || !!include?.has(c.key),
-    ).map((c) => ({ key: c.key, label: c.label, color: c.color, amount: sums.get(c.key) ?? 0 })),
+    // A category can net below zero — refunds, or an Arizona Clean Elections
+    // campaign forwarding its $5 qualifying gifts to the state — and a share
+    // chart can't draw a negative slice, so it shows as $0.
+    ).map((c) => ({ key: c.key, label: c.label, color: c.color, amount: Math.max(0, sums.get(c.key) ?? 0) })),
   );
 }
 
