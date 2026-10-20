@@ -24,9 +24,16 @@ export function comparisonDefaults<T extends ComparisonCandidate>(
   polling: (candidate: T) => number | null,
 ): T[] {
   const confirmed = (candidate: T) => candidate.status === "nominee" || candidate.status === "won_primary";
+  // After polling, the Democratic and Republican nominees come before third
+  // parties: in an unpolled race, money alone put Arizona's Green nominee for
+  // Secretary of State ($739K, nearly all public financing) in the pair and
+  // left out the Republican nominee (2026-10-19). A third party that polls
+  // still makes the pair on its polling.
+  const majorParty = (candidate: T) => partyPosition(candidate) !== 1;
   return candidates.filter((candidate) => !isOffBallot(candidate.status)).sort((a, b) =>
     Number(confirmed(b)) - Number(confirmed(a)) ||
     (polling(b) ?? -1) - (polling(a) ?? -1) ||
+    Number(majorParty(b)) - Number(majorParty(a)) ||
     raised(b) - raised(a) || a.name.localeCompare(b.name),
   ).slice(0, 2).sort((a, b) => partyPosition(a) - partyPosition(b));
 }
