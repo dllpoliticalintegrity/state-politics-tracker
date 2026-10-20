@@ -313,6 +313,30 @@ class ManifestTest(unittest.TestCase):
         _, out = mapping.to_cf("contributions", named, set(az["individual_types"]), az["category_field"], az["unitemized"])
         self.assertEqual((out["contributor_last_name"], out["contributor_first_name"]), ("Smith", "Jane"))
 
+    def test_arizona_clean_elections_qualifying_gifts_are_individuals(self):
+        # Collier / Thompson, 2026-10-19: 3,559 and 1,510 $5 qualifying gifts
+        # were typed as organisations; the campaign's forwarding of them to
+        # the state nets them out under the unitemized label.
+        az = json.loads((PIPELINES / "states.json").read_text())["states"]["az"]
+        args = (set(az["individual_types"]), az["category_field"], az["unitemized"])
+        gift = {"contributor_name": "Rivera, Albert", "contributor_type": "CCEC $5 Qualifying Contribution",
+                "transaction_type": "CCEC $5 Qualifying Contribution", "amount": "5.0", "date": "2026-03-02"}
+        _, out = mapping.to_cf("contributions", gift, *args)
+        self.assertEqual((out["contributor_type"], out["contributor_last_name"], out["contributor_first_name"]),
+                         ("INDIVIDUAL", "Rivera", "Albert"))
+        sent = {"contributor_name": "Arizona Secretary of State",
+                "contributor_type": "Submit $5 Qualifying Contributions to SOS",
+                "transaction_type": "Submit $5 Qualifying Contributions to SOS", "amount": "-18030.0",
+                "date": "2026-04-01"}
+        _, out = mapping.to_cf("contributions", sent, *args)
+        self.assertEqual((out["contributor_type"], out["contributor_last_name"], out["amount"]),
+                         ("INDIVIDUAL", "Unitemized (small-dollar) contributions", -18030.0))
+        # Clean Elections funding itself stays an organisation (public financing).
+        ccec = {"contributor_name": "Citizens Clean Election Commission", "contributor_type": "Receive CCEC Funding",
+                "transaction_type": "Receive CCEC Funding", "amount": "295743.0", "date": "2026-08-01"}
+        _, out = mapping.to_cf("contributions", ccec, *args)
+        self.assertEqual(out["contributor_type"], "ENTITY")
+
     def test_schedule_covers_every_pilot_state_once(self):
         # Every state the pilot imported before the merge is still scheduled
         # by one finance pipeline; Texas never is. Michigan is in both lists:

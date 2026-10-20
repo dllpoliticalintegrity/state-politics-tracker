@@ -16,6 +16,14 @@ describe("race summary", () => {
     // A category with money appears; an empty optional one doesn't.
     expect(fundingSlices([{ candidate_id: "a", category: "public", amount: 5 }], new Set(["a"])).map((x) => x.key))
       .toContain("public");
+    // Individuals netting below zero (Clean Elections $5 gifts forwarded to
+    // the state) show as $0, not a negative slice.
+    const netted = fundingSlices([
+      { candidate_id: "a", category: "individuals", amount: -180 },
+      { candidate_id: "a", category: "public", amount: 739358 },
+    ], new Set(["a"]));
+    expect(netted.find((x) => x.key === "individuals")).toMatchObject({ amount: 0, pct: 0 });
+    expect(netted.find((x) => x.key === "public")?.pct).toBeCloseTo(100);
   });
 
   it("folds party labels", () => {
