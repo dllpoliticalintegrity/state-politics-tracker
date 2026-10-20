@@ -10,6 +10,7 @@ import { readCandidatePct, useRacePolling } from "@/hooks/usePolling";
 import { formatCurrency, partyColor, partyLabel } from "@/lib/finance";
 import { onBallot } from "@/lib/candidateStatus";
 import { racePath, useRaceConfig, useStateConfig } from "@/states/StateContext";
+import { overviewOrder } from "@/lib/headToHead";
 
 function initialsOf(name: string): string {
   const w = name.trim().split(/\s+/);
@@ -39,7 +40,7 @@ export default function RaceOverviewCard() {
   const { data: totals } = useCandidateTotals();
   const { data: polling } = useRacePolling();
 
-  const rows = onBallot(candidates ?? []).map((c) => {
+  const unordered = onBallot(candidates ?? []).map((c) => {
     const pct = polled && polling ? readCandidatePct(polling.average, c.name, c.id) : null;
     return {
       c,
@@ -47,10 +48,8 @@ export default function RaceOverviewCard() {
       pct: pct !== null && Number.isFinite(pct) && pct > 0 ? pct : null,
     };
   });
-  const anyPoll = rows.some((r) => r.pct !== null);
-  rows.sort((a, b) =>
-    anyPoll ? (b.pct ?? -1) - (a.pct ?? -1) || b.raised - a.raised : b.raised - a.raised,
-  );
+  const anyPoll = unordered.some((r) => r.pct !== null);
+  const rows = overviewOrder(unordered, anyPoll);
   const raceRaised = (candidates ?? []).reduce((s, c) => s + (totals?.get(c.id)?.raised ?? 0), 0);
   const href = racePath(state, race);
 
