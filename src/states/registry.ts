@@ -43,6 +43,13 @@ export interface RaceConfig {
   office: string;
   /** Display title: "Governor", "Attorney General"… */
   title: string;
+  /**
+   * Shorter label for the site menu, where every race shares one row: Arizona
+   * has seven statewide races, and the full "Superintendent of Public
+   * Instruction" pushed About off the end of the desktop menu (2026-10-19).
+   * Pages keep `title`.
+   */
+  navLabel?: string;
   /** ISO date of the general election. */
   generalDate: string;
   /** Slug in the shared `races` polling table, e.g. "michigan-governor-2026". */
@@ -349,7 +356,7 @@ const LIVE_CONFIG_2: Record<string, Pick<StateConfig, "races" | "agency" | "cham
       // Tracker (states.json lpt_statewide). The Corporation Commission elects two
       // seats; LPT has no ballot list for it, so its whole field shows.
       { office: "treasurer", title: "Treasurer", generalDate: "2026-11-03", raceSlug: "arizona-treasurer-2026" },
-      { office: "superintendent-of-education", title: "Superintendent of Public Instruction", generalDate: "2026-11-03", raceSlug: "arizona-superintendent-of-education-2026" },
+      { office: "superintendent-of-education", title: "Superintendent of Public Instruction", navLabel: "Superintendent", generalDate: "2026-11-03", raceSlug: "arizona-superintendent-of-education-2026" },
       { office: "corporation-commissioner", title: "Corporation Commission", generalDate: "2026-11-03", raceSlug: "arizona-corporation-commissioner-2026" },
       { office: "mine-inspector", title: "Mine Inspector", generalDate: "2026-11-03", raceSlug: "arizona-mine-inspector-2026" },
     ],

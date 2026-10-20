@@ -28,6 +28,12 @@ describe("state registry", () => {
     expect(getState("ga")!.chambers!.map((c) => [c.office, c.districts])).toEqual([["state-senate", 56], ["state-house", 180]]);
   });
 
+  it("gives Arizona's superintendent race a short menu label and keeps the page title", () => {
+    const sup = getState("az")!.races!.find((r) => r.office === "superintendent-of-education")!;
+    expect(sup.navLabel).toBe("Superintendent");
+    expect(sup.title).toBe("Superintendent of Public Instruction");
+  });
+
   it("contains all 50 states with unique codes", () => {
     expect(STATES).toHaveLength(50);
     const codes = new Set(STATES.map((s) => s.code));
