@@ -344,3 +344,31 @@ class PruneGuard(unittest.TestCase):
         self.assertEqual(len(deleted), 1)
         for i in range(6):
             self.assertIn(f"old{i}", deleted[0])
+
+
+class SameNameCandidates(unittest.TestCase):
+    def test_the_row_still_on_the_ballot_wins(self):
+        # Arizona, 2026-10-20: Andy Biggs for governor and a stale SD12 row
+        # for him (his 2016 committee) -- IEs for him went to the SD12 row.
+        cands = [{"id": "sd12", "name": "Andy Biggs", "committee_name": None, "status": "not_on_ballot"},
+                 {"id": "gov", "name": "Andy Biggs", "committee_name": "Biggs for Arizona", "status": "won_primary"},
+                 {"id": "mylie", "name": "Mylie Biggs", "committee_name": None, "status": "nominee"}]
+        idx = ie.TargetIndex(cands, [], nicknames={"ANDY": "ANDREW"})
+        self.assertEqual(idx.resolve("Andy Biggs"), "gov")
+        self.assertEqual(idx.resolve("BIGGS, ANDREW"), "gov")
+        self.assertEqual(idx.resolve("Biggs for Arizona"), "gov")
+        self.assertEqual(idx.resolve("Mylie Biggs"), "mylie")
+
+    def test_ran_and_out_beats_a_roster_row_never_on_the_ballot(self):
+        # Georgia: Jason Esteves lost the governor primary; his SD35 row is a
+        # stale roster entry. Primary-season IEs about him belong to the first.
+        cands = [{"id": "sd35", "name": "Jason Esteves", "committee_name": None, "status": "not_on_ballot"},
+                 {"id": "gov", "name": "Jason Esteves", "committee_name": None, "status": "lost_primary"}]
+        self.assertEqual(ie.TargetIndex(cands, [], nicknames={}).resolve("Jason Esteves"), "gov")
+
+    def test_a_tie_keeps_the_first_row_for_an_exact_name(self):
+        cands = [{"id": "a", "name": "Pat Lee", "committee_name": None, "status": "nominee"},
+                 {"id": "b", "name": "Pat Lee", "committee_name": None, "status": "nominee"}]
+        idx = ie.TargetIndex(cands, [], nicknames={})
+        self.assertEqual(idx.resolve("Pat Lee"), "a")          # as before 2026-10-20
+        self.assertIsNone(idx.resolve("LEE, PATRICK"))         # surname match: still ambiguous
