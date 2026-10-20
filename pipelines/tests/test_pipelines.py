@@ -272,6 +272,9 @@ class RunStateTest(unittest.TestCase):
               "HTTPSConnectionPool(host='seethemoney.az.gov', port=443): Read timed out.")
         self.assertEqual(flags([ie]), ["--no-prune-ie"])
         self.assertEqual(flags([ie, "committee: HTTP 500"]), ["--no-prune-ie"])
+        # Alaska's IE exports (Form 15-6).
+        self.assertEqual(flags(["IEExpenditures_2026.csv: failed after 8 tries"]), ["--no-prune-ie"])
+        self.assertEqual(flags(["IEContributions_2025.csv: HTTP 500"]), ["--no-prune-ie"])
         # A lost transaction file still holds every prune back.
         self.assertEqual(flags(["2026-09.csv: HTTP 500"]), ["--no-prune"])
         self.assertEqual(flags([ie, "Contributions_2026.csv: HTTP 500"]), ["--no-prune"])
