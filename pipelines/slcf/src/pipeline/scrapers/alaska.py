@@ -632,8 +632,18 @@ def download_year(page, context, relation_type: str, year: str, log) -> tuple[st
 GRID_PAGES = {
     "income":       ("CDIncome",       "CDIncome",  "IncomeTypes"),
     "expenditures": ("CDExpenditures", "CDExpense", "ExpenditureTypes"),
+    # Independent expenditures (Form 15-6): the same Telerik search/export
+    # grid, also served over plain HTTP (checked 2026-10-20: 1,555 rows for
+    # 2026, no DataDome page). Until then only the Playwright path fetched
+    # them, and a --grid run never did, so Alaska had no outside spending.
+    "ie_expenditures":  ("IndependentExpenditures/IEExpenditures",  "IEExpenditures",  "IEFilerTypes"),
+    "ie_contributions": ("IndependentExpenditures/IEContributions", "IEContributions", "IEFilerTypes"),
 }
-GRID_BASE        = "https://aws.state.ak.us/ApocReports/CampaignDisclosure"
+GRID_IE = ("ie_expenditures", "ie_contributions")
+# The IE pages' name filter has no "CandidateName" option.
+GRID_NAME_TYPE   = {"ie_expenditures": "Any", "ie_contributions": "Any"}
+GRID_ROOT        = "https://aws.state.ak.us/ApocReports"
+GRID_BASE        = f"{GRID_ROOT}/CampaignDisclosure"
 GRID_STATUS      = "Default"   # "Complete, Not Amended"
 GRID_PAGE_SIZE   = 5000        # ~30 s a request statewide
 GRID_TRIES       = 8           # per request
@@ -645,6 +655,19 @@ _GRID_COUNT_RE   = re.compile(r"<strong>([\d,]+)</strong>\s*items in")   # the p
 _GRID_ROW_RE     = re.compile(r'<tr class="rg(?:Alt)?Row"')               # a grid row
 # Only a search's own answer: the unsearched page has an empty grid too.
 _GRID_EMPTY_RE   = re.compile(r"Your Search Returned No Results", re.I)
+
+
+def grid_url(relation_type: str) -> str:
+    page = GRID_PAGES[relation_type][0]
+    return f"{GRID_ROOT}/{page}.aspx" if "/" in page else f"{GRID_BASE}/{page}.aspx"
+
+
+def grid_filename(relation_type: str, year: str) -> str:
+    """grid_<stem>_<year>.csv for income / expenditures; the IE exports keep
+    the Playwright path's own names (IEExpenditures_<year>.csv), which is
+    what parsers/alaska.py reads."""
+    stem = GRID_PAGES[relation_type][1]
+    return f"{stem}_{year}.csv" if relation_type in GRID_IE else f"grid_{stem}_{year}.csv"
 
 
 def _grid_request(session, url: str, log, data: dict | None = None) -> str:
@@ -675,19 +698,21 @@ def _grid_request(session, url: str, log, data: dict | None = None) -> str:
     raise RuntimeError(f"{url.split('?')[0]}: failed after {GRID_TRIES} tries: {last}")
 
 
-def _grid_form(html: str, prefix: str, field: str, year: str, button: str, value: str) -> dict:
+def _grid_form(html: str, prefix: str, field: str, year: str, button: str, value: str,
+               name_type: str = "CandidateName") -> dict:
     """The search form as the page posts it: any filer, any type, one report
-    year, GRID_STATUS, plus the button pressed."""
+    year, GRID_STATUS, plus the button pressed. `prefix` is the controls'
+    name prefix up to "csfFilter$" ("M$C$<x>$" or, on the IE pages, "M$C$")."""
     def hidden(name):
         m = re.search(rf'id="{name}" value="([^"]*)"', html)
         if not m:
             raise RuntimeError(f"no {name} on the page")
         return m.group(1)
-    f = f"{prefix}$csfFilter$"
+    f = f"{prefix}csfFilter$"
     return {"__EVENTTARGET": "", "__EVENTARGUMENT": "", "__LASTFOCUS": "",
             "__VIEWSTATE": hidden("__VIEWSTATE"),
             "__VIEWSTATEGENERATOR": hidden("__VIEWSTATEGENERATOR"),
-            f + "ddlNameType": "CandidateName", f + "txtName": "",
+            f + "ddlNameType": name_type, f + "txtName": "",
             f + "ddlField": field, f + "ddlValue": "-1",
             f + "txtBeginDate": "", f + "txtEndDate": "",
             f + "ddlReportYear": year, f + "ddlStatus": GRID_STATUS,
@@ -699,18 +724,19 @@ def _grid_year_once(relation_type: str, year: str, log) -> tuple[list[str], list
     returns no results. Raises when the export doesn't add up."""
     import requests
     page, _, field = GRID_PAGES[relation_type]
-    url = f"{GRID_BASE}/{page}.aspx"
+    url = grid_url(relation_type)
+    name_type = GRID_NAME_TYPE.get(relation_type, "CandidateName")
     session = requests.Session()
     session.headers["User-Agent"] = GRID_USER_AGENT
 
     html = _grid_request(session, url, log)
-    m = re.search(r'name="(M\$C\$[^"$]+)\$csfFilter\$txtName"', html)
+    m = re.search(r'name="(M\$C\$(?:[^"$]+\$)?)csfFilter\$txtName"', html)
     if not m:
         raise RuntimeError(f"{page}: search form not found")
     prefix = m.group(1)
     time.sleep(GRID_PAUSE_S)
     found = _grid_request(session, url, log,
-                          _grid_form(html, prefix, field, year, "btnSearch", "Search"))
+                          _grid_form(html, prefix, field, year, "btnSearch", "Search", name_type))
     m = _GRID_COUNT_RE.search(found)
     if m:
         expected = int(m.group(1).replace(",", ""))
@@ -725,7 +751,7 @@ def _grid_year_once(relation_type: str, year: str, log) -> tuple[list[str], list
     # The export dialog's links carry the session's stored search.
     time.sleep(GRID_PAUSE_S)
     dialog = _grid_request(session, url, log,
-                           _grid_form(found, prefix, field, year, "btnExport", "Export"))
+                           _grid_form(found, prefix, field, year, "btnExport", "Export", name_type))
     links = [l.replace("&amp;", "&") for l in re.findall(r'href="([^"]*isExport[^"]*)"', dialog)]
     page_link = next((l for l in links if "exportFormat=CSV" in l and "exportAll=False" in l), None)
     if not page_link:
@@ -760,8 +786,7 @@ def download_grid_year(relation_type: str, year: str, log) -> tuple[str, int] | 
     """One report year of income or expenditures via the grid export, into
     grid_<stem>_<year>.csv (written to .part, renamed when complete). None when
     the year has no rows. Retries the whole year GRID_YEAR_TRIES times."""
-    _, stem, _ = GRID_PAGES[relation_type]
-    filename = f"grid_{stem}_{year}.csv"
+    filename = grid_filename(relation_type, year)
     last = None
     for attempt in range(GRID_YEAR_TRIES):
         if attempt:
@@ -788,8 +813,9 @@ def download_grid_year(relation_type: str, year: str, log) -> tuple[str, int] | 
 
 
 def run_grid(log, start_year: int | None, end_year: int | None,
-             do_income: bool, do_expend: bool) -> tuple[int, int]:
-    """--grid: income / expenditures per report year over plain HTTP.
+             do_income: bool, do_expend: bool, do_ie: bool = False) -> tuple[int, int]:
+    """--grid: income / expenditures (and, with do_ie, the independent
+    expenditure exports) per report year over plain HTTP.
     Returns (files_ok, files_err); raises after logging when a year fails."""
     import requests
     session = requests.Session()
@@ -803,12 +829,14 @@ def run_grid(log, start_year: int | None, end_year: int | None,
              if (start_year is None or int(y) >= start_year)
              and (end_year is None or int(y) <= end_year)]
     files_ok = files_err = 0
-    for relation_type in ("income", "expenditures"):
-        if not (do_income if relation_type == "income" else do_expend):
+    wanted = {"income": do_income, "expenditures": do_expend,
+              "ie_expenditures": do_ie, "ie_contributions": do_ie}
+    for relation_type in GRID_PAGES:
+        if not wanted[relation_type]:
             continue
         log.info(f"\nAlaska {relation_type} (grid): report years {', '.join(years)}")
         for year in years:
-            filename = f"grid_{GRID_PAGES[relation_type][1]}_{year}.csv"
+            filename = grid_filename(relation_type, year)
             log.file_download_start(filename=filename)
             t_file = time.perf_counter()
             try:
@@ -900,9 +928,9 @@ def run(
     current_year = str(datetime.today().year)
 
     # ── --grid: income / expenditures over plain HTTP, no browser ─────
-    if grid and (do_income or do_expend):
+    if grid and (do_income or do_expend or do_ie):
         try:
-            files_ok, files_err = run_grid(log, start_year, end_year, do_income, do_expend)
+            files_ok, files_err = run_grid(log, start_year, end_year, do_income, do_expend, do_ie)
         except Exception as e:
             log._emit("scrape_completed", status="error",
                       duration_s=round(time.perf_counter() - t0, 1),
@@ -910,8 +938,8 @@ def run(
                       pages_ok=pages_ok, pages_err=pages_err,
                       error_type=type(e).__name__, error=str(e))
             raise
-        do_income = do_expend = False
-        if not (do_candidates_dl or do_groups_dl or do_ie):
+        do_income = do_expend = do_ie = False
+        if not (do_candidates_dl or do_groups_dl):
             duration = round(time.perf_counter() - t0, 1)
             log.info(f"Done in {duration}s")
             log._emit("scrape_completed", status="completed", duration_s=duration,

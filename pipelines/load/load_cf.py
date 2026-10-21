@@ -84,13 +84,23 @@ def open_table(clean_dir, table):
     return None
 
 
+def ref_key(st, fid):
+    """The lookup key for a row's filer id: refs match case-insensitively.
+    Alaska's ids are surnames, and the same filer has been stored both ways
+    ("ak:wilson" on Bernadette Wilson's row, "Wilson" in the data), which
+    left her and Dave Bronson with no rows loaded (2026-10-20)."""
+    return f"{st}:{fid}".lower()
+
+
 def candidate_refs(st):
-    """{"co:<id>": (candidate uuid, slug)} from cf_candidates.filer_refs."""
+    """{"co:<id>": (candidate uuid, slug)} from cf_candidates.filer_refs,
+    keyed by ref_key (lower-cased)."""
     rows = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,filer_refs&order=id")
     refs = {}
     for c in rows:
         for ref in c.get("filer_refs") or []:
             if isinstance(ref, str) and ref.startswith(f"{st}:"):
+                ref = ref.lower()
                 if ref in refs and refs[ref][1] != c["slug"]:
                     print(f"   warning: {ref} is on both {refs[ref][1]} and {c['slug']}; "
                           f"its money loads to {refs[ref][1]}", flush=True)
@@ -119,7 +129,7 @@ def rereport_latest(clean_dir, refs, st):
     reports = defaultdict(set)
     for row in open_table(clean_dir, "contributions") or []:
         fid = (row.get("state_filer_id") or "").strip()
-        if not fid or f"{st}:{fid}" not in refs:
+        if not fid or ref_key(st, fid) not in refs:
             continue
         reports[gift_key(row)].add((row.get("filing_id") or "").strip())
     return {k: max(v, key=_report_key) for k, v in reports.items() if len(v) > 1 and all(v)}
@@ -167,7 +177,7 @@ def rows_for_state(st, entry, clean_dir, refs):
                              f"re-run the SLCF parser (columns.py, TRANSACTION_IDS)")
         for row in reader:
             fid = (row.get("state_filer_id") or "").strip()
-            hit = refs.get(f"{st}:{fid}") if fid else None
+            hit = refs.get(ref_key(st, fid)) if fid else None
             t = table
             if hit and table == "loans_debts":
                 target = mapping.loan_record_target(row, loan_records)

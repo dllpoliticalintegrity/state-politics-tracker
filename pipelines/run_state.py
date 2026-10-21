@@ -79,7 +79,7 @@ def scrape_errors(run_id):
 # Scrape errors that can't touch a contribution or expenditure row: the
 # outside-spending files, and committee detail pages (registry metadata —
 # names, officers — that the transaction tables never read).
-IE_ERROR = re.compile(r"^independent[ _-]?expenditure|(^|[_/ ])ie[_.]", re.I)
+IE_ERROR = re.compile(r"^independent[ _-]?expenditure|^ie(expenditures|contributions)|(^|[_/ ])ie[_.]", re.I)
 COMMITTEE_PAGE_ERROR = re.compile(r"^committee:", re.I)
 
 

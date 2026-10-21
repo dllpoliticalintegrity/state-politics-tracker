@@ -108,7 +108,8 @@ SCRAPER_FLAGS     = {"--force", "--transactions", "--entities",
                      "--no-fec-ie",
                      "--grid",       # MD: PublicGrid export, which carries TransactionID;
                                      # AK: APOC's search export over plain HTTP, no browser
-                     "--search"}     # IA: IECDB Searchable Database, which carries transactionId
+                     "--search",     # IA: IECDB Searchable Database, which carries transactionId
+                     "--independent-expenditures"}   # AK: the IE (Form 15-6) exports
 YEAR_FLAGS        = {"--start-year", "--end-year"}
 
 
