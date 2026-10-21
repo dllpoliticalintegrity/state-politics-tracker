@@ -60,6 +60,25 @@ export function formatCurrencyFull(n: number | null | undefined): string {
   return `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+/**
+ * Whether an organisation donor is a party committee, by name -- the party
+ * rule of the tracker's cf_funding_category() (supabase/migrations/
+ * 20261019000000_cf_funding_sources.sql), so both read a donor the same way:
+ * "party" or "caucus" as a word, or Democratic / Republican with a committee
+ * word ("Jackson County Democratic Central Committee"). For states read from
+ * the Local Politics Tracker, which only types donors as individual or
+ * organisation: the Democratic Party of Oregon was counted with PACs and
+ * firms on Oregon candidates' pages (2026-10-21).
+ */
+export function isPartyCommittee(name: string | null | undefined): boolean {
+  const org = (name ?? "").toLowerCase();
+  if (/\b(party|caucus)\b/.test(org)) return true;
+  return (
+    /\b(democratic|democrats?|republicans?|gop|dem|rep)\b/.test(org) &&
+    /\b(committee|comm|com|senate|senatorial|house|assembly|governors|legislative)\b/.test(org)
+  );
+}
+
 export function contributorTypeLabel(code: string | null | undefined): string {
   // TEC receipt-level codes: INDIVIDUAL vs ENTITY (businesses, PACs, firms).
   switch ((code ?? "").toUpperCase()) {

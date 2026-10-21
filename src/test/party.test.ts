@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partyColor, partyKey, partyLabel } from "@/lib/finance";
+import { isPartyCommittee, partyColor, partyKey, partyLabel } from "@/lib/finance";
 import { comparisonDefaults, comparisonTextClass, overviewOrder } from "@/lib/headToHead";
 import { partyBucket, PARTY_SLICE_COLOR } from "@/lib/raceSummary";
 import { leadClass } from "@/components/DistrictMap";
@@ -79,5 +79,19 @@ describe("district map shading", () => {
     expect(leadClass(row("Republican"), raised)).toBe("rep");
     expect(leadClass(row("Green"), raised)).toBe("other");
     expect(leadClass(row("Libertarian"), raised)).toBe("other");
+  });
+});
+
+describe("party committees among organisation donors", () => {
+  it("matches the tracker's party rule", () => {
+    for (const n of ["Democratic Party of Oregon", "Republican Party of Florida",
+                     "Jackson County Democratic Central Committee", "House Republican Caucus",
+                     "Florida Republican Senatorial Campaign Committee, Inc."]) {
+      expect(isPartyCommittee(n)).toBe(true);
+    }
+    for (const n of ["SDLF", "OEA-PAC", "Citizen Action for Political Education", "Friends of Rob Wagner",
+                     "Oregon Laborers Political Action Committee", null]) {
+      expect(isPartyCommittee(n)).toBe(false);
+    }
   });
 });
