@@ -33,7 +33,11 @@ export default function CandidateDetail() {
   const { slug } = useParams<{ slug: string }>();
   const { data: candidate, isLoading: candLoading, error: candError } = useCandidate(slug);
   const { data: summaries } = useContributionsSummary(candidate?.id);
-  const { data: topIndividualDonors } = useTopDonors(candidate?.id, 10, "individual");
+  const stateCfg = useStateConfig();
+  // Top 10, plus everyone at or above the state's floor (individualDonorFloor).
+  const donorFloor = stateCfg.individualDonorFloor;
+  const { data: topIndividualDonors } = useTopDonors(candidate?.id, donorFloor ? 500 : 10, "individual");
+  const [indPage, setIndPage] = useState(0);
   const { data: topPacDonors } = useTopDonors(candidate?.id, 500, "pac");
   const [pacPage, setPacPage] = useState(0);
   const PAC_PAGE_SIZE = 10;
@@ -44,7 +48,6 @@ export default function CandidateDetail() {
   const { data: ieByCand } = useIEByCandidate();
   const { data: polling } = useRacePolling();
   const { data: funding } = useFundingSources();
-  const stateCfg = useStateConfig();
   const race = useRaceConfig();
   const raceBase = useRaceBase();
 
@@ -98,10 +101,12 @@ export default function CandidateDetail() {
         `${(l.contributor_last_name ?? "").trim().toUpperCase()}|${(l.contributor_first_name ?? "").trim().toUpperCase()}`,
     ),
   );
-  const individualDonorsFiltered = (topIndividualDonors ?? []).filter((d) => {
-    const key = `${(d.contributor_last_name ?? "").trim().toUpperCase()}|${(d.contributor_first_name ?? "").trim().toUpperCase()}`;
-    return !loanNameKeys.has(key);
-  });
+  const individualDonorsFiltered = (topIndividualDonors ?? [])
+    .filter((d) => {
+      const key = `${(d.contributor_last_name ?? "").trim().toUpperCase()}|${(d.contributor_first_name ?? "").trim().toUpperCase()}`;
+      return !loanNameKeys.has(key);
+    })
+    .filter((d, i) => i < PAC_PAGE_SIZE || (donorFloor != null && Number(d.total_amount) >= donorFloor));
   const totalLoans = (loans ?? []).reduce((s, l) => s + l.total_amount, 0);
 
   // Self-funded portion (excludes Schedule B "loan" rows so we don't subtract
@@ -380,7 +385,9 @@ export default function CandidateDetail() {
                     No individual donor data yet.
                   </div>
                 )}
-                {individualDonorsFiltered.map((d, i) => (
+                {individualDonorsFiltered
+                  .slice(indPage * PAC_PAGE_SIZE, (indPage + 1) * PAC_PAGE_SIZE)
+                  .map((d, i) => (
                   <div
                     key={`ind-${d.contributor_last_name ?? ""}|${d.contributor_first_name ?? ""}|${i}`}
                     className="flex items-center justify-between text-sm border-b border-border/60 pb-2 last:border-0 gap-2"
@@ -407,6 +414,7 @@ export default function CandidateDetail() {
                   </div>
                 )}
               </div>
+              <DonorPager page={indPage} total={individualDonorsFiltered.length} pageSize={PAC_PAGE_SIZE} setPage={setIndPage} />
             </Card>
             <Card className="p-4 md:p-6">
               <h2 className="font-display text-lg font-semibold mb-4 flex items-baseline">
@@ -443,32 +451,7 @@ export default function CandidateDetail() {
                   </div>
                 ))}
               </div>
-              {(topPacDonors ?? []).length > PAC_PAGE_SIZE && (
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/60">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs h-7"
-                    disabled={pacPage === 0}
-                    onClick={() => setPacPage((p) => Math.max(0, p - 1))}
-                  >
-                    ← Previous
-                  </Button>
-                  <div className="text-xs text-muted-foreground tabular-nums">
-                    Page {pacPage + 1} of{" "}
-                    {Math.max(1, Math.ceil((topPacDonors ?? []).length / PAC_PAGE_SIZE))}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs h-7"
-                    disabled={(pacPage + 1) * PAC_PAGE_SIZE >= (topPacDonors ?? []).length}
-                    onClick={() => setPacPage((p) => p + 1)}
-                  >
-                    Next →
-                  </Button>
-                </div>
-              )}
+              <DonorPager page={pacPage} total={(topPacDonors ?? []).length} pageSize={PAC_PAGE_SIZE} setPage={setPacPage} />
             </Card>
             <Card className="p-4 md:p-6">
               <h2 className="font-display text-lg font-semibold mb-4">Top employers</h2>
@@ -600,6 +583,47 @@ function FinanceStat({
       <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
       {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
     </Card>
+  );
+}
+
+/** Previous / Page n of m / Next under a donor list; nothing when it fits one page. */
+function DonorPager({
+  page,
+  total,
+  pageSize,
+  setPage,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  setPage: (update: (p: number) => number) => void;
+}) {
+  if (total <= pageSize) return null;
+  const pages = Math.ceil(total / pageSize);
+  return (
+    <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/60">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-xs h-7"
+        disabled={page === 0}
+        onClick={() => setPage((p) => Math.max(0, p - 1))}
+      >
+        ← Previous
+      </Button>
+      <div className="text-xs text-muted-foreground tabular-nums">
+        Page {page + 1} of {pages}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-xs h-7"
+        disabled={page + 1 >= pages}
+        onClick={() => setPage((p) => p + 1)}
+      >
+        Next →
+      </Button>
+    </div>
   );
 }
 

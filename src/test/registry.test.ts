@@ -34,6 +34,11 @@ describe("state registry", () => {
     expect(sup.title).toBe("Superintendent of Public Instruction");
   });
 
+  it("lists Texas's individual donors down to $500K and every other state's top 10 only", () => {
+    expect(getState("tx")!.individualDonorFloor).toBe(500_000);
+    expect(STATES.filter((s) => s.individualDonorFloor != null).map((s) => s.code)).toEqual(["tx"]);
+  });
+
   it("contains all 50 states with unique codes", () => {
     expect(STATES).toHaveLength(50);
     const codes = new Set(STATES.map((s) => s.code));

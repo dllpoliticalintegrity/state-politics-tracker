@@ -135,6 +135,14 @@ export interface StateConfig {
    * through the state-level candidate route instead, which knows the race.
    */
   legacyPaths?: Record<string, string>;
+  /**
+   * A candidate's "Top individual donors" lists the top 10, and also every
+   * individual who gave at least this much, paged 10 at a time like the PAC
+   * list. Unset: the top 10 only. Texas, where the governor race has dozens
+   * of six- and seven-figure donors: $500,000, so Elon Musk's $500,000 to
+   * Greg Abbott (36th) is listed (2026-10-20).
+   */
+  individualDonorFloor?: number;
 }
 
 // States with a complete pipeline in hderyke/state-level-campaign-finance.
@@ -747,8 +755,9 @@ const LIVE_CONFIG_4: Record<string, Pick<StateConfig, "races" | "agency" | "cham
 // import (scripts/data-import/tec, tx-finance-sync.yml) staged in tx_* and
 // published into cf_* nightly; polling is FiftyPlusOne, like every state's.
 // Primaries were Mar 3 with May 26 runoffs.
-const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths" | "chambers">> = {
+const LIVE_CONFIG_TX: Record<string, Pick<StateConfig, "races" | "agency" | "legacyPaths" | "chambers" | "individualDonorFloor">> = {
   tx: {
+    individualDonorFloor: 500_000,
     agency: {
       name: "Texas Ethics Commission",
       url: "https://www.ethics.state.tx.us/search/cf/",
