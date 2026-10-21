@@ -372,3 +372,24 @@ class SameNameCandidates(unittest.TestCase):
         idx = ie.TargetIndex(cands, [], nicknames={})
         self.assertEqual(idx.resolve("Pat Lee"), "a")          # as before 2026-10-20
         self.assertIsNone(idx.resolve("LEE, PATRICK"))         # surname match: still ambiguous
+
+
+class CommitteeNamedTargets(unittest.TestCase):
+    def test_the_person_in_a_committee_name(self):
+        self.assertEqual(ie.committee_person("BRIAN STRICKLAND FOR ATTORNEY GENERAL"), "BRIAN STRICKLAND")
+        self.assertEqual(ie.committee_person("COMMITTEE TO ELECT CHANDRA C WRIGHT"), "CHANDRA C WRIGHT")
+        self.assertEqual(ie.committee_person("THE COMMITTEE TO ELECT GEORGE THOMAS"), "GEORGE THOMAS")
+        self.assertEqual(ie.committee_person("COMMITTEE TO ELECT JUSTICE CHARLIE BETHEL, INC."), "CHARLIE BETHEL")
+        self.assertEqual(ie.committee_person("FRIENDS OF MICHEAL GARZA"), "MICHEAL GARZA")
+        # Never a bare surname or a slogan.
+        for name in ("FRIENDS FOR THORNE", "JAIN FOR GEORGIA", "GEORGIANS FOR JUSTICE WARREN, INC.",
+                     "MAGGIE FOR FULTON LLC", "BUBBA4GA INC", "HR 450"):
+            self.assertIsNone(ie.committee_person(name), name)
+
+    def test_strickland_for_attorney_general_reaches_the_statewide_row(self):
+        cands = [{"id": "sd42", "name": "Brian Strickland", "committee_name": None, "status": "not_on_ballot"},
+                 {"id": "ag", "name": "Brian Strickland", "committee_name": "Strickland for Georgia",
+                  "status": "won_primary"}]
+        idx = ie.TargetIndex(cands, [], nicknames={})
+        self.assertEqual(idx.resolve("BRIAN STRICKLAND FOR ATTORNEY GENERAL"), "ag")
+        self.assertIsNone(idx.resolve("FRIENDS FOR STRICKLAND"))
