@@ -560,3 +560,15 @@ class ScrapeScope(unittest.TestCase):
         states = json.loads((PIPELINES / "states.json").read_text())["states"]
         self.assertEqual(run_state.scrape_scope(states["ak"]), ["--transactions"])
         self.assertEqual(run_state.scrape_scope(states["fl"]), ["--transactions", "--entities"])
+
+
+class RefsMatchAnyCase(unittest.TestCase):
+    def test_a_filer_id_matches_its_ref_whatever_the_case(self):
+        # Alaska 2026-10-20: refs "ak:wilson" / "ak:bronson", data "Wilson" / "Bronson".
+        rows = [{"id": "w", "slug": "bernadette-wilson", "filer_refs": ["ak:wilson"]},
+                {"id": "t", "slug": "treg-taylor", "filer_refs": ["ak:taylor", "ak:Taylor"]}]
+        with mock.patch.object(load_cf.rest, "get_all", return_value=rows):
+            refs = load_cf.candidate_refs("ak")
+        self.assertEqual(refs[load_cf.ref_key("ak", "Wilson")], ("w", "bernadette-wilson"))
+        self.assertEqual(refs[load_cf.ref_key("ak", "TAYLOR")], ("t", "treg-taylor"))
+        self.assertEqual(len(refs), 2)
