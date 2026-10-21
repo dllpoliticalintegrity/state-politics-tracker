@@ -178,7 +178,38 @@ class TargetIndex:
             hit = self._by_person(cand_name)
             if hit:
                 return hit
-        return self._by_person(target)
+        hit = self._by_person(target)
+        if hit:
+            return hit
+        person = committee_person(target)
+        return self._by_person(person) if person else None
+
+
+# A candidate committee named for its candidate: "BRIAN STRICKLAND FOR
+# ATTORNEY GENERAL", "COMMITTEE TO ELECT CHANDRA C WRIGHT", "FRIENDS OF JACK
+# MILLER, INC.". Georgia's IE export names the target that way, and a name
+# with an office after it matched nothing -- $703K supporting Strickland for
+# AG went unmatched (2026-10-20).
+_COMMITTEE_PREFIX = re.compile(
+    r"^(?:THE\s+)?(?:COMMITTEE\s+TO\s+(?:RE-?)?ELECT|(?:RE-?)?ELECT|FRIENDS\s+(?:OF|FOR)|"
+    r"CITIZENS\s+FOR|TEAM)\s+", re.I)
+_COMMITTEE_SUFFIX = re.compile(r"(?:,?\s+(?:INC|LLC|CORP)\.?)$|\s+FOR\s+.*$", re.I)
+_TITLE = re.compile(r"^(?:JUDGE|JUSTICE|SENATOR|SEN|REP|REPRESENTATIVE|DR|MAYOR|SHERIFF)\.?\s+", re.I)
+
+
+def committee_person(target):
+    """The person a candidate committee's name names, or None. Only a name
+    of at least two words comes back, so the person-name rules (surname AND
+    first name) still apply: "FRIENDS FOR THORNE" and "JAIN FOR GEORGIA"
+    give None, never a bare surname."""
+    name = (target or "").strip()
+    for _ in range(2):
+        name = _COMMITTEE_SUFFIX.sub("", _COMMITTEE_PREFIX.sub("", name)).strip(" ,")
+    name = _TITLE.sub("", name).strip()
+    words = name.split()
+    if len(words) < 2 or re.search(r"\d|\b(?:FOR|OF|THE|AND)\b", name, re.I):
+        return None
+    return name
 
 
 def committee_affiliations(committees):
