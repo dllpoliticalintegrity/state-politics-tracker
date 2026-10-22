@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRiverRow, pageWindow, parseRiverParams, riverParamsToSearch } from "@/lib/moneyRiver";
+import { describeRiverRow, pageRange, pageWindow, parseRiverParams, riverParamsToSearch } from "@/lib/moneyRiver";
 
 describe("parseRiverParams", () => {
   it("defaults everything when the URL is bare", () => {
@@ -60,5 +60,15 @@ describe("pageWindow", () => {
     expect(pageWindow(1, 50, 0)).toEqual({ pages: 1, current: 1, from: 0, to: 0 });
     expect(pageWindow(2, 50, 120)).toEqual({ pages: 3, current: 2, from: 51, to: 100 });
     expect(pageWindow(9, 50, 120)).toEqual({ pages: 3, current: 3, from: 101, to: 120 });
+  });
+});
+
+describe("pageRange", () => {
+  it("reports the visible range from what came back, with no total", () => {
+    expect(pageRange(1, 50, 0)).toEqual({ current: 1, from: 0, to: 0 });
+    expect(pageRange(1, 50, 50)).toEqual({ current: 1, from: 1, to: 50 });
+    expect(pageRange(3, 50, 50)).toEqual({ current: 3, from: 101, to: 150 });
+    expect(pageRange(3, 50, 7)).toEqual({ current: 3, from: 101, to: 107 });
+    expect(pageRange(0, 50, 5)).toEqual({ current: 1, from: 1, to: 5 });
   });
 });

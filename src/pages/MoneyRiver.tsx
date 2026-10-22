@@ -9,6 +9,7 @@ import {
   RIVER_KIND_LABEL,
   RIVER_PAGE_SIZE,
   describeRiverRow,
+  pageRange,
   pageWindow,
   parseRiverParams,
   riverParamsToSearch,
@@ -58,8 +59,17 @@ export default function MoneyRiver() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.candidate, candidates]);
 
-  const total = data?.total ?? 0;
-  const win = pageWindow(filters.page, RIVER_PAGE_SIZE, total);
+  const rows = data?.rows ?? [];
+  // `total` is null where the source has no cheap count (the tracker): the
+  // header then shows the range only and the pager just knows whether another
+  // page exists. LPT states still have an exact total.
+  const total = data?.total ?? null;
+  const hasMore = data?.hasMore ?? false;
+  const range = pageRange(filters.page, RIVER_PAGE_SIZE, rows.length);
+  const exact = total === null ? null : pageWindow(filters.page, RIVER_PAGE_SIZE, total);
+  const win = exact ?? range;
+  const lastPage = exact ? exact.current >= exact.pages : !hasMore;
+  const empty = total === null ? rows.length === 0 : total === 0;
   const agency = stateCfg.agency?.name ?? "the state's disclosure agency";
 
   return (
@@ -110,9 +120,13 @@ export default function MoneyRiver() {
           <span>
             {isLoading
               ? "Loading…"
-              : total === 0
-                ? "No rows match these filters."
-                : `Showing ${win.from.toLocaleString()}–${win.to.toLocaleString()} of ${total.toLocaleString()}`}
+              : empty
+                ? filters.page > 1
+                  ? "No rows on this page."
+                  : "No rows match these filters."
+                : total === null
+                  ? `Showing ${win.from.toLocaleString()}–${win.to.toLocaleString()}`
+                  : `Showing ${win.from.toLocaleString()}–${win.to.toLocaleString()} of ${total.toLocaleString()}`}
             {isFetching && !isLoading ? " · updating" : ""}
           </span>
           <span className="sm:text-right">Source: {agency}, synced nightly</span>
@@ -124,12 +138,12 @@ export default function MoneyRiver() {
 
         <div className="rounded-lg border bg-card divide-y">
           {isLoading && <div className="p-8 text-sm text-muted-foreground text-center">Loading…</div>}
-          {(data?.rows ?? []).map((row) => (
+          {rows.map((row) => (
             <RiverLine key={`${row.kind}-${row.id}`} row={row} raceBase={raceBase} />
           ))}
         </div>
 
-        {total > RIVER_PAGE_SIZE && (
+        {(total === null ? filters.page > 1 || hasMore : total > RIVER_PAGE_SIZE) && (
           <nav aria-label="Pagination" className="flex items-center justify-between gap-3 text-sm">
             <button
               type="button"
@@ -140,11 +154,13 @@ export default function MoneyRiver() {
               <ChevronLeft className="h-4 w-4" /> Newer
             </button>
             <span className="text-xs text-muted-foreground">
-              Page {win.current.toLocaleString()} of {win.pages.toLocaleString()}
+              {exact
+                ? `Page ${win.current.toLocaleString()} of ${exact.pages.toLocaleString()}`
+                : `Page ${win.current.toLocaleString()}`}
             </span>
             <button
               type="button"
-              disabled={win.current >= win.pages}
+              disabled={lastPage}
               onClick={() => update({ page: win.current + 1 })}
               className="inline-flex items-center gap-1 px-3 h-8 rounded-md border disabled:opacity-40 hover:bg-accent"
             >
