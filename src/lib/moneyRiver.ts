@@ -37,6 +37,9 @@ export type RiverRow = {
   imported_at: string | null;
 };
 
+/** One page. `total` is null where the source has no cheap count (the tracker). */
+export type RiverPage = { rows: RiverRow[]; total: number | null; hasMore: boolean };
+
 export type RiverFilters = {
   kind: RiverKind | "all";
   candidate: string; // "" or a cf_candidates uuid
@@ -106,4 +109,12 @@ export function pageWindow(page: number, pageSize: number, total: number) {
   const from = total === 0 ? 0 : (current - 1) * pageSize + 1;
   const to = Math.min(current * pageSize, total);
   return { pages, current, from, to };
+}
+
+/** "Showing 51–100" bookkeeping when there is no total: from the page and what came back. */
+export function pageRange(page: number, pageSize: number, rowCount: number) {
+  const current = Math.max(1, page);
+  const from = rowCount === 0 ? 0 : (current - 1) * pageSize + 1;
+  const to = rowCount === 0 ? 0 : from + rowCount - 1;
+  return { current, from, to };
 }
