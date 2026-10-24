@@ -27,6 +27,7 @@ import {
   partyColor,
   partyLabel,
   contributorTypeLabel,
+  isPartyCommittee,
 } from "@/lib/finance";
 
 export default function CandidateDetail() {
@@ -142,7 +143,15 @@ export default function CandidateDetail() {
       .filter((r) => r.candidate_id === candidate.id && r.category === category)
       .reduce((s, r) => s + Number(r.amount ?? 0), 0);
   const publicFinancing = Math.max(0, Math.min(totals.pac, fundingFor("public")));
-  const partyMoney = Math.max(0, Math.min(totals.pac - publicFinancing, fundingFor("party")));
+  // LPT states have no funding breakdown (funding is null): their party money
+  // is the party committees among the organisation donors (isPartyCommittee).
+  const partyFromDonors = (topPacDonors ?? [])
+    .filter((d) => isPartyCommittee(d.contributor_last_name))
+    .reduce((s, d) => s + Number(d.total_amount ?? 0), 0);
+  const partyMoney = Math.max(
+    0,
+    Math.min(totals.pac - publicFinancing, funding ? fundingFor("party") : partyFromDonors),
+  );
   const entityExPublic = Math.max(0, totals.pac - publicFinancing - partyMoney);
   const indPct = shareOf(individualExSelf);
   const pacPct = shareOf(entityExPublic);
@@ -441,7 +450,9 @@ export default function CandidateDetail() {
                           .join(" ") || "—"}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
-                        {contributorTypeLabel(d.contributor_type)}
+                        {d.contributor_type === "ENTITY" && isPartyCommittee(d.contributor_last_name)
+                          ? "Party committee"
+                          : contributorTypeLabel(d.contributor_type)}
                         {d.contribution_count > 1 ? ` · ${d.contribution_count} gifts` : ""}
                       </div>
                     </div>
