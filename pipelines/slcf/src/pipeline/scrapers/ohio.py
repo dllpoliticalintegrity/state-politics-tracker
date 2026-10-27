@@ -169,9 +169,16 @@ SESSION_HEADERS = {
     "Referer": f"https://www6.ohiosos.gov/ords/f?p={APP}:73",
 }
 
-# Passed to curl_cffi's Session(impersonate=...). Keep this in step with
-# config.py's USER_AGENT (currently Chrome/136) if that's ever bumped.
-IMPERSONATE = "chrome136"
+# Passed to curl_cffi's Session(impersonate=...). On 2026-10-26 ohiosos.gov
+# started refusing most requests with curl_cffi's Chrome and Firefox
+# fingerprints from a residential connection that worked on 10-20: five
+# paced requests each gave chrome131 1 x 200, chrome131_android 2 x 200,
+# safari 5 x 200. So the downloader presents as Safari, and on a 403 it waits
+# and retries, falling back through IMPERSONATE_FALLBACKS. OHIO_IMPERSONATE
+# overrides the first choice (any curl_cffi target) without a code change.
+IMPERSONATE = os.environ.get("OHIO_IMPERSONATE", "").strip() or "safari"
+IMPERSONATE_FALLBACKS = ("safari", "chrome131_android", "chrome131")
+RETRY_403_WAITS = (10, 30, 60)      # seconds before each retry of a 403
 
 # ========================= fetch proxy (GitHub runners) ==================
 #
@@ -205,6 +212,38 @@ class _ProxySession:
         return r
 
 
+class _RetryingSession:
+    """A curl_cffi session that answers a 403 by waiting and trying again,
+    each time with the next impersonation profile (IMPERSONATE first, then
+    IMPERSONATE_FALLBACKS). ohiosos.gov refuses some requests at random per
+    fingerprint, and a single 403 used to cost a whole file listing."""
+
+    def __init__(self, log):
+        self._log = log
+        self._profiles = list(dict.fromkeys([IMPERSONATE, *IMPERSONATE_FALLBACKS]))
+        self._i = 0
+        self.headers: dict[str, str] = dict(SESSION_HEADERS)
+        self._session = self._new()
+
+    def _new(self):
+        session = requests.Session(impersonate=self._profiles[self._i])
+        session.headers.update(self.headers)
+        return session
+
+    def get(self, url: str, timeout: int = 60):
+        r = self._session.get(url, timeout=timeout)
+        for wait in RETRY_403_WAITS:
+            if r.status_code != 403:
+                break
+            self._i = (self._i + 1) % len(self._profiles)
+            self._log.warning(f"  [!] 403 from {url.split('?')[0]} -- retrying in {wait}s "
+                              f"as {self._profiles[self._i]}")
+            time.sleep(wait)
+            self._session = self._new()
+            r = self._session.get(url, timeout=timeout)
+        return r
+
+
 def _make_session(log):
     base = os.environ.get("OHIO_FETCH_PROXY", "").strip()
     if base:
@@ -213,9 +252,7 @@ def _make_session(log):
             raise RuntimeError("OHIO_FETCH_PROXY is set but OHIO_FETCH_PROXY_TOKEN is empty")
         log.info(f"  Fetching ohiosos.gov through the proxy Worker at {base}")
         return _ProxySession(base, token)
-    session = requests.Session(impersonate=IMPERSONATE)
-    session.headers.update(SESSION_HEADERS)
-    return session
+    return _RetryingSession(log)
 
 
 # ========================= label classification =========================
