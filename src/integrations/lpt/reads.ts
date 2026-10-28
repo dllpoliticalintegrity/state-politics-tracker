@@ -6,6 +6,7 @@
 // docs/lpt-frontend-plan.md for the query-by-query mapping.
 
 import { lpt } from "@/integrations/supabase/lpt";
+import type { MonthRow, SizeRow } from "@/lib/fundraisingCharts";
 import type {
   CandidateTotals,
   CommitteeDonor,
@@ -245,6 +246,20 @@ export async function fetchLoans(state: string, candidateId: string, limit: numb
   return rows
     .map((r) => ({ ...r, total_amount: num(r.total_amount), contribution_count: num(r.contribution_count) }))
     .slice(0, limit);
+}
+
+/** Dollars per candidate and month across a race (hub_race_contribution_months), for the fundraising timeline. */
+export async function fetchRaceContributionMonths(scope: RaceScope): Promise<MonthRow[]> {
+  const rows = await run<{ candidate_id: string; month: string; amount: number }>(
+    lpt.rpc("hub_race_contribution_months", scopeArgs(scope)),
+  );
+  return rows.map((r) => ({ candidate_id: r.candidate_id, month: r.month, amount: num(r.amount) }));
+}
+
+/** Dollars and gifts per candidate and donation-size bin across a race (hub_race_contribution_sizes). */
+export async function fetchRaceContributionSizes(scope: RaceScope): Promise<SizeRow[]> {
+  const rows = await run<SizeRow>(lpt.rpc("hub_race_contribution_sizes", scopeArgs(scope)));
+  return rows.map((r) => ({ ...r, amount: num(r.amount), contribution_count: num(r.contribution_count) }));
 }
 
 // ---------------------------------------------------------------------------

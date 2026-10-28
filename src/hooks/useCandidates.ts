@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { MonthRow, SizeRow } from "@/lib/fundraisingCharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import type { RaceConfig, StateConfig } from "@/states/registry";
@@ -1005,6 +1006,56 @@ export function useFundingSources() {
       });
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Money raised per candidate and month for the active race (the race
+ * page's fundraising timeline): cf_contributions_monthly on the tracker,
+ * hub_race_contribution_months on the Local Politics Tracker.
+ */
+export function useRaceContributionMonths() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  return useQuery({
+    queryKey: ["cf_contributions_monthly", stateCfg.source, stateCfg.code, race.office, race.district ?? null],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<MonthRow[]> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchRaceContributionMonths(raceScope(stateCfg, race));
+      const rows = await fetchAll<{ candidate_id: string; month: string; amount: number }>(() => {
+        let q = (supabase as any)
+          .from("cf_contributions_monthly")
+          .select("candidate_id,month,amount")
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office);
+        if (race.district) q = q.eq("district", race.district);
+        return q.order("candidate_id").order("month");
+      });
+      return rows.map((r) => ({ candidate_id: r.candidate_id, month: r.month, amount: Number(r.amount ?? 0) }));
+    },
+  });
+}
+
+/** Dollars and gifts per candidate and donation-size bin for the active race (the size-mix chart). */
+export function useRaceContributionSizes() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  return useQuery({
+    queryKey: ["cf_contribution_sizes", stateCfg.source, stateCfg.code, race.office, race.district ?? null],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<SizeRow[]> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchRaceContributionSizes(raceScope(stateCfg, race));
+      const rows = await fetchAll<SizeRow>(() => {
+        let q = (supabase as any)
+          .from("cf_contribution_sizes")
+          .select("candidate_id,size_bin,amount,contribution_count")
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office);
+        if (race.district) q = q.eq("district", race.district);
+        return q.order("candidate_id").order("size_bin");
+      });
+      return rows.map((r) => ({ ...r, amount: Number(r.amount ?? 0), contribution_count: Number(r.contribution_count ?? 0) }));
+    },
   });
 }
 
