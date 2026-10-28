@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Building2 } from "lucide-react";
 import MoneyTabs from "@/components/MoneyTabs";
+import DonorPieChart from "@/components/DonorPieChart";
+import { List, PieChart as PieIcon } from "lucide-react";
 import {
   useCandidates,
   useTopAggregatedDonors,
@@ -27,6 +29,7 @@ import {
 } from "@/lib/finance";
 
 type Source = "candidate" | "ie";
+type View = "list" | "pie";
 
 type UnifiedDonor = {
   key: string;
@@ -55,6 +58,7 @@ const SOURCE_OPTIONS: { value: Source; label: string }[] = [
 export default function TopDonors() {
   const [source, setSource] = useState<Source>("candidate");
   const [kind, setKind] = useState<DonorKind>("all");
+  const [view, setView] = useState<View>("list");
   const [selectedCand, setSelectedCand] = useState<TxCrossCandidateDonor | null>(null);
   const [selectedIe, setSelectedIe] = useState<TxIeCrossCommitteeDonor | null>(null);
 
@@ -178,9 +182,34 @@ export default function TopDonors() {
       </section>
 
       <section className="container pb-16 space-y-3">
-        <h2 className="font-display text-xl font-semibold">
-          {source === "candidate" ? "Top 50 donors to campaigns" : "Top 50 donors to outside committees"}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-xl font-semibold">
+            {source === "candidate" ? "Top 50 donors to campaigns" : "Top 50 donors to outside committees"}
+          </h2>
+          <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="View as">
+            {(
+              [
+                { value: "list", label: "List", Icon: List },
+                { value: "pie", label: "Pie chart", Icon: PieIcon },
+              ] as const
+            ).map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setView(value)}
+                aria-pressed={view === value}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${
+                  view === value
+                    ? "bg-primary/10 font-semibold text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         {active.isLoading && (
           <div className="text-sm text-muted-foreground py-6 text-center">Loading donors…</div>
         )}
@@ -194,7 +223,14 @@ export default function TopDonors() {
             No donors found for this filter.
           </div>
         )}
-        <div className="space-y-2">
+        {view === "pie" && list.length > 0 && (
+          <DonorPieChart
+            donors={list}
+            totalLabel={`the top ${list.length} donors to ${source === "candidate" ? "campaigns" : "outside committees"}`}
+            onSelect={handleSelect}
+          />
+        )}
+        <div className={view === "pie" ? "hidden" : "space-y-2"}>
           {list.map((d, i) => (
             <button
               key={d.key}

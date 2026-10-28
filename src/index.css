@@ -59,6 +59,17 @@
     --chart-4: 40 8% 52%;
     --chart-5: 213 60% 40%;
 
+    /* Donor charts (src/lib/donorCharts.ts): six categorical hues in fixed
+       order plus a neutral, validated for colour-vision deficiency and
+       contrast on the light card surface. Full colours, not HSL triples. */
+    --viz-1: #2a78d6;
+    --viz-2: #eb6834;
+    --viz-3: #1baf7a;
+    --viz-4: #eda100;
+    --viz-5: #e87ba4;
+    --viz-6: #008300;
+    --viz-neutral: #8e887b;
+
     --dem: 213 60% 40%;
     --rep: 4 66% 45%;
     --ind: 32 80% 36%;
@@ -118,6 +129,15 @@
     --chart-3: 35 85% 55%;
     --chart-4: 40 6% 58%;
     --chart-5: 213 70% 62%;
+
+    /* Donor charts, stepped for the dark card surface (same hues). */
+    --viz-1: #3987e5;
+    --viz-2: #d95926;
+    --viz-3: #199e70;
+    --viz-4: #c98500;
+    --viz-5: #d55181;
+    --viz-6: #008300;
+    --viz-neutral: #9a968d;
 
     --dem: 213 70% 62%;
     --rep: 2 75% 62%;
