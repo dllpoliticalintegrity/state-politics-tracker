@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { MonthRow, SizeRow } from "@/lib/fundraisingCharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import type { RaceConfig, StateConfig } from "@/states/registry";
@@ -362,12 +363,81 @@ async function fetchTrackerRaceTopDonors(
     )
     .in("candidate_id", ids)
     .order("total_amount", { ascending: false })
+    // PostgREST caps a response at 1,000 rows whatever the limit; `rn`
+    // breaks ties at that edge so the same rows come back every time.
+    .order("rn")
     .limit(4000);
   if (kind === "individual") q = q.eq("contributor_type", "INDIVIDUAL");
   else if (kind === "pac") q = q.in("contributor_type", PAC_TYPES);
   const { data, error } = await q;
   if (error) throw error;
   return ((data ?? []) as TxAggregatedDonor[]).filter(isNamedDonor);
+}
+
+/**
+ * Collapse per-candidate donor rows into one row per donor (with a
+ * per-candidate breakdown), ranked by total given, top `limit`.
+ */
+export function aggregateCrossCandidateDonors(rows: TxAggregatedDonor[], limit: number): TxCrossCandidateDonor[] {
+  const map = new Map<string, TxCrossCandidateDonor>();
+  for (const r of rows) {
+    const normLast = normalizeNamePart(r.contributor_last_name);
+    const normFirst = normalizeNamePart(r.contributor_first_name);
+    // Mirrors the SQL view's grouping: PAC/committee rows have no first
+    // name, so they collapse on last-name alone; individuals collapse on
+    // the full first+last pair.
+    const key = `${r.contributor_type ?? ""}|${normLast}|${normFirst}`;
+    if (!normLast && !normFirst) continue;
+    const displayName = [r.contributor_first_name, r.contributor_last_name]
+      .filter((s) => !!(s ?? "").trim())
+      .join(" ")
+      .trim() || normLast || normFirst;
+    const split: TxCrossCandidateDonorSplit = {
+      candidate_id: r.candidate_id,
+      contribution_count: Number(r.contribution_count ?? 0),
+      total_amount: Number(r.total_amount ?? 0),
+      last_contribution_date: r.last_contribution_date,
+    };
+    const existing = map.get(key);
+    if (existing) {
+      existing.contribution_count += split.contribution_count;
+      existing.total_amount += split.total_amount;
+      if (
+        split.last_contribution_date &&
+        (!existing.last_contribution_date ||
+          split.last_contribution_date > existing.last_contribution_date)
+      ) {
+        existing.last_contribution_date = split.last_contribution_date;
+      }
+      existing.splits.push(split);
+      // Prefer the most recent non-null employer/occupation/city/state.
+      if (!existing.employer && r.employer) existing.employer = r.employer;
+      if (!existing.occupation && r.occupation) existing.occupation = r.occupation;
+      if (!existing.city && r.city) existing.city = r.city;
+      if (!existing.state && r.state) existing.state = r.state;
+    } else {
+      map.set(key, {
+        key,
+        display_name: displayName,
+        contributor_type: r.contributor_type,
+        employer: r.employer,
+        occupation: r.occupation,
+        city: r.city,
+        state: r.state,
+        contribution_count: split.contribution_count,
+        total_amount: split.total_amount,
+        last_contribution_date: split.last_contribution_date,
+        splits: [split],
+      });
+    }
+  }
+  return [...map.values()]
+    .map((d) => ({
+      ...d,
+      splits: d.splits.sort((a, b) => b.total_amount - a.total_amount),
+    }))
+    .sort((a, b) => b.total_amount - a.total_amount)
+    .slice(0, limit);
 }
 
 export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
@@ -379,65 +449,34 @@ export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
       const rows = await (stateCfg.source === "lpt"
         ? lptReads.fetchRaceTopDonors(raceScope(stateCfg, race), kind)
         : fetchTrackerRaceTopDonors(stateCfg, race, kind));
-      const map = new Map<string, TxCrossCandidateDonor>();
-      for (const r of rows) {
-        const normLast = normalizeNamePart(r.contributor_last_name);
-        const normFirst = normalizeNamePart(r.contributor_first_name);
-        // Mirrors the SQL view's grouping: PAC/committee rows have no first
-        // name, so they collapse on last-name alone; individuals collapse on
-        // the full first+last pair.
-        const key = `${r.contributor_type ?? ""}|${normLast}|${normFirst}`;
-        if (!normLast && !normFirst) continue;
-        const displayName = [r.contributor_first_name, r.contributor_last_name]
-          .filter((s) => !!(s ?? "").trim())
-          .join(" ")
-          .trim() || normLast || normFirst;
-        const split: TxCrossCandidateDonorSplit = {
-          candidate_id: r.candidate_id,
-          contribution_count: Number(r.contribution_count ?? 0),
-          total_amount: Number(r.total_amount ?? 0),
-          last_contribution_date: r.last_contribution_date,
-        };
-        const existing = map.get(key);
-        if (existing) {
-          existing.contribution_count += split.contribution_count;
-          existing.total_amount += split.total_amount;
-          if (
-            split.last_contribution_date &&
-            (!existing.last_contribution_date ||
-              split.last_contribution_date > existing.last_contribution_date)
-          ) {
-            existing.last_contribution_date = split.last_contribution_date;
-          }
-          existing.splits.push(split);
-          // Prefer the most recent non-null employer/occupation/city/state.
-          if (!existing.employer && r.employer) existing.employer = r.employer;
-          if (!existing.occupation && r.occupation) existing.occupation = r.occupation;
-          if (!existing.city && r.city) existing.city = r.city;
-          if (!existing.state && r.state) existing.state = r.state;
-        } else {
-          map.set(key, {
-            key,
-            display_name: displayName,
-            contributor_type: r.contributor_type,
-            employer: r.employer,
-            occupation: r.occupation,
-            city: r.city,
-            state: r.state,
-            contribution_count: split.contribution_count,
-            total_amount: split.total_amount,
-            last_contribution_date: split.last_contribution_date,
-            splits: [split],
-          });
-        }
-      }
-      return [...map.values()]
-        .map((d) => ({
-          ...d,
-          splits: d.splits.sort((a, b) => b.total_amount - a.total_amount),
-        }))
-        .sort((a, b) => b.total_amount - a.total_amount)
-        .slice(0, limit);
+      return aggregateCrossCandidateDonors(rows, limit);
+    },
+  });
+}
+
+/**
+ * A state's top donors across its statewide races (the ones on its home
+ * page), for the home page's treemap: each race's top per-candidate rows,
+ * fetched as the race's own Top Donors page fetches them, collapsed into
+ * one ranking. Legislative districts are left out — a chamber is hundreds
+ * of candidates, and this is the statewide picture.
+ */
+export function useStateTopDonors(limit = 100) {
+  const stateCfg = useStateConfig();
+  const races = stateCfg.races ?? [];
+  return useQuery({
+    queryKey: ["cf_state_top_donors", stateCfg.source, stateCfg.code, limit],
+    enabled: races.length > 0,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<TxCrossCandidateDonor[]> => {
+      const perRace = await Promise.all(
+        races.map((race) =>
+          stateCfg.source === "lpt"
+            ? lptReads.fetchRaceTopDonors(raceScope(stateCfg, race), "all")
+            : fetchTrackerRaceTopDonors(stateCfg, race, "all"),
+        ),
+      );
+      return aggregateCrossCandidateDonors(perRace.flat(), limit);
     },
   });
 }
@@ -967,6 +1006,56 @@ export function useFundingSources() {
       });
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Money raised per candidate and month for the active race (the race
+ * page's fundraising timeline): cf_contributions_monthly on the tracker,
+ * hub_race_contribution_months on the Local Politics Tracker.
+ */
+export function useRaceContributionMonths() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  return useQuery({
+    queryKey: ["cf_contributions_monthly", stateCfg.source, stateCfg.code, race.office, race.district ?? null],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<MonthRow[]> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchRaceContributionMonths(raceScope(stateCfg, race));
+      const rows = await fetchAll<{ candidate_id: string; month: string; amount: number }>(() => {
+        let q = (supabase as any)
+          .from("cf_contributions_monthly")
+          .select("candidate_id,month,amount")
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office);
+        if (race.district) q = q.eq("district", race.district);
+        return q.order("candidate_id").order("month");
+      });
+      return rows.map((r) => ({ candidate_id: r.candidate_id, month: r.month, amount: Number(r.amount ?? 0) }));
+    },
+  });
+}
+
+/** Dollars and gifts per candidate and donation-size bin for the active race (the size-mix chart). */
+export function useRaceContributionSizes() {
+  const stateCfg = useStateConfig();
+  const race = useRaceConfig();
+  return useQuery({
+    queryKey: ["cf_contribution_sizes", stateCfg.source, stateCfg.code, race.office, race.district ?? null],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async (): Promise<SizeRow[]> => {
+      if (stateCfg.source === "lpt") return lptReads.fetchRaceContributionSizes(raceScope(stateCfg, race));
+      const rows = await fetchAll<SizeRow>(() => {
+        let q = (supabase as any)
+          .from("cf_contribution_sizes")
+          .select("candidate_id,size_bin,amount,contribution_count")
+          .eq("race_state", stateCfg.code)
+          .eq("office", race.office);
+        if (race.district) q = q.eq("district", race.district);
+        return q.order("candidate_id").order("size_bin");
+      });
+      return rows.map((r) => ({ ...r, amount: Number(r.amount ?? 0), contribution_count: Number(r.contribution_count ?? 0) }));
+    },
   });
 }
 

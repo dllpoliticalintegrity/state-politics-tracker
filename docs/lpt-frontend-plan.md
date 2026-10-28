@@ -156,7 +156,8 @@ each hook dispatches on the active state's source. This means:
   `candidate_id` and holds photo, bio, website, social handles, featured and
   title. The app layers it over `candidates`, so his upserts can't overwrite
   our edits.
-- **Our LPT SQL lives in this repo**, under `supabase/lpt/`, applied by hand
+- **Our LPT SQL lives in this repo**, under `supabase/lpt/` (001–005; 005, the
+  race page's fundraising-chart functions, applied 2026-10-28), applied by hand
   in order with the Supabase MCP's `execute_sql` (never `apply_migration`, so
   his project gets no migration history). Every object is prefixed `hub_`.
   `001_hub_read_layer.sql` is applied (2026-10-18).

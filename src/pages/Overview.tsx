@@ -12,6 +12,8 @@ import MidtermsCountdown from "@/components/MidtermsCountdown";
 import CongressLookup from "@/components/CongressLookup";
 import RepresentativeLookup from "@/components/RepresentativeLookup";
 import { REPRESENTATIVE_LOOKUP_URLS } from "@/lib/representativeLookup";
+import DonorTreemap from "@/components/DonorTreemap";
+import { useStateTopDonors } from "@/hooks/useCandidates";
 
 export default function Overview() {
   const state = useStateConfig();
@@ -20,6 +22,7 @@ export default function Overview() {
   const races = isSingleStateSite ? chrome.races : state.races ?? [];
   const year = races[0]?.generalDate.slice(0, 4) ?? "2026";
   const representativeUrl = REPRESENTATIVE_LOOKUP_URLS[state.code];
+  const topDonors = useStateTopDonors(100);
 
   return (
     <div className="min-h-[80vh]">
@@ -59,6 +62,22 @@ export default function Overview() {
           ))}
         </div>
       </section>
+
+      {(topDonors.data?.length ?? 0) > 0 && (
+        <section className="container pb-16">
+          <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Top 100 donors
+          </h2>
+          <p className="mb-4 max-w-2xl text-sm text-muted-foreground">
+            Who has given the most to {state.name}'s {year} statewide campaigns, all races combined. Each race's
+            Money tab has the full ranking and the breakdown by candidate.
+          </p>
+          <DonorTreemap donors={topDonors.data!} limit={100} />
+          {state.agency && (
+            <p className="mt-2 text-xs text-muted-foreground">Updated nightly from {state.agency.name} filings.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

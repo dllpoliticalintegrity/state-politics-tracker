@@ -11,6 +11,7 @@ import type { CandidateCardStats } from "@/components/CandidateCard";
 import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import { pollingSourceLabel } from "@/states/registry";
 import HeadToHead from "@/pages/HeadToHead";
+import FundraisingCharts from "@/components/FundraisingCharts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -138,6 +139,8 @@ export default function Index() {
         </Card>
       </section>
       )}
+
+      <FundraisingCharts />
 
     </div>
   );
