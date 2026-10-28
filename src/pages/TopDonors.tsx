@@ -13,6 +13,7 @@ import { Building2 } from "lucide-react";
 import MoneyTabs from "@/components/MoneyTabs";
 import DonorPieChart from "@/components/DonorPieChart";
 import DonorTreemap from "@/components/DonorTreemap";
+import { recipientParty, type DonorParty } from "@/lib/donorCharts";
 import { LayoutGrid, List, PieChart as PieIcon } from "lucide-react";
 import {
   useCandidates,
@@ -43,6 +44,8 @@ type UnifiedDonor = {
   contribution_count: number;
   total_amount: number;
   split_count: number;
+  /** The party of the candidates the donor gave to; unknown for donors to outside committees. */
+  party?: DonorParty;
 };
 
 const KIND_OPTIONS: { value: DonorKind; label: string }[] = [
@@ -89,6 +92,7 @@ export default function TopDonors() {
         contribution_count: d.contribution_count,
         total_amount: d.total_amount,
         split_count: d.splits.length,
+        party: recipientParty(d.splits, (id) => candidateById.get(id)?.party),
       }));
     }
     return (ieDonors.data ?? []).map((d) => ({
@@ -103,7 +107,7 @@ export default function TopDonors() {
       total_amount: d.total_amount,
       split_count: d.splits.length,
     }));
-  }, [source, candDonors.data, ieDonors.data]);
+  }, [source, candDonors.data, ieDonors.data, candidateById]);
 
   const totalGiven = list.reduce((s, d) => s + d.total_amount, 0);
   const totalContributions = list.reduce((s, d) => s + d.contribution_count, 0);

@@ -15,7 +15,7 @@ import {
 import { useRaceConfig } from "@/states/StateContext";
 import { isOffBallot } from "@/lib/candidateStatus";
 import { formatCurrency, formatCurrencyFull, partyColor, partyKey } from "@/lib/finance";
-import { vizColor } from "@/lib/donorCharts";
+import { partyShade, vizColor } from "@/lib/donorCharts";
 import {
   SIZE_BINS,
   SIZE_BIN_LABEL,
@@ -33,20 +33,6 @@ import {
 const MAX_LINES = 6;
 const OTHERS = "__others";
 const SIZE_ROWS_SHOWN = 8;
-
-/**
- * A candidate's line colour: their party's (red for Republicans, blue for
- * Democrats, as everywhere on the site). The second and third candidates
- * of the same party take a lighter and a darker step of that hue, so the
- * party still reads at a glance and the legend tells them apart.
- */
-function lineColor(party: string | null, nthOfParty: number): string {
-  const base = partyColor(party);
-  if (nthOfParty === 0) return base;
-  if (nthOfParty === 1) return `color-mix(in oklab, ${base} 55%, white)`;
-  if (nthOfParty === 2) return `color-mix(in oklab, ${base} 65%, black)`;
-  return `color-mix(in oklab, ${base} 35%, white)`;
-}
 
 type Ranked = { cand: TxCandidate; raised: number };
 
@@ -120,7 +106,10 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
       return {
         key: r.cand.id,
         label: `${lastName(r.cand.name)} (${r.cand.party ?? "—"})`,
-        color: lineColor(r.cand.party, nth),
+        // The party's colour (red for Republicans, blue for Democrats, as
+        // everywhere on the site), stepped for a second or third candidate
+        // of the same party.
+        color: partyShade(r.cand.party, nth),
         party: r.cand.party,
         withdrawn: isOffBallot(r.cand.status),
       };

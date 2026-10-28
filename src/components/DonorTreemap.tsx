@@ -121,7 +121,7 @@ export default function DonorTreemap({
                 const c = item.payload;
                 const gifts = c ? `${c.gifts} gift${c.gifts === 1 ? "" : "s"}` : "";
                 return [
-                  `${formatCurrencyFull(v)} · ${gifts} · ${c ? DONOR_KIND_LABEL[c.kind] : ""}`,
+                  `${formatCurrencyFull(v)} · ${gifts} · ${c ? `${c.typeLabel} · ${DONOR_KIND_LABEL[c.kind]}` : ""}`,
                   c ? `#${c.rank} ${c.name}` : "",
                 ];
               }}

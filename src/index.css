@@ -71,9 +71,9 @@
     --viz-5: #e87ba4;
     --viz-6: #008300;
     --viz-neutral: #8e887b;
-    /* Treemap "other entities & PACs": a muted tone checked pairwise
-       against --dem, --rep and --viz-1 (normal vision clear; deutan in the
-       warn band, carried by the cells' gaps, labels and the list). */
+    /* Treemap "no party known": a muted tone checked pairwise against
+       --dem, --rep and --viz-1 (normal vision clear; deutan in the warn
+       band, carried by the cells' gaps, labels and the list). */
     --viz-entity: #857d6f;
     /* Ordinal ramp (donation-size bins, smallest to largest): one hue (the
        site's green, so it reads as neither party), lightness stepping down,

@@ -12,8 +12,10 @@ import MidtermsCountdown from "@/components/MidtermsCountdown";
 import CongressLookup from "@/components/CongressLookup";
 import RepresentativeLookup from "@/components/RepresentativeLookup";
 import { REPRESENTATIVE_LOOKUP_URLS } from "@/lib/representativeLookup";
+import { useMemo } from "react";
 import DonorTreemap from "@/components/DonorTreemap";
-import { useStateTopDonors } from "@/hooks/useCandidates";
+import { useStateCandidates, useStateTopDonors } from "@/hooks/useCandidates";
+import { recipientParty } from "@/lib/donorCharts";
 
 export default function Overview() {
   const state = useStateConfig();
@@ -23,6 +25,13 @@ export default function Overview() {
   const year = races[0]?.generalDate.slice(0, 4) ?? "2026";
   const representativeUrl = REPRESENTATIVE_LOOKUP_URLS[state.code];
   const topDonors = useStateTopDonors(100);
+  const { data: stateCandidates } = useStateCandidates();
+  // Each donor's party, from the candidates they gave to — the site's own
+  // party designation per candidate.
+  const donors = useMemo(() => {
+    const partyOf = new Map((stateCandidates ?? []).map((c) => [c.id, c.party]));
+    return (topDonors.data ?? []).map((d) => ({ ...d, party: recipientParty(d.splits, (id) => partyOf.get(id)) }));
+  }, [topDonors.data, stateCandidates]);
 
   return (
     <div className="min-h-[80vh]">
@@ -72,7 +81,7 @@ export default function Overview() {
             Who has given the most to {state.name}'s {year} statewide campaigns, all races combined. Each race's
             Money tab has the full ranking and the breakdown by candidate.
           </p>
-          <DonorTreemap donors={topDonors.data!} limit={100} />
+          <DonorTreemap donors={donors} limit={100} />
           {state.agency && (
             <p className="mt-2 text-xs text-muted-foreground">Updated nightly from {state.agency.name} filings.</p>
           )}

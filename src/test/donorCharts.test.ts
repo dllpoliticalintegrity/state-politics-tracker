@@ -5,6 +5,7 @@ import {
   donorPartyKey,
   fitLabel,
   pieSlices,
+  recipientParty,
   sliceColor,
   treemapCells,
   vizColor,
@@ -48,37 +49,57 @@ describe("pie slices", () => {
 });
 
 describe("treemap cells", () => {
-  it("ranks by amount, caps at the limit and classes each donor", () => {
+  it("ranks by amount, caps at the limit and classes each donor by the party they gave to", () => {
     const cells = treemapCells(
-      [donor("small", 1), donor("pac", 50, "ENTITY"), donor("big", 100), donor("none", 20, null)],
-      3,
+      [
+        { ...donor("small", 1), party: "D" },
+        { ...donor("pac", 50, "ENTITY"), party: "mixed" },
+        { ...donor("big", 100), party: "R" },
+        { ...donor("rga", 30, "ENTITY"), display_name: "REPUBLICAN GOVERNORS ASSOCIATION" },
+        donor("none", 20, null),
+      ],
+      4,
     );
-    expect(cells.map((c) => c.key)).toEqual(["big", "pac", "none"]);
-    expect(cells.map((c) => c.rank)).toEqual([1, 2, 3]);
-    expect(cells.map((c) => c.kind)).toEqual(["individual", "entity", "unknown"]);
+    expect(cells.map((c) => c.key)).toEqual(["big", "pac", "rga", "none"]);
+    expect(cells.map((c) => c.rank)).toEqual([1, 2, 3, 4]);
+    expect(cells.map((c) => c.kind)).toEqual(["republican", "both", "republican", "unknown"]);
+    expect(cells.map((c) => c.typeLabel)).toEqual(["Individual", "Entity / PAC", "Entity / PAC", "Unknown"]);
     expect(cells[0].value).toBe(100);
   });
 
-  it("classes contributor types, parties first", () => {
-    expect(donorKindClass("individual")).toBe("individual");
-    expect(donorKindClass("ENTITY")).toBe("entity");
-    expect(donorKindClass("PAC")).toBe("entity");
-    expect(donorKindClass(null)).toBe("unknown");
-    expect(donorKindClass("ENTITY", "REPUBLICAN GOVERNORS ASSOCIATION")).toBe("republican");
-    expect(donorKindClass("ENTITY", "Democratic Party of Oregon")).toBe("democratic");
-    expect(donorKindClass("ENTITY", "MICHIGAN GOP")).toBe("republican");
-    // A person is never a party, whatever their name says.
-    expect(donorKindClass("INDIVIDUAL", "GOP SMITH")).toBe("individual");
+  it("designates a donor's party the way the site designates a candidate's", () => {
+    const partyOf = (id: string) => ({ a: "Republican", b: "Democrat", c: "R", d: null as string | null })[id];
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "c", total_amount: 5 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "b", total_amount: 5 }], partyOf)).toBe("mixed");
+    // A refund-only split carries no party; an unknown party carries none.
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "b", total_amount: 0 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "d", total_amount: 10 }], partyOf)).toBe("");
+    expect(recipientParty([], partyOf)).toBe("");
+    expect(donorKindClass("D")).toBe("democratic");
+    expect(donorKindClass("I")).toBe("other_party");
+    expect(donorKindClass("")).toBe("unknown");
   });
 
-  it("reads a donor's party from its name", () => {
+  it("falls back to the organisation's name when no recipient is known", () => {
     expect(donorPartyKey("Democratic Governors Association")).toBe("D");
     expect(donorPartyKey("HOUSE REPUBLICAN CAMPAIGN COMMITTEE")).toBe("R");
     expect(donorPartyKey("Democrats for Republican Values")).toBe("");
     expect(donorPartyKey("Independent Bankers PAC")).toBe("");
     expect(donorPartyKey("Republican Smith", "INDIVIDUAL")).toBe("");
-    expect(sliceColor({ series: 2, party: "R" })).toBe("hsl(var(--rep))");
-    expect(sliceColor({ series: 2, party: "" })).toBe("var(--viz-3)");
+  });
+
+  it("colours slices by party, stepping shades within a party", () => {
+    expect(sliceColor({ series: 2, party: "R", partyNth: 0 })).toBe("hsl(var(--rep))");
+    expect(sliceColor({ series: 2, party: "R", partyNth: 1 })).toContain("color-mix");
+    expect(sliceColor({ series: 2, party: "mixed", partyNth: 0 })).toBe("var(--viz-3)");
+    expect(sliceColor({ series: 2, party: "", partyNth: 0 })).toBe("var(--viz-3)");
+    const slices = pieSlices([
+      { ...donor("a", 50), party: "R" },
+      { ...donor("b", 40), party: "R" },
+      { ...donor("c", 30), party: "D" },
+    ]);
+    expect(slices.map((s) => [s.party, s.partyNth])).toEqual([["R", 0], ["R", 1], ["D", 0]]);
   });
 
   it("labels only cells that can hold text", () => {
