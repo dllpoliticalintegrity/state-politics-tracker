@@ -2,8 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   cellLabelLines,
   donorKindClass,
+  donorPartyKey,
   fitLabel,
+  givesOwnMoney,
+  isOwnMoney,
   pieSlices,
+  recipientParty,
+  sliceColor,
   treemapCells,
   vizColor,
 } from "@/lib/donorCharts";
@@ -22,6 +27,7 @@ describe("pie slices", () => {
     const slices = pieSlices(donors);
     expect(slices).toHaveLength(7);
     expect(slices.slice(0, 6).map((s) => s.series)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(slices[0].party).toBe("");
     const other = slices[6];
     expect(other.key).toBe("__other");
     expect(other.name).toBe("Other (4 donors)");
@@ -45,22 +51,57 @@ describe("pie slices", () => {
 });
 
 describe("treemap cells", () => {
-  it("ranks by amount, caps at the limit and classes each donor", () => {
+  it("ranks by amount, caps at the limit and classes each donor by the party they gave to", () => {
     const cells = treemapCells(
-      [donor("small", 1), donor("pac", 50, "ENTITY"), donor("big", 100), donor("none", 20, null)],
-      3,
+      [
+        { ...donor("small", 1), party: "D" },
+        { ...donor("pac", 50, "ENTITY"), party: "mixed" },
+        { ...donor("big", 100), party: "R" },
+        { ...donor("rga", 30, "ENTITY"), display_name: "REPUBLICAN GOVERNORS ASSOCIATION" },
+        donor("none", 20, null),
+      ],
+      4,
     );
-    expect(cells.map((c) => c.key)).toEqual(["big", "pac", "none"]);
-    expect(cells.map((c) => c.rank)).toEqual([1, 2, 3]);
-    expect(cells.map((c) => c.kind)).toEqual(["individual", "entity", "unknown"]);
+    expect(cells.map((c) => c.key)).toEqual(["big", "pac", "rga", "none"]);
+    expect(cells.map((c) => c.rank)).toEqual([1, 2, 3, 4]);
+    expect(cells.map((c) => c.kind)).toEqual(["republican", "both", "republican", "unknown"]);
+    expect(cells.map((c) => c.typeLabel)).toEqual(["Individual", "Entity / PAC", "Entity / PAC", "Unknown"]);
     expect(cells[0].value).toBe(100);
   });
 
-  it("classes contributor types", () => {
-    expect(donorKindClass("individual")).toBe("individual");
-    expect(donorKindClass("ENTITY")).toBe("entity");
-    expect(donorKindClass("PAC")).toBe("entity");
-    expect(donorKindClass(null)).toBe("unknown");
+  it("designates a donor's party the way the site designates a candidate's", () => {
+    const partyOf = (id: string) => ({ a: "Republican", b: "Democrat", c: "R", d: null as string | null })[id];
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "c", total_amount: 5 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "b", total_amount: 5 }], partyOf)).toBe("mixed");
+    // A refund-only split carries no party; an unknown party carries none.
+    expect(recipientParty([{ candidate_id: "a", total_amount: 10 }, { candidate_id: "b", total_amount: 0 }], partyOf)).toBe("R");
+    expect(recipientParty([{ candidate_id: "d", total_amount: 10 }], partyOf)).toBe("");
+    expect(recipientParty([], partyOf)).toBe("");
+    expect(donorKindClass("D")).toBe("democratic");
+    expect(donorKindClass("I")).toBe("other_party");
+    expect(donorKindClass("")).toBe("unknown");
+  });
+
+  it("falls back to the organisation's name when no recipient is known", () => {
+    expect(donorPartyKey("Democratic Governors Association")).toBe("D");
+    expect(donorPartyKey("HOUSE REPUBLICAN CAMPAIGN COMMITTEE")).toBe("R");
+    expect(donorPartyKey("Democrats for Republican Values")).toBe("");
+    expect(donorPartyKey("Independent Bankers PAC")).toBe("");
+    expect(donorPartyKey("Republican Smith", "INDIVIDUAL")).toBe("");
+  });
+
+  it("colours slices by party, stepping shades within a party", () => {
+    expect(sliceColor({ series: 2, party: "R", partyNth: 0 })).toBe("hsl(var(--rep))");
+    expect(sliceColor({ series: 2, party: "R", partyNth: 1 })).toContain("color-mix");
+    expect(sliceColor({ series: 2, party: "mixed", partyNth: 0 })).toBe("var(--viz-3)");
+    expect(sliceColor({ series: 2, party: "", partyNth: 0 })).toBe("var(--viz-3)");
+    const slices = pieSlices([
+      { ...donor("a", 50), party: "R" },
+      { ...donor("b", 40), party: "R" },
+      { ...donor("c", 30), party: "D" },
+    ]);
+    expect(slices.map((s) => [s.party, s.partyNth])).toEqual([["R", 0], ["R", 1], ["D", 0]]);
   });
 
   it("labels only cells that can hold text", () => {
@@ -79,5 +120,41 @@ describe("colours", () => {
     expect(vizColor(5)).toBe("var(--viz-6)");
     expect(vizColor(6)).toBe("var(--viz-1)");
     expect(vizColor(null)).toBe("var(--viz-neutral)");
+  });
+});
+
+describe("own money", () => {
+  const ind = (name: string) => ({ display_name: name, contributor_type: "INDIVIDUAL" });
+  const org = (name: string) => ({ display_name: name, contributor_type: "ENTITY" });
+
+  it("mirrors the database's self-funding rule for individuals", () => {
+    expect(isOwnMoney(ind("MICHAEL COX"), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(ind("Mike Cox Jr."), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(ind("LAURA COX"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("COX"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("MICHAEL COXWELL"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("MICHAEL COX"), null)).toBe(false);
+    expect(isOwnMoney({ display_name: "MICHAEL COX", contributor_type: null }, "Mike Cox")).toBe(false);
+  });
+
+  it("reads an organisation named for the candidate as their own money", () => {
+    expect(isOwnMoney(org("Jesse Gabriel for Assembly 2024"), "Jesse Gabriel")).toBe(true);
+    expect(isOwnMoney(org("FRIENDS OF MIKE COX"), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(org("COX MAJORITY PAC"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(org("Cox Communications"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(org("Elect Nobody PAC"), "A Li")).toBe(false);
+  });
+
+  it("flags a donor whose gifts include their own campaign", () => {
+    const nameOf = (id: string) => ({ cox: "Mike Cox", benson: "Jocelyn Benson" })[id];
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "cox", total_amount: 100 }] }, nameOf),
+    ).toBe(true);
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "benson", total_amount: 100 }] }, nameOf),
+    ).toBe(false);
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "cox", total_amount: 0 }] }, nameOf),
+    ).toBe(false);
   });
 });

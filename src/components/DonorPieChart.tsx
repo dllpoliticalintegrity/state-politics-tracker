@@ -4,7 +4,7 @@
 // and a slice or legend row opens the same breakdown as the list row.
 import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { pieSlices, vizColor, type DonorLike, type PieSlice } from "@/lib/donorCharts";
+import { pieSlices, sliceColor, type DonorLike, type PieSlice } from "@/lib/donorCharts";
 import { formatCurrencyFull } from "@/lib/finance";
 
 const pct = (p: number) => `${(p * 100).toFixed(p < 0.095 ? 1 : 0)}%`;
@@ -54,7 +54,7 @@ export default function DonorPieChart({
                 {slices.map((s) => (
                   <Cell
                     key={s.key}
-                    fill={vizColor(s.series)}
+                    fill={sliceColor(s)}
                     opacity={active && active !== s.key ? 0.6 : 1}
                     cursor={s.series !== null ? "pointer" : "default"}
                   />
@@ -86,7 +86,7 @@ export default function DonorPieChart({
               <>
                 <span
                   className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm"
-                  style={{ background: vizColor(s.series) }}
+                  style={{ background: sliceColor(s) }}
                   aria-hidden="true"
                 />
                 <span className="min-w-0 break-words leading-tight">{s.name}</span>

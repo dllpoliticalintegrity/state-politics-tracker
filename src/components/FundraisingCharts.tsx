@@ -14,8 +14,8 @@ import {
 } from "@/hooks/useCandidates";
 import { useRaceConfig } from "@/states/StateContext";
 import { isOffBallot } from "@/lib/candidateStatus";
-import { formatCurrency, formatCurrencyFull, partyColor } from "@/lib/finance";
-import { vizColor } from "@/lib/donorCharts";
+import { formatCurrency, formatCurrencyFull, partyColor, partyKey } from "@/lib/finance";
+import { partyShade, vizColor } from "@/lib/donorCharts";
 import {
   SIZE_BINS,
   SIZE_BIN_LABEL,
@@ -98,13 +98,22 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
     const keys: Record<string, string[]> = {};
     for (const r of named) keys[r.cand.id] = [r.cand.id];
     if (rest.length) keys[OTHERS] = rest.map((r) => r.cand.id);
-    const series = named.map((r, i) => ({
-      key: r.cand.id,
-      label: `${lastName(r.cand.name)} (${r.cand.party ?? "—"})`,
-      color: vizColor(i),
-      party: r.cand.party,
-      withdrawn: isOffBallot(r.cand.status),
-    }));
+    const seen = new Map<string, number>();
+    const series = named.map((r) => {
+      const pk = partyKey(r.cand.party);
+      const nth = seen.get(pk) ?? 0;
+      seen.set(pk, nth + 1);
+      return {
+        key: r.cand.id,
+        label: `${lastName(r.cand.name)} (${r.cand.party ?? "—"})`,
+        // The party's colour (red for Republicans, blue for Democrats, as
+        // everywhere on the site), stepped for a second or third candidate
+        // of the same party.
+        color: partyShade(r.cand.party, nth),
+        party: r.cand.party,
+        withdrawn: isOffBallot(r.cand.status),
+      };
+    });
     if (rest.length) {
       series.push({ key: OTHERS, label: `All others (${rest.length})`, color: vizColor(null), party: null, withdrawn: false });
     }

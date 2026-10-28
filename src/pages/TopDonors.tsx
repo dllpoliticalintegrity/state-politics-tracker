@@ -12,7 +12,9 @@ import {
 import { Building2 } from "lucide-react";
 import MoneyTabs from "@/components/MoneyTabs";
 import DonorPieChart from "@/components/DonorPieChart";
-import { List, PieChart as PieIcon } from "lucide-react";
+import DonorTreemap from "@/components/DonorTreemap";
+import { recipientParty, type DonorParty } from "@/lib/donorCharts";
+import { LayoutGrid, List, PieChart as PieIcon } from "lucide-react";
 import {
   useCandidates,
   useTopAggregatedDonors,
@@ -29,7 +31,7 @@ import {
 } from "@/lib/finance";
 
 type Source = "candidate" | "ie";
-type View = "list" | "pie";
+type View = "list" | "pie" | "treemap";
 
 type UnifiedDonor = {
   key: string;
@@ -42,6 +44,8 @@ type UnifiedDonor = {
   contribution_count: number;
   total_amount: number;
   split_count: number;
+  /** The party of the candidates the donor gave to; unknown for donors to outside committees. */
+  party?: DonorParty;
 };
 
 const KIND_OPTIONS: { value: DonorKind; label: string }[] = [
@@ -88,6 +92,7 @@ export default function TopDonors() {
         contribution_count: d.contribution_count,
         total_amount: d.total_amount,
         split_count: d.splits.length,
+        party: recipientParty(d.splits, (id) => candidateById.get(id)?.party),
       }));
     }
     return (ieDonors.data ?? []).map((d) => ({
@@ -102,7 +107,7 @@ export default function TopDonors() {
       total_amount: d.total_amount,
       split_count: d.splits.length,
     }));
-  }, [source, candDonors.data, ieDonors.data]);
+  }, [source, candDonors.data, ieDonors.data, candidateById]);
 
   const totalGiven = list.reduce((s, d) => s + d.total_amount, 0);
   const totalContributions = list.reduce((s, d) => s + d.contribution_count, 0);
@@ -191,6 +196,7 @@ export default function TopDonors() {
               [
                 { value: "list", label: "List", Icon: List },
                 { value: "pie", label: "Pie chart", Icon: PieIcon },
+                { value: "treemap", label: "Treemap", Icon: LayoutGrid },
               ] as const
             ).map(({ value, label, Icon }) => (
               <button
@@ -230,7 +236,10 @@ export default function TopDonors() {
             onSelect={handleSelect}
           />
         )}
-        <div className={view === "pie" ? "hidden" : "space-y-2"}>
+        {view === "treemap" && list.length > 0 && (
+          <DonorTreemap donors={list} limit={list.length} onSelect={handleSelect} />
+        )}
+        <div className={view === "list" ? "space-y-2" : "hidden"}>
           {list.map((d, i) => (
             <button
               key={d.key}
