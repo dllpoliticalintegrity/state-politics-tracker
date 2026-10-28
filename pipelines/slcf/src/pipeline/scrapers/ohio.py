@@ -231,16 +231,27 @@ class _RetryingSession:
         return session
 
     def get(self, url: str, timeout: int = 60):
-        r = self._session.get(url, timeout=timeout)
-        for wait in RETRY_403_WAITS:
-            if r.status_code != 403:
-                break
-            self._i = (self._i + 1) % len(self._profiles)
-            self._log.warning(f"  [!] 403 from {url.split('?')[0]} -- retrying in {wait}s "
-                              f"as {self._profiles[self._i]}")
-            time.sleep(wait)
-            self._session = self._new()
-            r = self._session.get(url, timeout=timeout)
+        """A 403, or a dropped connection ("curl: (56) Connection closed
+        abruptly", which cost the cover pages and 2026 expenditures on
+        2026-10-26), is retried after each RETRY_403_WAITS pause with the
+        next profile; the last failure is returned or raised as before."""
+        for attempt, wait in enumerate((0, *RETRY_403_WAITS)):
+            if attempt:
+                self._i = (self._i + 1) % len(self._profiles)
+                self._log.warning(f"  [!] {problem} from {url.split('?')[0]} -- retrying in "
+                                  f"{wait}s as {self._profiles[self._i]}")
+                time.sleep(wait)
+                self._session = self._new()
+            try:
+                r = self._session.get(url, timeout=timeout)
+            except Exception as e:  # noqa: BLE001 -- curl_cffi's transport errors
+                if attempt == len(RETRY_403_WAITS):
+                    raise
+                problem = f"{type(e).__name__}: {str(e)[:80]}"
+                continue
+            if r.status_code != 403 or attempt == len(RETRY_403_WAITS):
+                return r
+            problem = "403"
         return r
 
 
