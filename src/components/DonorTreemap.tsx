@@ -6,19 +6,16 @@
 import { useState } from "react";
 import { ResponsiveContainer, Tooltip, Treemap } from "recharts";
 import {
+  DONOR_KINDS,
+  DONOR_KIND_COLOR,
   DONOR_KIND_LABEL,
-  DONOR_KIND_SERIES,
   cellLabelLines,
   fitLabel,
   treemapCells,
-  vizColor,
-  type DonorKindClass,
   type DonorLike,
   type TreemapCell,
 } from "@/lib/donorCharts";
 import { formatCurrency, formatCurrencyFull } from "@/lib/finance";
-
-const KINDS: DonorKindClass[] = ["individual", "entity", "unknown"];
 
 function CellContent(props: Partial<TreemapCell> & { x?: number; y?: number; width?: number; height?: number }) {
   const { x = 0, y = 0, width = 0, height = 0, name = "", value = 0, kind = "unknown", rank = 0 } = props;
@@ -38,7 +35,7 @@ function CellContent(props: Partial<TreemapCell> & { x?: number; y?: number; wid
         width={width}
         height={height}
         rx={2}
-        fill={vizColor(DONOR_KIND_SERIES[kind])}
+        fill={DONOR_KIND_COLOR[kind]}
         stroke="hsl(var(--card))"
         strokeWidth={2}
       />
@@ -63,23 +60,33 @@ function CellContent(props: Partial<TreemapCell> & { x?: number; y?: number; wid
   );
 }
 
-export default function DonorTreemap({ donors, limit = 100 }: { donors: DonorLike[]; limit?: number }) {
+export default function DonorTreemap({
+  donors,
+  limit = 100,
+  onSelect,
+}: {
+  donors: DonorLike[];
+  limit?: number;
+  /** Called with the donor's key when a cell (or list row) is clicked. */
+  onSelect?: (key: string) => void;
+}) {
   const cells = treemapCells(donors, limit);
   const [listOpen, setListOpen] = useState(false);
   if (cells.length === 0) return null;
   const total = cells.reduce((s, c) => s + c.value, 0);
-  const present = KINDS.filter((k) => cells.some((c) => c.kind === k));
+  const present = DONOR_KINDS.filter((k) => cells.some((c) => c.kind === k));
 
   return (
     <div className="rounded-lg border bg-card p-3 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
           {formatCurrencyFull(total)} from the top {cells.length}. Bigger box, more given.
+          {onSelect ? " Select a box for the breakdown." : ""}
         </span>
         <ul className="flex flex-wrap gap-x-4 gap-y-1" aria-label="Legend">
           {present.map((k) => (
             <li key={k} className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: vizColor(DONOR_KIND_SERIES[k]) }} aria-hidden="true" />
+              <span className="h-2.5 w-2.5 rounded-sm" style={{ background: DONOR_KIND_COLOR[k] }} aria-hidden="true" />
               {DONOR_KIND_LABEL[k]}
             </li>
           ))}
@@ -94,6 +101,11 @@ export default function DonorTreemap({ donors, limit = 100 }: { donors: DonorLik
             aspectRatio={4 / 3}
             isAnimationActive={false}
             content={<CellContent />}
+            onClick={(node) => {
+              const key = (node as { key?: string } | undefined)?.key;
+              if (key) onSelect?.(key);
+            }}
+            style={onSelect ? { cursor: "pointer" } : undefined}
           >
             <Tooltip
               wrapperClassName="max-w-[calc(100vw-4rem)] whitespace-normal"
@@ -125,9 +137,16 @@ export default function DonorTreemap({ donors, limit = 100 }: { donors: DonorLik
           {cells.map((c) => (
             <li key={c.key} className="flex items-baseline gap-2">
               <span className="w-6 shrink-0 text-right tabular-nums text-muted-foreground">{c.rank}</span>
-              <span className="min-w-0 flex-1 truncate" title={c.name}>
-                {c.name}
-              </span>
+              <span className="h-2 w-2 shrink-0 self-center rounded-sm" style={{ background: DONOR_KIND_COLOR[c.kind] }} aria-hidden="true" />
+              {onSelect ? (
+                <button type="button" className="min-w-0 flex-1 truncate text-left hover:text-primary hover:underline" title={c.name} onClick={() => onSelect(c.key)}>
+                  {c.name}
+                </button>
+              ) : (
+                <span className="min-w-0 flex-1 truncate" title={c.name}>
+                  {c.name}
+                </span>
+              )}
               <span className="shrink-0 font-mono tabular-nums">{formatCurrencyFull(c.value)}</span>
             </li>
           ))}

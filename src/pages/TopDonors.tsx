@@ -12,7 +12,8 @@ import {
 import { Building2 } from "lucide-react";
 import MoneyTabs from "@/components/MoneyTabs";
 import DonorPieChart from "@/components/DonorPieChart";
-import { List, PieChart as PieIcon } from "lucide-react";
+import DonorTreemap from "@/components/DonorTreemap";
+import { LayoutGrid, List, PieChart as PieIcon } from "lucide-react";
 import {
   useCandidates,
   useTopAggregatedDonors,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/finance";
 
 type Source = "candidate" | "ie";
-type View = "list" | "pie";
+type View = "list" | "pie" | "treemap";
 
 type UnifiedDonor = {
   key: string;
@@ -191,6 +192,7 @@ export default function TopDonors() {
               [
                 { value: "list", label: "List", Icon: List },
                 { value: "pie", label: "Pie chart", Icon: PieIcon },
+                { value: "treemap", label: "Treemap", Icon: LayoutGrid },
               ] as const
             ).map(({ value, label, Icon }) => (
               <button
@@ -230,7 +232,10 @@ export default function TopDonors() {
             onSelect={handleSelect}
           />
         )}
-        <div className={view === "pie" ? "hidden" : "space-y-2"}>
+        {view === "treemap" && list.length > 0 && (
+          <DonorTreemap donors={list} limit={list.length} onSelect={handleSelect} />
+        )}
+        <div className={view === "list" ? "space-y-2" : "hidden"}>
           {list.map((d, i) => (
             <button
               key={d.key}

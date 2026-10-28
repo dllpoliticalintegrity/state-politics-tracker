@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   cellLabelLines,
   donorKindClass,
+  donorPartyKey,
   fitLabel,
   pieSlices,
+  sliceColor,
   treemapCells,
   vizColor,
 } from "@/lib/donorCharts";
@@ -22,6 +24,7 @@ describe("pie slices", () => {
     const slices = pieSlices(donors);
     expect(slices).toHaveLength(7);
     expect(slices.slice(0, 6).map((s) => s.series)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(slices[0].party).toBe("");
     const other = slices[6];
     expect(other.key).toBe("__other");
     expect(other.name).toBe("Other (4 donors)");
@@ -56,11 +59,26 @@ describe("treemap cells", () => {
     expect(cells[0].value).toBe(100);
   });
 
-  it("classes contributor types", () => {
+  it("classes contributor types, parties first", () => {
     expect(donorKindClass("individual")).toBe("individual");
     expect(donorKindClass("ENTITY")).toBe("entity");
     expect(donorKindClass("PAC")).toBe("entity");
     expect(donorKindClass(null)).toBe("unknown");
+    expect(donorKindClass("ENTITY", "REPUBLICAN GOVERNORS ASSOCIATION")).toBe("republican");
+    expect(donorKindClass("ENTITY", "Democratic Party of Oregon")).toBe("democratic");
+    expect(donorKindClass("ENTITY", "MICHIGAN GOP")).toBe("republican");
+    // A person is never a party, whatever their name says.
+    expect(donorKindClass("INDIVIDUAL", "GOP SMITH")).toBe("individual");
+  });
+
+  it("reads a donor's party from its name", () => {
+    expect(donorPartyKey("Democratic Governors Association")).toBe("D");
+    expect(donorPartyKey("HOUSE REPUBLICAN CAMPAIGN COMMITTEE")).toBe("R");
+    expect(donorPartyKey("Democrats for Republican Values")).toBe("");
+    expect(donorPartyKey("Independent Bankers PAC")).toBe("");
+    expect(donorPartyKey("Republican Smith", "INDIVIDUAL")).toBe("");
+    expect(sliceColor({ series: 2, party: "R" })).toBe("hsl(var(--rep))");
+    expect(sliceColor({ series: 2, party: "" })).toBe("var(--viz-3)");
   });
 
   it("labels only cells that can hold text", () => {

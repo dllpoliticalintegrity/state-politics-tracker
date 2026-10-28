@@ -14,7 +14,7 @@ import {
 } from "@/hooks/useCandidates";
 import { useRaceConfig } from "@/states/StateContext";
 import { isOffBallot } from "@/lib/candidateStatus";
-import { formatCurrency, formatCurrencyFull, partyColor } from "@/lib/finance";
+import { formatCurrency, formatCurrencyFull, partyColor, partyKey } from "@/lib/finance";
 import { vizColor } from "@/lib/donorCharts";
 import {
   SIZE_BINS,
@@ -33,6 +33,20 @@ import {
 const MAX_LINES = 6;
 const OTHERS = "__others";
 const SIZE_ROWS_SHOWN = 8;
+
+/**
+ * A candidate's line colour: their party's (red for Republicans, blue for
+ * Democrats, as everywhere on the site). The second and third candidates
+ * of the same party take a lighter and a darker step of that hue, so the
+ * party still reads at a glance and the legend tells them apart.
+ */
+function lineColor(party: string | null, nthOfParty: number): string {
+  const base = partyColor(party);
+  if (nthOfParty === 0) return base;
+  if (nthOfParty === 1) return `color-mix(in oklab, ${base} 55%, white)`;
+  if (nthOfParty === 2) return `color-mix(in oklab, ${base} 65%, black)`;
+  return `color-mix(in oklab, ${base} 35%, white)`;
+}
 
 type Ranked = { cand: TxCandidate; raised: number };
 
@@ -98,13 +112,19 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
     const keys: Record<string, string[]> = {};
     for (const r of named) keys[r.cand.id] = [r.cand.id];
     if (rest.length) keys[OTHERS] = rest.map((r) => r.cand.id);
-    const series = named.map((r, i) => ({
-      key: r.cand.id,
-      label: `${lastName(r.cand.name)} (${r.cand.party ?? "—"})`,
-      color: vizColor(i),
-      party: r.cand.party,
-      withdrawn: isOffBallot(r.cand.status),
-    }));
+    const seen = new Map<string, number>();
+    const series = named.map((r) => {
+      const pk = partyKey(r.cand.party);
+      const nth = seen.get(pk) ?? 0;
+      seen.set(pk, nth + 1);
+      return {
+        key: r.cand.id,
+        label: `${lastName(r.cand.name)} (${r.cand.party ?? "—"})`,
+        color: lineColor(r.cand.party, nth),
+        party: r.cand.party,
+        withdrawn: isOffBallot(r.cand.status),
+      };
+    });
     if (rest.length) {
       series.push({ key: OTHERS, label: `All others (${rest.length})`, color: vizColor(null), party: null, withdrawn: false });
     }

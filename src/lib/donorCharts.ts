@@ -4,10 +4,13 @@
 //
 // Colours are the `--viz-*` custom properties in src/index.css: six
 // categorical hues in a fixed order (a donor keeps its hue however the
-// list is filtered) plus a neutral for "Other" / unknown. The hues were
-// validated for colour-vision deficiency and contrast on the site's light
-// and dark card surfaces; light mode needs visible labels beside the
-// marks, which the legend and the list view provide.
+// list is filtered) plus a neutral for "Other" / unknown. None of the six
+// is blue or red: those mean Democratic and Republican everywhere on the
+// site (`--dem` / `--rep`), and a donor or candidate of a party is drawn
+// in its colour. The hues were validated for colour-vision deficiency and
+// contrast on the site's light and dark card surfaces; light mode needs
+// visible labels beside the marks, which the legend and the list view
+// provide.
 
 /** Hue slots available to a categorical chart (`--viz-1` … `--viz-6`). */
 export const VIZ_SERIES = 6;
@@ -25,6 +28,26 @@ export type DonorLike = {
   total_amount: number;
 };
 
+/**
+ * The party an organisation donor belongs to, by name: "D" for Democratic /
+ * Democrats, "R" for Republican / Republicans / GOP, "" otherwise. Only
+ * organisations are read this way (an individual's name is never a party).
+ */
+export function donorPartyKey(name: string | null | undefined, contributorType?: string | null): "D" | "R" | "" {
+  if ((contributorType ?? "").toUpperCase() === "INDIVIDUAL") return "";
+  const org = (name ?? "").toLowerCase();
+  const dem = /\b(democratic|democrats?)\b/.test(org);
+  const rep = /\b(republicans?|gop)\b/.test(org);
+  if (dem && !rep) return "D";
+  if (rep && !dem) return "R";
+  return "";
+}
+
+/** A party's colour (the site's `--dem` / `--rep`), or null for no party. */
+export function partyFill(party: "D" | "R" | ""): string | null {
+  return party === "D" ? "hsl(var(--dem))" : party === "R" ? "hsl(var(--rep))" : null;
+}
+
 export type PieSlice = {
   key: string;
   name: string;
@@ -33,9 +56,16 @@ export type PieSlice = {
   pct: number;
   /** Categorical slot, or null for the folded "Other" slice. */
   series: number | null;
+  /** The donor's party when its name carries one: drawn in that colour instead of the slot's. */
+  party: "D" | "R" | "";
   /** How many donors the slice stands for (1, or the fold count). */
   donors: number;
 };
+
+/** A slice's fill: its party's colour when it has one, else its slot's. */
+export function sliceColor(s: Pick<PieSlice, "series" | "party">): string {
+  return partyFill(s.party) ?? vizColor(s.series);
+}
 
 /**
  * The top `max` donors as pie slices, the rest folded into one "Other"
@@ -55,6 +85,7 @@ export function pieSlices(donors: DonorLike[], max = VIZ_SERIES): PieSlice[] {
     amount: d.total_amount,
     pct: d.total_amount / total,
     series: i,
+    party: donorPartyKey(d.display_name, d.contributor_type),
     donors: 1,
   }));
   if (tail.length) {
@@ -65,16 +96,24 @@ export function pieSlices(donors: DonorLike[], max = VIZ_SERIES): PieSlice[] {
       amount,
       pct: amount / total,
       series: null,
+      party: "",
       donors: tail.length,
     });
   }
   return slices;
 }
 
-export type DonorKindClass = "individual" | "entity" | "unknown";
+export type DonorKindClass = "democratic" | "republican" | "individual" | "entity" | "unknown";
 
-/** Individual vs. entity/PAC vs. unknown, from the importers' contributor_type. */
-export function donorKindClass(contributorType: string | null | undefined): DonorKindClass {
+/**
+ * A donor's class for the treemap: a Democratic or Republican organisation
+ * (by name), else individual vs. entity/PAC vs. unknown from the
+ * importers' contributor_type.
+ */
+export function donorKindClass(contributorType: string | null | undefined, name?: string | null): DonorKindClass {
+  const party = donorPartyKey(name, contributorType);
+  if (party === "D") return "democratic";
+  if (party === "R") return "republican";
   switch ((contributorType ?? "").toUpperCase()) {
     case "INDIVIDUAL":
       return "individual";
@@ -86,17 +125,28 @@ export function donorKindClass(contributorType: string | null | undefined): Dono
   }
 }
 
+/** Legend order: parties first. */
+export const DONOR_KINDS: DonorKindClass[] = ["democratic", "republican", "individual", "entity", "unknown"];
+
 export const DONOR_KIND_LABEL: Record<DonorKindClass, string> = {
+  democratic: "Democratic committees",
+  republican: "Republican committees",
   individual: "Individuals",
-  entity: "Entities & PACs",
+  entity: "Other entities & PACs",
   unknown: "Unknown type",
 };
 
-/** Colour slot per donor kind: blue / orange / neutral. */
-export const DONOR_KIND_SERIES: Record<DonorKindClass, number | null> = {
-  individual: 0,
-  entity: 1,
-  unknown: null,
+/**
+ * Fill per donor kind: the parties' blue and red, the first categorical hue
+ * for individuals, a muted tone for other organisations, the neutral for
+ * unknown — a set validated pairwise, since any two treemap cells touch.
+ */
+export const DONOR_KIND_COLOR: Record<DonorKindClass, string> = {
+  democratic: "hsl(var(--dem))",
+  republican: "hsl(var(--rep))",
+  individual: "var(--viz-1)",
+  entity: "var(--viz-entity)",
+  unknown: "var(--viz-neutral)",
 };
 
 export type TreemapCell = {
@@ -119,7 +169,7 @@ export function treemapCells(donors: DonorLike[], limit = 100): TreemapCell[] {
       key: d.key,
       name: d.display_name,
       value: d.total_amount,
-      kind: donorKindClass(d.contributor_type),
+      kind: donorKindClass(d.contributor_type, d.display_name),
       gifts: d.contribution_count,
       rank: i + 1,
     }));
