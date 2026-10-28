@@ -19,6 +19,14 @@ describe("floating buttons", () => {
     expect(c.some((x) => /^(xl|lg|md|sm):fixed$/.test(x))).toBe(false);
   });
 
+  it("tags the donate link with this site's source (the hub, in the test build)", () => {
+    render(<FloatingDonate />);
+    expect(screen.getByRole("link", { name: /donate/i })).toHaveAttribute(
+      "href",
+      "https://donate.politicalintegrity.us/?source=state-politics-tracker",
+    );
+  });
+
   it("floats Feedback bottom-left at every width", () => {
     render(<FloatingFeedback />);
     const c = classes(screen.getByRole("button", { name: /feedback/i }));
