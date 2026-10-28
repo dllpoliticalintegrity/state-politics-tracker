@@ -12,10 +12,11 @@ import MidtermsCountdown from "@/components/MidtermsCountdown";
 import CongressLookup from "@/components/CongressLookup";
 import RepresentativeLookup from "@/components/RepresentativeLookup";
 import { REPRESENTATIVE_LOOKUP_URLS } from "@/lib/representativeLookup";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import DonorTreemap from "@/components/DonorTreemap";
 import { useStateCandidates, useStateTopDonors } from "@/hooks/useCandidates";
-import { recipientParty } from "@/lib/donorCharts";
+import { givesOwnMoney, recipientParty } from "@/lib/donorCharts";
+import { formatCurrency } from "@/lib/finance";
 
 export default function Overview() {
   const state = useStateConfig();
@@ -24,14 +25,27 @@ export default function Overview() {
   const races = isSingleStateSite ? chrome.races : state.races ?? [];
   const year = races[0]?.generalDate.slice(0, 4) ?? "2026";
   const representativeUrl = REPRESENTATIVE_LOOKUP_URLS[state.code];
-  const topDonors = useStateTopDonors(100);
+  // A few more than the treemap shows, so it is still a top 100 with
+  // candidates' own money left out.
+  const topDonors = useStateTopDonors(120);
   const { data: stateCandidates } = useStateCandidates();
+  // Candidates' own money (self-funding and the loans they make their
+  // campaigns) can be left out of the treemap.
+  const [hideOwnMoney, setHideOwnMoney] = useState(false);
   // Each donor's party, from the candidates they gave to — the site's own
-  // party designation per candidate.
+  // party designation per candidate — and whether they are a candidate
+  // funding their own run.
   const donors = useMemo(() => {
-    const partyOf = new Map((stateCandidates ?? []).map((c) => [c.id, c.party]));
-    return (topDonors.data ?? []).map((d) => ({ ...d, party: recipientParty(d.splits, (id) => partyOf.get(id)) }));
+    const byId = new Map((stateCandidates ?? []).map((c) => [c.id, c]));
+    return (topDonors.data ?? []).map((d) => ({
+      ...d,
+      party: recipientParty(d.splits, (id) => byId.get(id)?.party),
+      own: givesOwnMoney(d, (id) => byId.get(id)?.name),
+    }));
   }, [topDonors.data, stateCandidates]);
+  const ownMoney = donors.filter((d) => d.own);
+  const shownDonors = hideOwnMoney ? donors.filter((d) => !d.own) : donors;
+  const ownTotal = ownMoney.reduce((s, d) => s + d.total_amount, 0);
 
   return (
     <div className="min-h-[80vh]">
@@ -81,7 +95,36 @@ export default function Overview() {
             Who has given the most to {state.name}'s {year} statewide campaigns, all races combined. Each race's
             Money tab has the full ranking and the breakdown by candidate.
           </p>
-          <DonorTreemap donors={donors} limit={100} />
+          {ownMoney.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Show</span>
+              {(
+                [
+                  { value: false, label: "All donors" },
+                  { value: true, label: "Without candidates' own money" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => setHideOwnMoney(opt.value)}
+                  aria-pressed={hideOwnMoney === opt.value}
+                  className={`rounded-full border px-2.5 py-1 transition-colors ${
+                    hideOwnMoney === opt.value
+                      ? "border-primary bg-primary/10 font-semibold text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <span className="text-muted-foreground">
+                {hideOwnMoney ? "Hiding" : "Includes"} {ownMoney.length} candidate{ownMoney.length === 1 ? "" : "s"} funding their own
+                run{ownMoney.length === 1 ? "" : "s"} ({formatCurrency(ownTotal)}, loans included).
+              </span>
+            </div>
+          )}
+          <DonorTreemap donors={shownDonors} limit={100} />
           {state.agency && (
             <p className="mt-2 text-xs text-muted-foreground">Updated nightly from {state.agency.name} filings.</p>
           )}

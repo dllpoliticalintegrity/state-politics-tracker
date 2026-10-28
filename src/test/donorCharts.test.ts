@@ -4,6 +4,8 @@ import {
   donorKindClass,
   donorPartyKey,
   fitLabel,
+  givesOwnMoney,
+  isOwnMoney,
   pieSlices,
   recipientParty,
   sliceColor,
@@ -118,5 +120,41 @@ describe("colours", () => {
     expect(vizColor(5)).toBe("var(--viz-6)");
     expect(vizColor(6)).toBe("var(--viz-1)");
     expect(vizColor(null)).toBe("var(--viz-neutral)");
+  });
+});
+
+describe("own money", () => {
+  const ind = (name: string) => ({ display_name: name, contributor_type: "INDIVIDUAL" });
+  const org = (name: string) => ({ display_name: name, contributor_type: "ENTITY" });
+
+  it("mirrors the database's self-funding rule for individuals", () => {
+    expect(isOwnMoney(ind("MICHAEL COX"), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(ind("Mike Cox Jr."), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(ind("LAURA COX"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("COX"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("MICHAEL COXWELL"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(ind("MICHAEL COX"), null)).toBe(false);
+    expect(isOwnMoney({ display_name: "MICHAEL COX", contributor_type: null }, "Mike Cox")).toBe(false);
+  });
+
+  it("reads an organisation named for the candidate as their own money", () => {
+    expect(isOwnMoney(org("Jesse Gabriel for Assembly 2024"), "Jesse Gabriel")).toBe(true);
+    expect(isOwnMoney(org("FRIENDS OF MIKE COX"), "Mike Cox")).toBe(true);
+    expect(isOwnMoney(org("COX MAJORITY PAC"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(org("Cox Communications"), "Mike Cox")).toBe(false);
+    expect(isOwnMoney(org("Elect Nobody PAC"), "A Li")).toBe(false);
+  });
+
+  it("flags a donor whose gifts include their own campaign", () => {
+    const nameOf = (id: string) => ({ cox: "Mike Cox", benson: "Jocelyn Benson" })[id];
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "cox", total_amount: 100 }] }, nameOf),
+    ).toBe(true);
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "benson", total_amount: 100 }] }, nameOf),
+    ).toBe(false);
+    expect(
+      givesOwnMoney({ ...ind("MICHAEL COX"), splits: [{ candidate_id: "cox", total_amount: 0 }] }, nameOf),
+    ).toBe(false);
   });
 });

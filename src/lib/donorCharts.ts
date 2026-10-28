@@ -82,6 +82,62 @@ export function donorParty(d: DonorLike): DonorParty {
   return d.party || donorPartyKey(d.display_name, d.contributor_type);
 }
 
+/** "Mike Cox Jr." → ["mike", "cox"]; the words the self-funding rule compares. */
+function nameWords(name: string | null | undefined): string[] {
+  return (name ?? "")
+    .toLowerCase()
+    .replace(/[,.]/g, " ")
+    .replace(/\s+(jr|sr|ii|iii|iv)\s*$/, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+const escapeRe = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Whether a donor is the candidate's own money — the `self` rule of the
+ * tracker's cf_funding_category() (migration 20261019000000): an individual
+ * whose surname is the candidate's and whose first initial agrees, or an
+ * organisation named for the candidate (their own committee or an earlier
+ * campaign account). Loans the candidate made land here too: cf_top_donors
+ * reads them as gifts from the lender. A name the importer stored whole
+ * ("MICHAEL COX", no first name) is read by its words, which the SQL rule
+ * misses.
+ */
+export function isOwnMoney(
+  donor: { display_name: string; contributor_type: string | null },
+  candidateName: string | null | undefined,
+): boolean {
+  const cand = nameWords(candidateName);
+  if (cand.length === 0) return false;
+  const cFirst = cand[0];
+  const cLast = cand[cand.length - 1];
+  const type = (donor.contributor_type ?? "").toUpperCase();
+  if (!type) return false;
+  if (type === "INDIVIDUAL") {
+    const words = nameWords(donor.display_name);
+    if (words.length < 2) return false;
+    return words[words.length - 1] === cLast && words[0][0] === cFirst[0];
+  }
+  if (cLast.length < 2) return false;
+  const org = donor.display_name.toLowerCase();
+  const hasLast = new RegExp(`\\b${escapeRe(cLast)}\\b`).test(org);
+  const hasFirst = cFirst.length > 0 && new RegExp(`\\b${escapeRe(cFirst)}\\b`).test(org);
+  return hasLast && (hasFirst || /\b(for|elect|campaign)\b/.test(org));
+}
+
+/**
+ * Whether any of a donor's gifts is the receiving candidate's own money
+ * (`nameOf` gives a candidate's name by id).
+ */
+export function givesOwnMoney(
+  donor: { display_name: string; contributor_type: string | null; splits: { candidate_id: string; total_amount: number }[] },
+  nameOf: (candidateId: string) => string | null | undefined,
+): boolean {
+  return donor.splits.some((sp) => sp.total_amount > 0 && isOwnMoney(donor, nameOf(sp.candidate_id)));
+}
+
 const isParty = (p: DonorParty): p is "D" | "R" | "I" | "G" => p === "D" || p === "R" || p === "I" || p === "G";
 
 /**
