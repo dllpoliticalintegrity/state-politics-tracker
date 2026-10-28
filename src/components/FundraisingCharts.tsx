@@ -136,6 +136,9 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
             axisLine={false}
           />
           <Tooltip
+            // Pinned to the chart's top-left corner, as the polling chart's
+            // is: a floating box cannot fit beside the cursor on a phone.
+            position={{ x: 0, y: 0 }}
             cursor={{ stroke: "hsl(var(--muted-foreground))", strokeDasharray: "3 3" }}
             content={({ active, payload, label }) => {
               if (!active || !payload || payload.length === 0) return null;
@@ -143,7 +146,7 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
                 .filter((p) => typeof p.value === "number")
                 .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
               return (
-                <div className="w-56 max-w-[calc(100vw-6rem)] rounded-md border bg-card p-3 font-sans text-xs shadow-md">
+                <div className="w-64 max-w-[calc(100vw-5rem)] rounded-md border bg-card p-3 font-sans text-xs shadow-md">
                   <div className="mb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                     {typeof label === "string" ? monthLabelLong(label) : ""}
                   </div>
@@ -206,6 +209,9 @@ function Timeline({ ranked, rows }: { ranked: Ranked[]; rows: MonthRow[] }) {
 
 function SizeMix({ ranked, rows }: { ranked: Ranked[]; rows: SizeRow[] }) {
   const [showAll, setShowAll] = useState(false);
+  // Tapping a bar lists its exact figures under it: the segments' `title`
+  // tooltips need a mouse, and the smallest segments carry no label.
+  const [openId, setOpenId] = useState<string | null>(null);
   const mix = useMemo(() => sizeMix(rows), [rows]);
   const list = ranked.filter((r) => (mix.get(r.cand.id)?.total ?? 0) > 0);
   const shown = showAll ? list : list.slice(0, SIZE_ROWS_SHOWN);
@@ -237,7 +243,13 @@ function SizeMix({ ranked, rows }: { ranked: Ranked[]; rows: SizeRow[] }) {
                 </span>
                 <span className="shrink-0 font-mono tabular-nums text-muted-foreground">{formatCurrency(m.total)}</span>
               </div>
-              <div className="mt-1 flex h-5 w-full gap-[2px] overflow-hidden rounded-sm" role="img" aria-label={`${cand.name}: ${SIZE_BINS.map((b) => `${SIZE_BIN_LABEL[b]} ${Math.round(m.shares[b] * 100)}%`).join(", ")}`}>
+              <button
+                type="button"
+                aria-expanded={openId === cand.id}
+                aria-label={`${cand.name}: ${SIZE_BINS.map((b) => `${SIZE_BIN_LABEL[b]} ${Math.round(m.shares[b] * 100)}%`).join(", ")}. Show the figures`}
+                onClick={() => setOpenId((v) => (v === cand.id ? null : cand.id))}
+                className="mt-1 flex h-6 w-full gap-[2px] overflow-hidden rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 {SIZE_BINS.map((bin, i) => {
                   const share = m.shares[bin];
                   if (share <= 0) return null;
@@ -253,7 +265,23 @@ function SizeMix({ ranked, rows }: { ranked: Ranked[]; rows: SizeRow[] }) {
                     </div>
                   );
                 })}
-              </div>
+              </button>
+              {openId === cand.id && (
+                <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
+                  {SIZE_BINS.map((bin, i) => (
+                    <li key={bin} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: rampColor(i) }} aria-hidden="true" />
+                        {SIZE_BIN_LABEL[bin]}
+                      </span>
+                      <span className="ml-auto whitespace-nowrap font-mono tabular-nums text-foreground">
+                        {formatCurrencyFull(m.amounts[bin])}{" "}
+                        <span className="text-muted-foreground">· {m.counts[bin].toLocaleString()} gift{m.counts[bin] === 1 ? "" : "s"}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           );
         })}

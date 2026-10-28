@@ -80,6 +80,8 @@ export default function DonorPieChart({
         </div>
         <ol className="w-full min-w-0 flex-1 space-y-1.5 text-sm" aria-label="Pie legend">
           {slices.map((s) => {
+            // On a phone the amount drops under the name so a long committee
+            // name keeps its width; from `sm` up it sits at the row's end.
             const row = (
               <>
                 <span
@@ -87,14 +89,14 @@ export default function DonorPieChart({
                   style={{ background: vizColor(s.series) }}
                   aria-hidden="true"
                 />
-                <span className="min-w-0 flex-1 break-words leading-tight">{s.name}</span>
-                <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums">
+                <span className="min-w-0 break-words leading-tight">{s.name}</span>
+                <span className="col-start-2 whitespace-nowrap font-mono text-xs tabular-nums sm:col-start-3 sm:text-right">
                   {formatCurrencyFull(s.amount)}{" "}
                   <span className="text-muted-foreground">· {pct(s.pct)}</span>
                 </span>
               </>
             );
-            const cls = `flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left ${
+            const cls = `grid w-full grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-left sm:grid-cols-[auto_minmax(0,1fr)_auto] ${
               active === s.key ? "bg-accent" : ""
             }`;
             return (
