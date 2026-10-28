@@ -413,3 +413,30 @@ class StatewideRaces2026(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SamePersonRefs(unittest.TestCase):
+    """Ohio 2026-10-28: a legislator's committee went to neither of their rows."""
+
+    def row(self, slug, name, status, refs):
+        return {"slug": slug, "name": name, "status": status, "filer_refs": list(refs)}
+
+    def test_contested_by_one_persons_rows_goes_to_the_row_in_the_race(self):
+        roster_rows = [self.row("anita-somani-oh-hd8", "Anita Somani", "won_primary", ["oh:15700"]),
+                       self.row("anita-somani-oh-hd11", "Anita Somani", "not_on_ballot", ["oh:15700"])]
+        self.assertEqual(roster.same_person_winners(roster_rows, {}), {"oh:15700": "anita-somani-oh-hd8"})
+
+    def test_a_stale_rows_committee_moves_to_the_refless_row_in_the_race(self):
+        roster_rows = [self.row("kent-smith-oh-sd21", "Kent Smith", "won_primary", []),
+                       self.row("kent-smith-oh-hd21", "Kent Smith", "not_on_ballot", [])]
+        live = {"kent-smith-oh-hd21": {"name": "Kent Smith", "status": "not_on_ballot",
+                                       "filer_refs": ["oh:9094"]}}
+        self.assertEqual(roster.same_person_winners(roster_rows, live), {"oh:9094": "kent-smith-oh-sd21"})
+
+    def test_different_people_or_two_rows_in_the_race_stay_refused(self):
+        two_people = [self.row("pat-lee-oh-hd1", "Pat Lee", "won_primary", ["oh:1"]),
+                      self.row("chris-day-oh-hd2", "Chris Day", "not_on_ballot", ["oh:1"])]
+        self.assertEqual(roster.same_person_winners(two_people, {}), {})
+        both_running = [self.row("pat-lee-oh-hd1", "Pat Lee", "won_primary", ["oh:1"]),
+                        self.row("pat-lee-oh-sd1", "Pat Lee", "nominee", ["oh:1"])]
+        self.assertEqual(roster.same_person_winners(both_running, {}), {})

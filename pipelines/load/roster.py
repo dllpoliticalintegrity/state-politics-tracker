@@ -407,11 +407,73 @@ def fetch_lpt(st):
     return races, participants, candidates
 
 
-def drop_conflicting_refs(roster, claimed, stats, log=print):
+_OUT_OF_RACE = {"lost_primary", "withdrawn", "disqualified", "not_on_ballot"}
+
+
+def _in_race(status):
+    return (status or "") not in _OUT_OF_RACE
+
+
+def same_person_winners(roster, live_by_slug):
+    """{ref: slug} for refs contested only by rows of ONE person, one of them
+    still in the race: LPT lists a legislator both in this year's race and
+    in the seat they are leaving (Anita Somani: HD8 on the ballot, HD11 not),
+    and both rows resolve the same committee. Refusing it for both, as
+    before 2026-10-28, left Ohio's Somani, Erika White, Elgin Rogers,
+    Darnell Brewer, Kent Smith, Phil Plummer and others at $0. The row in the
+    race gets the ref; the stale row gives it up (released by sync_state)."""
+    holders = defaultdict(dict)       # ref -> {slug: (name, status)}
+    status_of = {}
+    for row in roster:
+        cur = live_by_slug.get(row["slug"]) or {}
+        status_of[row["slug"]] = cur.get("status") or row.get("_settled") or row.get("status")
+        for ref in row["filer_refs"]:
+            holders[ref][row["slug"]] = (row["name"], status_of[row["slug"]])
+    for slug, cur in live_by_slug.items():
+        for ref in cur.get("filer_refs") or []:
+            if slug not in holders[ref]:
+                holders[ref][slug] = (cur.get("name"), cur.get("status"))
+    winners = {}
+    for ref, rows in holders.items():
+        if len(rows) < 2:
+            continue
+        if len({name_key(n) for n, _ in rows.values()}) != 1:
+            continue                      # different people: still refused
+        in_race = [slug for slug, (_, st) in rows.items() if _in_race(st)]
+        if len(in_race) == 1:
+            winners[ref] = in_race[0]
+    # Uncontested: the committee sits only on the person's stale row, and their
+    # row in this year's race resolved none (LPT has no filer id there): Kent
+    # Smith's committee on his HD21 row while he runs for SD21, Phil
+    # Plummer's on a House row while he runs for SD5. Moved when exactly one
+    # in-race row of that person has no committee of its own.
+    refless = defaultdict(list)       # name_key -> in-race roster slugs with no refs
+    held_by = defaultdict(set)
+    for ref, rows in holders.items():
+        for slug in rows:
+            held_by[slug].add(ref)
+    for row in roster:
+        if _in_race(status_of[row["slug"]]) and not held_by[row["slug"]]:
+            refless[name_key(row["name"])].append(row["slug"])
+    for ref, rows in holders.items():
+        if ref in winners or len(rows) != 1:
+            continue
+        (slug, (name, status)), = rows.items()
+        if status != "not_on_ballot":
+            continue
+        targets = refless.get(name_key(name), [])
+        if len(targets) == 1:
+            winners[ref] = targets[0]
+    return winners
+
+
+def drop_conflicting_refs(roster, claimed, stats, log=print, winners=None):
     """A committee id may belong to one candidate only. Refs resolved for
     more than one roster row, or already held by another candidate, are not
     attached (logged): the loader would otherwise give the money to
-    whichever candidate sorts first."""
+    whichever candidate sorts first. `winners` (same_person_winners) settles
+    the one exception, a ref contested only by one person's own rows."""
+    winners = winners or {}
     counts = defaultdict(int)
     for row in roster:
         for ref in row["filer_refs"]:
@@ -420,6 +482,12 @@ def drop_conflicting_refs(roster, claimed, stats, log=print):
         kept = []
         for ref in row["filer_refs"]:
             owner = claimed.get(ref)
+            if ref in winners:
+                if winners[ref] == row["slug"]:
+                    kept.append(ref)
+                else:
+                    stats["ref_moved"] = stats.get("ref_moved", 0) + 1
+                continue
             if counts[ref] > 1 or (owner and owner != row["slug"]):
                 stats["ref_conflict"] = stats.get("ref_conflict", 0) + 1
                 log(f"   roster: {row['slug']}: {ref} not attached "
@@ -440,7 +508,7 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewi
         log(f"   roster: skipped ({type(e).__name__}: {e})")
         return {"error": str(e)}
     roster, stats = build_roster(st, races, participants, candidates, resolver)
-    live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,office,district,party,status,filer_refs&order=id")
+    live = rest.get_all(f"cf_candidates?state=eq.{st}&select=id,slug,name,office,district,party,status,filer_refs&order=id")
     claimed = {}
     for r in live:
         for ref in r.get("filer_refs") or []:
@@ -460,7 +528,14 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewi
                 if hit:
                     row["slug"] = hit["slug"]
                     break
-    drop_conflicting_refs(roster, claimed, stats, log)
+    winners = same_person_winners(roster, by_slug)
+    by_roster_slug = {row["slug"]: row for row in roster}
+    for ref, slug in sorted(winners.items()):
+        log(f"   roster: {ref} -> {slug} (the same person's row still in the race)")
+        won = by_roster_slug.get(slug)
+        if won is not None and ref not in won["filer_refs"]:
+            won["filer_refs"].append(ref)
+    drop_conflicting_refs(roster, claimed, stats, log, winners)
     inserts, updates = [], []
     seen = set()
     for row in roster:
@@ -480,12 +555,21 @@ def sync_state(st, scrape_rows, dry_run=False, log=print, committees=(), statewi
             patch["status"] = new_status
         if not cur.get("party") and row["party"]:
             patch["party"] = row["party"]
-        refs = list(cur.get("filer_refs") or [])
+        held = list(cur.get("filer_refs") or [])
+        # A stale row gives up a ref its same-person row in the race won.
+        refs = [r for r in held if winners.get(r, row["slug"]) == row["slug"]]
         missing = [r for r in row["filer_refs"] if r not in refs]
-        if missing:
+        if missing or refs != held:
             patch["filer_refs"] = refs + missing
         if patch:
             updates.append((cur["id"], patch))
+    for slug, cur in by_slug.items():
+        if slug in seen:
+            continue
+        held = list(cur.get("filer_refs") or [])
+        refs = [r for r in held if winners.get(r, slug) == slug]
+        if refs != held:
+            updates.append((cur["id"], {"filer_refs": refs}))
     stats.update({"races": len(races), "lpt_candidates": len(roster),
                   "insert": len(inserts), "update": len(updates)})
     status_mix = defaultdict(int)
