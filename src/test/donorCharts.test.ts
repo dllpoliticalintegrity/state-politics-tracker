@@ -94,6 +94,10 @@ describe("treemap cells", () => {
   it("colours slices by party, stepping shades within a party", () => {
     expect(sliceColor({ series: 2, party: "R", partyNth: 0 })).toBe("hsl(var(--rep))");
     expect(sliceColor({ series: 2, party: "R", partyNth: 1 })).toContain("color-mix");
+    // Six distinct steps; beyond that the last repeats.
+    const shades = [0, 1, 2, 3, 4, 5].map((n) => sliceColor({ series: 0, party: "R", partyNth: n }));
+    expect(new Set(shades).size).toBe(6);
+    expect(sliceColor({ series: 0, party: "R", partyNth: 9 })).toBe(shades[5]);
     expect(sliceColor({ series: 2, party: "mixed", partyNth: 0 })).toBe("var(--viz-3)");
     expect(sliceColor({ series: 2, party: "", partyNth: 0 })).toBe("var(--viz-3)");
     const slices = pieSlices([
