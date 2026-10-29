@@ -1,6 +1,6 @@
 // A one-time "support this work" popup: 30 seconds after a visitor arrives
-// it offers the donate link (tagged with this site's source, like the
-// floating button) and the newsletter sign-up. Closing it, or following
+// it offers the donate link (tagged `<site>-popup`, so gifts it brings in
+// are counted apart from the floating button's) and the newsletter sign-up. Closing it, or following
 // either link, keeps it away for SNOOZE_DAYS; it also shows at most once per
 // browser session. Storage can be blocked (private windows), so every read
 // and write is guarded, and a visitor without storage simply sees it once
@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { DONATE_URL, NEWSLETTER_SIGNUP_URL } from "@/lib/links";
+import { DONATE_POPUP_URL, NEWSLETTER_SIGNUP_URL } from "@/lib/links";
 import { SITE_NAME } from "@/states/site";
 import {
   SUPPORT_POPUP_DELAY_MS,
@@ -69,7 +69,7 @@ export default function SupportPopup({ delayMs = SUPPORT_POPUP_DELAY_MS }: { del
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           <a
-            href={DONATE_URL}
+            href={DONATE_POPUP_URL}
             target="_blank"
             rel="noopener noreferrer"
             onClick={close}

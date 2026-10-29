@@ -31,7 +31,7 @@ describe("support popup", () => {
     act(() => vi.advanceTimersByTime(SUPPORT_POPUP_DELAY_MS));
     expect(screen.getByRole("link", { name: /donate/i })).toHaveAttribute(
       "href",
-      "https://donate.politicalintegrity.us/?source=state-politics-tracker",
+      "https://donate.politicalintegrity.us/?source=state-politics-tracker-popup",
     );
     expect(screen.getByRole("link", { name: /sign up/i })).toHaveAttribute(
       "href",
@@ -60,5 +60,19 @@ describe("support popup", () => {
     render(<SupportPopup />);
     act(() => vi.advanceTimersByTime(SUPPORT_POPUP_DELAY_MS * 2));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("donate source tags", () => {
+  it("are tags the donate site keeps, the popup's told apart from the plain site tag", async () => {
+    const { DONATE_POPUP_URL, DONATE_URL, SOURCE_TAG_PATTERN, donateUrl } = await import("@/lib/links");
+    const tag = (url: string) => new URL(url).searchParams.get("source") ?? "";
+    expect(tag(DONATE_URL)).toBe("state-politics-tracker");
+    expect(tag(DONATE_POPUP_URL)).toBe("state-politics-tracker-popup");
+    for (const url of [DONATE_URL, DONATE_POPUP_URL, donateUrl("popup")]) {
+      expect(tag(url)).toMatch(SOURCE_TAG_PATTERN);
+    }
+    // A state site's tag is its two-letter code: "mi-politics-tracker-popup".
+    expect("mi-politics-tracker-popup").toMatch(SOURCE_TAG_PATTERN);
   });
 });
