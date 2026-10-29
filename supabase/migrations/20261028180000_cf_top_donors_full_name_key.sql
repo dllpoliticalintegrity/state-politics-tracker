@@ -1,8 +1,7 @@
--- Apply to the tracker project (lohxdfrxnxuxjdvvyfjc) via the Supabase MCP:
--- the DDL below with execute_sql, then rebuild_cf_top_donors() from a
--- one-off pg_cron job (the rebuild takes minutes, longer than the MCP's
--- statement window). Status 2026-10-28: cf_donor_key() is created; the
--- view, rebuild_cf_top_donors() and the one-off job are still to run.
+-- Applied to the tracker project (lohxdfrxnxuxjdvvyfjc) via the Supabase MCP
+-- on 2026-10-28 (cf_donor_key, execute_sql) and 2026-10-29 (the view,
+-- apply_migration "cf_top_donors_full_name_key_view"), then the matview was
+-- refreshed (see the end of this file).
 --
 -- cf_top_donors grouped a candidate's contributions on (normalised last
 -- name, normalised first name), so the same person ranked twice whenever an
@@ -31,9 +30,12 @@
 -- The view also now shows a merged donor by the split form of the name when
 -- it has one (the first/last pair, with the latest non-null employer,
 -- occupation, city and state) instead of whatever the latest row carried.
--- Columns are unchanged, with donor_key appended; the matview is rebuilt
--- (its column list is fixed at creation) under a temporary name and swapped
--- in, so readers block only for the swap.
+-- Columns are unchanged, with donor_key appended to the live view. The
+-- cf_top_donors matview needs no rebuild: its stored query selects the
+-- columns it was created with from cf_top_donors_live, so the next
+-- `refresh materialized view concurrently` (refresh_cf_finance_views(),
+-- nightly) regroups it; it does not carry donor_key (a rebuild would be
+-- needed for that, and nothing reads it).
 
 create or replace function public.cf_donor_key(
   contributor_type text,
@@ -100,43 +102,10 @@ group by candidate_id, donor_key;
 
 grant select on public.cf_top_donors_live to anon, authenticated, service_role;
 
--- Rebuild the matview with the new definition (and the donor_key column)
--- beside the live one, then swap. One transaction: the old matview is
--- locked only from its drop to the commit a moment later.
-create or replace function public.rebuild_cf_top_donors()
-returns void
-language plpgsql
-security definer
-set search_path = public
-set statement_timeout = '30min'
-as $$
-begin
-  drop materialized view if exists public.cf_top_donors_new;
-  create materialized view public.cf_top_donors_new as
-  select
-    row_number() over (order by candidate_id, total_amount desc, contributor_last_name, contributor_first_name) as rn,
-    *
-  from public.cf_top_donors_live;
-  create unique index cf_top_donors_new_pk on public.cf_top_donors_new (rn);
-  create index cf_top_donors_new_candidate_amount_idx
-    on public.cf_top_donors_new (candidate_id, total_amount desc);
-  create index cf_top_donors_new_candidate_type_idx
-    on public.cf_top_donors_new (candidate_id, contributor_type);
-  create index cf_top_donors_new_candidate_type_amount_idx
-    on public.cf_top_donors_new (candidate_id, contributor_type, total_amount desc);
-  grant select on public.cf_top_donors_new to anon, authenticated, service_role;
-
-  drop materialized view if exists public.cf_top_donors;
-  alter materialized view public.cf_top_donors_new rename to cf_top_donors;
-  alter index public.cf_top_donors_new_pk rename to cf_top_donors_pk;
-  alter index public.cf_top_donors_new_candidate_amount_idx rename to cf_top_donors_candidate_amount_idx;
-  alter index public.cf_top_donors_new_candidate_type_idx rename to cf_top_donors_candidate_type_idx;
-  alter index public.cf_top_donors_new_candidate_type_amount_idx rename to cf_top_donors_candidate_type_amount_idx;
-end;
-$$;
-
--- Run once, out of band (minutes): a one-off pg_cron job that removes itself.
---   select cron.schedule('cf-top-donors-rebuild-once', '<MM HH * * *, a few minutes ahead>',
---     $job$ select public.rebuild_cf_top_donors(); select cron.unschedule('cf-top-donors-rebuild-once'); $job$);
--- refresh_cf_finance_views() keeps refreshing the swapped-in matview by
--- name; nothing else changes.
+-- Apply the regrouping to the matview without waiting for the nightly job:
+-- a one-off pg_cron job (the refresh takes minutes, longer than the MCP's
+-- statement window), scheduled a few minutes ahead in UTC, that removes
+-- itself.
+--   select cron.schedule('cf-top-donors-refresh-once', '<MM HH * * *>',
+--     $job$ refresh materialized view concurrently public.cf_top_donors;
+--           select cron.unschedule('cf-top-donors-refresh-once'); $job$);
