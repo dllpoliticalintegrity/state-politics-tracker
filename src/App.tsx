@@ -34,6 +34,7 @@ import About from "./pages/About";
 import Overview from "./pages/Overview";
 import FloatingDonate from "./components/FloatingDonate";
 import FloatingFeedback from "./components/FloatingFeedback";
+import SupportPopup from "./components/SupportPopup";
 import Committees from "./pages/Committees";
 import CandidateRedirect from "./pages/CandidateRedirect";
 import NotFound from "./pages/NotFound";
@@ -195,6 +196,7 @@ function AppShell() {
       <Footer />
       <FloatingFeedback />
       <FloatingDonate />
+      <SupportPopup />
       <MobileBottomNav />
     </>
   );
