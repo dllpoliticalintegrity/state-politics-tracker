@@ -1,7 +1,8 @@
 -- Applied to the tracker project (lohxdfrxnxuxjdvvyfjc) via the Supabase MCP
 -- on 2026-10-28 (cf_donor_key, execute_sql) and 2026-10-29 (the view,
--- apply_migration "cf_top_donors_full_name_key_view"), then the matview was
--- refreshed (see the end of this file).
+-- apply_migration "cf_top_donors_full_name_key_view"; cf_donor_key rewritten
+-- in plpgsql, execute_sql), then the matview was refreshed (see the end of
+-- this file).
 --
 -- cf_top_donors grouped a candidate's contributions on (normalised last
 -- name, normalised first name), so the same person ranked twice whenever an
@@ -43,24 +44,45 @@ create or replace function public.cf_donor_key(
   first_name text
 )
 returns text
-language sql
+language plpgsql
 immutable
 parallel safe
 as $$
-  with joined as (
-    select nullif(
-      btrim(regexp_replace(
-        regexp_replace(upper(concat_ws(' ', last_name, first_name)), '[^A-Z0-9 ]', '', 'g'),
-        '\s+', ' ', 'g')),
-      '') as name
-  )
-  select case
-    when name is null then null
-    when upper(contributor_type) = 'ENTITY' then name
-    else (select string_agg(t, ' ' order by t collate "C")
-          from unnest(string_to_array(name, ' ')) as t)
-  end
-  from joined
+declare
+  name  text;
+  words text[];
+  n     int;
+  i     int;
+  j     int;
+  w     text;
+begin
+  name := nullif(btrim(regexp_replace(
+            regexp_replace(upper(concat_ws(' ', last_name, first_name)), '[^A-Z0-9 ]', '', 'g'),
+            '\s+', ' ', 'g')), '');
+  if name is null or upper(contributor_type) = 'ENTITY' then
+    return name;
+  end if;
+  words := string_to_array(name, ' ');
+  n := array_length(words, 1);
+  -- Insertion sort in C order (a name has a handful of words). plpgsql with
+  -- no inner query on purpose: the first version was a SQL function with a
+  -- string_agg(... order by) subquery, which Postgres cannot inline, so it
+  -- was planned and run afresh for each of the 6M rows a refresh reads —
+  -- five times slower per row, and one minute into the first refresh the
+  -- 2 GB instance went down (2026-10-29 16:04 UTC, "server restarted";
+  -- the matview and its indexes came back intact). This body keys 300k rows
+  -- in 3 s against the old inline expression's 2.7 s.
+  for i in 2..coalesce(n, 1) loop
+    w := words[i];
+    j := i - 1;
+    while j >= 1 and words[j] collate "C" > w collate "C" loop
+      words[j + 1] := words[j];
+      j := j - 1;
+    end loop;
+    words[j + 1] := w;
+  end loop;
+  return array_to_string(words, ' ');
+end
 $$;
 
 comment on function public.cf_donor_key(text, text, text) is
@@ -106,7 +128,7 @@ grant select on public.cf_top_donors_live to anon, authenticated, service_role;
 -- a one-off pg_cron job (the refresh takes minutes, longer than the MCP's
 -- statement window and than the cron session's default 2-minute statement
 -- timeout, so raise it first as refresh_cf_finance_views() does), scheduled
--- a few minutes ahead in UTC, that removes itself. Run 2026-10-29 16:03 UTC.
+-- a few minutes ahead in UTC, that removes itself.
 --   select cron.schedule('cf-top-donors-refresh-once', '<MM HH * * *>',
 --     $job$ set statement_timeout = '30min';
 --           refresh materialized view concurrently public.cf_top_donors;
