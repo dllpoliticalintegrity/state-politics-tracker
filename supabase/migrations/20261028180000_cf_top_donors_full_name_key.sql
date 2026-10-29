@@ -104,8 +104,10 @@ grant select on public.cf_top_donors_live to anon, authenticated, service_role;
 
 -- Apply the regrouping to the matview without waiting for the nightly job:
 -- a one-off pg_cron job (the refresh takes minutes, longer than the MCP's
--- statement window), scheduled a few minutes ahead in UTC, that removes
--- itself.
+-- statement window and than the cron session's default 2-minute statement
+-- timeout, so raise it first as refresh_cf_finance_views() does), scheduled
+-- a few minutes ahead in UTC, that removes itself. Run 2026-10-29 16:03 UTC.
 --   select cron.schedule('cf-top-donors-refresh-once', '<MM HH * * *>',
---     $job$ refresh materialized view concurrently public.cf_top_donors;
+--     $job$ set statement_timeout = '30min';
+--           refresh materialized view concurrently public.cf_top_donors;
 --           select cron.unschedule('cf-top-donors-refresh-once'); $job$);
