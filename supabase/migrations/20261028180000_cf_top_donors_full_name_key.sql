@@ -128,7 +128,8 @@ grant select on public.cf_top_donors_live to anon, authenticated, service_role;
 -- a one-off pg_cron job (the refresh takes minutes, longer than the MCP's
 -- statement window and than the cron session's default 2-minute statement
 -- timeout, so raise it first as refresh_cf_finance_views() does), scheduled
--- a few minutes ahead in UTC, that removes itself.
+-- a few minutes ahead in UTC, that removes itself. Run 2026-10-29 17:49 UTC:
+-- 9 min, 2,454,241 rows -> 2,450,776 (3,465 donors merged with themselves).
 --   select cron.schedule('cf-top-donors-refresh-once', '<MM HH * * *>',
 --     $job$ set statement_timeout = '30min';
 --           refresh materialized view concurrently public.cf_top_donors;
