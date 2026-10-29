@@ -461,19 +461,19 @@ export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
  * one ranking. Legislative districts are left out — a chamber is hundreds
  * of candidates, and this is the statewide picture.
  */
-export function useStateTopDonors(limit = 100) {
+export function useStateTopDonors(limit = 100, kind: DonorKind = "all") {
   const stateCfg = useStateConfig();
   const races = stateCfg.races ?? [];
   return useQuery({
-    queryKey: ["cf_state_top_donors", stateCfg.source, stateCfg.code, limit],
+    queryKey: ["cf_state_top_donors", stateCfg.source, stateCfg.code, limit, kind],
     enabled: races.length > 0,
     staleTime: 10 * 60 * 1000,
     queryFn: async (): Promise<TxCrossCandidateDonor[]> => {
       const perRace = await Promise.all(
         races.map((race) =>
           stateCfg.source === "lpt"
-            ? lptReads.fetchRaceTopDonors(raceScope(stateCfg, race), "all")
-            : fetchTrackerRaceTopDonors(stateCfg, race, "all"),
+            ? lptReads.fetchRaceTopDonors(raceScope(stateCfg, race), kind)
+            : fetchTrackerRaceTopDonors(stateCfg, race, kind),
         ),
       );
       return aggregateCrossCandidateDonors(perRace.flat(), limit);
