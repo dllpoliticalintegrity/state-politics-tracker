@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useRaceBase, useRaceConfig, useStateConfig } from "@/states/StateContext";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
@@ -63,6 +63,10 @@ export default function TopDonors() {
   const [source, setSource] = useState<Source>("candidate");
   const [kind, setKind] = useState<DonorKind>("all");
   const [view, setView] = useState<View>("list");
+  // ?candidate=<id> narrows the campaign list to one candidate's donors,
+  // ranked by what they gave that candidate (shareable, like the River's).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const candidateParam = searchParams.get("candidate") ?? "";
   const [selectedCand, setSelectedCand] = useState<TxCrossCandidateDonor | null>(null);
   const [selectedIe, setSelectedIe] = useState<TxIeCrossCommitteeDonor | null>(null);
 
@@ -70,30 +74,53 @@ export default function TopDonors() {
   const stateCfg = useStateConfig();
   const race = useRaceConfig();
   const raceBase = useRaceBase();
-  const candDonors = useTopAggregatedDonors(50, kind);
+  // Deeper than the 50 shown: one candidate's top 50 can sit well below
+  // the race-wide top 50.
+  const candDonors = useTopAggregatedDonors(300, kind);
   const ieDonors = useTopIeAggregatedDonors(50, kind);
 
   const candidateById = useMemo(
     () => new Map((candidates ?? []).map((c) => [c.id, c])),
     [candidates],
   );
+  const candidateOptions = useMemo(
+    () => [...(candidates ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    [candidates],
+  );
+  // Only campaign donors can be narrowed to a candidate; a stale id from a
+  // shared URL (another race's candidate) reads as "all".
+  const selectedCandidate = source === "candidate" ? candidateById.get(candidateParam) ?? null : null;
+  const setCandidate = (id: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set("candidate", id);
+    else next.delete("candidate");
+    setSearchParams(next, { replace: true });
+  };
 
   const active = source === "candidate" ? candDonors : ieDonors;
   const list: UnifiedDonor[] = useMemo(() => {
     if (source === "candidate") {
-      return (candDonors.data ?? []).map((d) => ({
-        key: d.key,
-        display_name: d.display_name,
-        contributor_type: d.contributor_type,
-        employer: d.employer,
-        occupation: d.occupation,
-        city: d.city,
-        state: d.state,
-        contribution_count: d.contribution_count,
-        total_amount: d.total_amount,
-        split_count: d.splits.length,
-        party: recipientParty(d.splits, (id) => candidateById.get(id)?.party),
-      }));
+      const rows: UnifiedDonor[] = [];
+      for (const d of candDonors.data ?? []) {
+        // With a candidate chosen, a donor counts for what they gave that
+        // candidate; the breakdown still shows everything they gave.
+        const split = selectedCandidate ? d.splits.find((sp) => sp.candidate_id === selectedCandidate.id) : null;
+        if (selectedCandidate && !(split && split.total_amount > 0)) continue;
+        rows.push({
+          key: d.key,
+          display_name: d.display_name,
+          contributor_type: d.contributor_type,
+          employer: d.employer,
+          occupation: d.occupation,
+          city: d.city,
+          state: d.state,
+          contribution_count: split ? split.contribution_count : d.contribution_count,
+          total_amount: split ? split.total_amount : d.total_amount,
+          split_count: d.splits.length,
+          party: recipientParty(d.splits, (id) => candidateById.get(id)?.party),
+        });
+      }
+      return rows.sort((a, b) => b.total_amount - a.total_amount).slice(0, 50);
     }
     return (ieDonors.data ?? []).map((d) => ({
       key: d.key,
@@ -107,7 +134,22 @@ export default function TopDonors() {
       total_amount: d.total_amount,
       split_count: d.splits.length,
     }));
-  }, [source, candDonors.data, ieDonors.data, candidateById]);
+  }, [source, candDonors.data, ieDonors.data, candidateById, selectedCandidate]);
+
+  const raceLabel = `${stateCfg.name} ${race.title}`;
+  const title = selectedCandidate
+    ? `Top donors to ${selectedCandidate.name}`
+    : source === "ie"
+      ? `Top donors to outside committees in the ${raceLabel} race`
+      : `Top donors to ${raceLabel} candidates`;
+  const listHeading = selectedCandidate
+    ? `Top ${list.length} donors to ${selectedCandidate.name}'s campaign`
+    : source === "candidate"
+      ? `Top ${list.length} donors to ${raceLabel} campaigns`
+      : `Top ${list.length} donors to outside committees`;
+  const pieLabel = selectedCandidate
+    ? `the top ${list.length} donors to ${selectedCandidate.name}`
+    : `the top ${list.length} donors to ${source === "candidate" ? "campaigns" : "outside committees"}`;
 
   const totalGiven = list.reduce((s, d) => s + d.total_amount, 0);
   const totalContributions = list.reduce((s, d) => s + d.contribution_count, 0);
@@ -131,11 +173,11 @@ export default function TopDonors() {
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {`Money in the ${race.generalDate.slice(0, 4)} ${stateCfg.name} ${race.title}'s race`}
         </p>
-        <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">Top donors</h1>
+        <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight">{title}</h1>
         <p className="text-base text-muted-foreground max-w-2xl">
           Donors ranked by total dollars given. Switch between money into candidate campaigns
-          and money into the outside committees spending for or against them. Select a row for
-          the full breakdown.
+          and money into the outside committees spending for or against them, or narrow to one
+          candidate. Select a row for the full breakdown.
         </p>
       </section>
 
@@ -176,11 +218,30 @@ export default function TopDonors() {
             </button>
           ))}
         </div>
+        {source === "candidate" && candidateOptions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground w-12">Who</span>
+            <select
+              aria-label="Candidate"
+              value={selectedCandidate?.id ?? ""}
+              onChange={(e) => setCandidate(e.target.value)}
+              className="h-11 min-w-0 max-w-full rounded-md border bg-background px-2 text-base text-foreground sm:h-7 sm:max-w-[18rem] sm:text-xs"
+            >
+              <option value="">All candidates</option>
+              {candidateOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.party ? ` (${c.party})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </section>
 
       <section className="container pb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x rounded-lg border bg-card">
-          <MoneyStat value={formatCurrency(totalGiven)} label="Given by the top 50" />
+          <MoneyStat value={formatCurrency(totalGiven)} label={`Given by the top ${list.length}`} />
           <MoneyStat value={totalContributions.toLocaleString()} label="Contributions" />
           <MoneyStat value={String(multiSplitDonors)} label={`Donors giving to 2+ ${splitLabel}`} />
         </div>
@@ -188,9 +249,7 @@ export default function TopDonors() {
 
       <section className="container pb-16 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-display text-xl font-semibold">
-            {source === "candidate" ? "Top 50 donors to campaigns" : "Top 50 donors to outside committees"}
-          </h2>
+          <h2 className="font-display text-xl font-semibold">{listHeading}</h2>
           <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="View as">
             {(
               [
@@ -232,7 +291,7 @@ export default function TopDonors() {
         {view === "pie" && list.length > 0 && (
           <DonorPieChart
             donors={list}
-            totalLabel={`the top ${list.length} donors to ${source === "candidate" ? "campaigns" : "outside committees"}`}
+            totalLabel={pieLabel}
             onSelect={handleSelect}
           />
         )}

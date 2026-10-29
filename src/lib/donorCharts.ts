@@ -148,10 +148,16 @@ const isParty = (p: DonorParty): p is "D" | "R" | "I" | "G" => p === "D" || p ==
  */
 export function partyShade(party: string | null | undefined, nth = 0): string {
   const base = partyColor(party);
-  if (nth === 0) return base;
-  if (nth === 1) return `color-mix(in oklab, ${base} 55%, white)`;
-  if (nth === 2) return `color-mix(in oklab, ${base} 65%, black)`;
-  return `color-mix(in oklab, ${base} 35%, white)`;
+  // Six steps, alternating lighter and darker so neighbours in rank differ.
+  const steps = [
+    null,
+    `color-mix(in oklab, ${base} 55%, white)`,
+    `color-mix(in oklab, ${base} 65%, black)`,
+    `color-mix(in oklab, ${base} 35%, white)`,
+    `color-mix(in oklab, ${base} 45%, black)`,
+    `color-mix(in oklab, ${base} 78%, white)`,
+  ];
+  return steps[Math.min(Math.max(nth, 0), steps.length - 1)] ?? base;
 }
 
 export type PieSlice = {
