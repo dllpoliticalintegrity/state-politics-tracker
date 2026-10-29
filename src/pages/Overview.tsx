@@ -14,7 +14,7 @@ import RepresentativeLookup from "@/components/RepresentativeLookup";
 import { REPRESENTATIVE_LOOKUP_URLS } from "@/lib/representativeLookup";
 import { useMemo, useState } from "react";
 import DonorTreemap from "@/components/DonorTreemap";
-import { useStateCandidates, useStateTopDonors } from "@/hooks/useCandidates";
+import { useStateCandidates, useStateTopDonors, type DonorKind } from "@/hooks/useCandidates";
 import { givesOwnMoney, recipientParty } from "@/lib/donorCharts";
 import { formatCurrency } from "@/lib/finance";
 
@@ -25,9 +25,12 @@ export default function Overview() {
   const races = isSingleStateSite ? chrome.races : state.races ?? [];
   const year = races[0]?.generalDate.slice(0, 4) ?? "2026";
   const representativeUrl = REPRESENTATIVE_LOOKUP_URLS[state.code];
+  // Individuals only, PACs & committees only, or everyone — fetched per
+  // type so each view is a true top 100 (the money page's Type filter).
+  const [kind, setKind] = useState<DonorKind>("all");
   // A few more than the treemap shows, so it is still a top 100 with
   // candidates' own money left out.
-  const topDonors = useStateTopDonors(120);
+  const topDonors = useStateTopDonors(120, kind);
   const { data: stateCandidates } = useStateCandidates();
   // Candidates' own money (self-funding and the loans they make their
   // campaigns) can be left out of the treemap.
@@ -95,9 +98,33 @@ export default function Overview() {
             Who has given the most to {state.name}'s {year} statewide campaigns, all races combined. Each race's
             Money tab has the full ranking and the breakdown by candidate.
           </p>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="w-10 text-muted-foreground">Type</span>
+            {(
+              [
+                { value: "all", label: "All" },
+                { value: "individual", label: "Individuals" },
+                { value: "pac", label: "PACs & committees" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setKind(opt.value)}
+                aria-pressed={kind === opt.value}
+                className={`rounded-full border px-2.5 py-1 transition-colors ${
+                  kind === opt.value
+                    ? "border-primary bg-primary/10 font-semibold text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           {ownMoney.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-muted-foreground">Show</span>
+              <span className="w-10 text-muted-foreground">Show</span>
               {(
                 [
                   { value: false, label: "All donors" },
