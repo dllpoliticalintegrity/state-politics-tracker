@@ -62,9 +62,7 @@ export default function SupportPopup({ delayMs = SUPPORT_POPUP_DELAY_MS }: { del
           </span>
           <DialogTitle className="font-display text-2xl leading-tight">Keep {SITE_NAME} free</DialogTitle>
           <DialogDescription className="text-sm leading-relaxed">
-            We track who is funding every statewide race, straight from the state's own filings, and publish it for
-            free with no ads. A gift of any size keeps the data flowing, and our newsletter tells you when the money
-            moves.
+            Help us keep following the money and join the movement to get money out of politics.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
