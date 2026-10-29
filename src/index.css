@@ -59,6 +59,30 @@
     --chart-4: 40 8% 52%;
     --chart-5: 213 60% 40%;
 
+    /* Donor charts (src/lib/donorCharts.ts): six categorical hues in fixed
+       order plus a neutral, validated for colour-vision deficiency and
+       contrast on the light card surface. No blue and no red: those are
+       --dem and --rep, which a party's donors and candidates are drawn in.
+       Full colours, not HSL triples. */
+    --viz-1: #1baf7a;
+    --viz-2: #eb6834;
+    --viz-3: #6250d6;
+    --viz-4: #eda100;
+    --viz-5: #e87ba4;
+    --viz-6: #008300;
+    --viz-neutral: #8e887b;
+    /* Treemap "no party known": a muted tone checked pairwise against
+       --dem, --rep and --viz-1 (normal vision clear; deutan in the warn
+       band, carried by the cells' gaps, labels and the list). */
+    --viz-entity: #857d6f;
+    /* Ordinal ramp (donation-size bins, smallest to largest): one hue (the
+       site's green, so it reads as neither party), lightness stepping down,
+       light end still 2:1 on the card surface. */
+    --viz-ramp-1: #5fbf9b;
+    --viz-ramp-2: #35a37e;
+    --viz-ramp-3: #1b8a66;
+    --viz-ramp-4: #0f5c43;
+
     --dem: 213 60% 40%;
     --rep: 4 66% 45%;
     --ind: 32 80% 36%;
@@ -118,6 +142,20 @@
     --chart-3: 35 85% 55%;
     --chart-4: 40 6% 58%;
     --chart-5: 213 70% 62%;
+
+    /* Donor charts, stepped for the dark card surface (same hues). */
+    --viz-1: #199e70;
+    --viz-2: #d95926;
+    --viz-3: #9085e9;
+    --viz-4: #c98500;
+    --viz-5: #d55181;
+    --viz-6: #008300;
+    --viz-neutral: #9a968d;
+    --viz-entity: #b5b1a7;
+    --viz-ramp-1: #9bd9c3;
+    --viz-ramp-2: #5fc3a0;
+    --viz-ramp-3: #2ea67f;
+    --viz-ramp-4: #1f7f60;
 
     --dem: 213 70% 62%;
     --rep: 2 75% 62%;

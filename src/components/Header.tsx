@@ -238,7 +238,10 @@ export function Header() {
           </Link>
           {!isSingleStateSite && <StateSwitcher />}
           <span
-            className="shrink-0 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary"
+            // Hidden on the narrowest phones (under 360px) so the wordmark
+            // beside the state switcher keeps whole words instead of
+            // wrapping letter by letter.
+            className="hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary min-[360px]:inline"
             aria-label="Beta version"
           >
             Beta
