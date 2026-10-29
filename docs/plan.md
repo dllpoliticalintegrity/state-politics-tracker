@@ -385,7 +385,14 @@ the tracker project.
 - **What the numbers mean on the hub.** Total raised = itemized contributions
   plus unitemized (as on cagovtracker.com) but, as for every state, not loans
   (cagovtracker.com counted loans received); loans appear in top donors via
-  `cf_contributions_deduped`. Individuals are CAL-ACCESS type `IND` only
+  `cf_contributions_deduped`. Since 2026-10-28 (migration
+  `20261028180000_cf_top_donors_full_name_key.sql`) `cf_top_donors` groups a
+  candidate's rows on `cf_donor_key()` — the name words sorted, for a person —
+  so a lender filed whole ("MICHAEL COX", the SLCF loader's loans_debts
+  branch; "Jones, William Burton" in Georgia) and the same person's split
+  gifts ("COX" / "MICHAEL") rank as one donor; the site's cross-candidate
+  rankings, loan lists and self-funding filter use the mirrored
+  `donorKey()` in `src/lib/donorNames.ts`. Individuals are CAL-ACCESS type `IND` only
   (cagovtracker.com also counted `OTH`, which is businesses and other
   organisations). Spending is each filing's latest amendment
   (cagovtracker.com summed every amendment). Money into IE committees is one

@@ -20,6 +20,7 @@ import { FUNDING_CATEGORIES } from "@/lib/raceSummary";
 import { useRacePolling, readCandidatePct } from "@/hooks/usePolling";
 import CandidatePollingChart from "@/components/CandidatePollingChart";
 import { candidateSocialLinks } from "@/lib/socialLinks";
+import { donorKey } from "@/lib/donorNames";
 import { pollingSourceLabel } from "@/states/registry";
 import {
   formatCurrency,
@@ -96,17 +97,13 @@ export default function CandidateDetail() {
   // Names that appear in loans — filtered out of the individual donors list
   // so that loans (Schedule B) and outright gifts (Schedule A) don't
   // double-count for self-funders / lenders.
+  // Keyed by donorKey so a lender filed as "MICHAEL COX" also drops the
+  // donor row the gifts are split under ("COX", "MICHAEL").
   const loanNameKeys = new Set(
-    (loans ?? []).map(
-      (l) =>
-        `${(l.contributor_last_name ?? "").trim().toUpperCase()}|${(l.contributor_first_name ?? "").trim().toUpperCase()}`,
-    ),
+    (loans ?? []).map((l) => donorKey(l.contributor_type, l.contributor_last_name, l.contributor_first_name)),
   );
   const individualDonorsFiltered = (topIndividualDonors ?? [])
-    .filter((d) => {
-      const key = `${(d.contributor_last_name ?? "").trim().toUpperCase()}|${(d.contributor_first_name ?? "").trim().toUpperCase()}`;
-      return !loanNameKeys.has(key);
-    })
+    .filter((d) => !loanNameKeys.has(donorKey(d.contributor_type, d.contributor_last_name, d.contributor_first_name)))
     .filter((d, i) => i < PAC_PAGE_SIZE || (donorFloor != null && Number(d.total_amount) >= donorFloor));
   const totalLoans = (loans ?? []).reduce((s, l) => s + l.total_amount, 0);
 

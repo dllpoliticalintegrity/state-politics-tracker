@@ -5,6 +5,7 @@ import { useRaceConfig, useStateConfig } from "@/states/StateContext";
 import type { RaceConfig, StateConfig } from "@/states/registry";
 import * as lptReads from "@/integrations/lpt/reads";
 import { raceScope } from "@/integrations/lpt/reads";
+import { donorKey, hasSplitName, normalizeNamePart } from "@/lib/donorNames";
 
 // Every hook dispatches on the active state's data source: "lpt" reads the
 // Local Politics Tracker project through src/integrations/lpt/reads.ts,
@@ -317,6 +318,8 @@ export type TxCrossCandidateDonorSplit = {
 export type TxCrossCandidateDonor = {
   key: string;
   display_name: string;
+  /** Aggregation-time only: the display name is the split ("COX, MICHAEL") form. */
+  has_split_name?: boolean;
   contributor_type: string | null;
   employer: string | null;
   occupation: string | null;
@@ -327,14 +330,6 @@ export type TxCrossCandidateDonor = {
   last_contribution_date: string | null;
   splits: TxCrossCandidateDonorSplit[];
 };
-
-function normalizeNamePart(s: string | null | undefined): string {
-  return (s ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** The tracker's per-candidate top-donor rows for a race (cf_top_donors). */
 async function fetchTrackerRaceTopDonors(
@@ -381,17 +376,14 @@ async function fetchTrackerRaceTopDonors(
 export function aggregateCrossCandidateDonors(rows: TxAggregatedDonor[], limit: number): TxCrossCandidateDonor[] {
   const map = new Map<string, TxCrossCandidateDonor>();
   for (const r of rows) {
-    const normLast = normalizeNamePart(r.contributor_last_name);
-    const normFirst = normalizeNamePart(r.contributor_first_name);
-    // Mirrors the SQL view's grouping: PAC/committee rows have no first
-    // name, so they collapse on last-name alone; individuals collapse on
-    // the full first+last pair.
-    const key = `${r.contributor_type ?? ""}|${normLast}|${normFirst}`;
-    if (!normLast && !normFirst) continue;
-    const displayName = [r.contributor_first_name, r.contributor_last_name]
-      .filter((s) => !!(s ?? "").trim())
-      .join(" ")
-      .trim() || normLast || normFirst;
+    // Mirrors cf_top_donors' grouping (cf_donor_key): a person's name
+    // words sorted, whichever field they sat in, so "MICHAEL COX" (a
+    // loan) and "COX, MICHAEL" (a gift) are one donor; an organisation
+    // keeps its word order.
+    const nameKey = donorKey(r.contributor_type, r.contributor_last_name, r.contributor_first_name);
+    if (!nameKey) continue;
+    const key = `${r.contributor_type ?? ""}|${nameKey}`;
+    const displayName = donorDisplayName(r);
     const split: TxCrossCandidateDonorSplit = {
       candidate_id: r.candidate_id,
       contribution_count: Number(r.contribution_count ?? 0),
@@ -410,6 +402,12 @@ export function aggregateCrossCandidateDonors(rows: TxAggregatedDonor[], limit: 
         existing.last_contribution_date = split.last_contribution_date;
       }
       existing.splits.push(split);
+      // Show the split form of the name ("COX, MICHAEL") over a whole
+      // name a lender was filed under ("MICHAEL COX").
+      if (!existing.has_split_name && hasSplitName(r)) {
+        existing.display_name = displayName;
+        existing.has_split_name = true;
+      }
       // Prefer the most recent non-null employer/occupation/city/state.
       if (!existing.employer && r.employer) existing.employer = r.employer;
       if (!existing.occupation && r.occupation) existing.occupation = r.occupation;
@@ -419,6 +417,7 @@ export function aggregateCrossCandidateDonors(rows: TxAggregatedDonor[], limit: 
       map.set(key, {
         key,
         display_name: displayName,
+        has_split_name: hasSplitName(r),
         contributor_type: r.contributor_type,
         employer: r.employer,
         occupation: r.occupation,
@@ -432,12 +431,22 @@ export function aggregateCrossCandidateDonors(rows: TxAggregatedDonor[], limit: 
     }
   }
   return [...map.values()]
-    .map((d) => ({
+    .map(({ has_split_name: _split, ...d }) => ({
       ...d,
       splits: d.splits.sort((a, b) => b.total_amount - a.total_amount),
     }))
     .sort((a, b) => b.total_amount - a.total_amount)
     .slice(0, limit);
+}
+
+/** "First Last" as filed, or whatever part the row has. */
+function donorDisplayName(r: { contributor_last_name: string | null; contributor_first_name: string | null }): string {
+  return (
+    [r.contributor_first_name, r.contributor_last_name]
+      .filter((s) => !!(s ?? "").trim())
+      .join(" ")
+      .trim() || normalizeNamePart(r.contributor_last_name) || normalizeNamePart(r.contributor_first_name)
+  );
 }
 
 export function useTopAggregatedDonors(limit = 50, kind: DonorKind = "all") {
@@ -597,14 +606,10 @@ function aggregateIeDonors(
 ): TxIeCrossCommitteeDonor[] {
       const map = new Map<string, TxIeCrossCommitteeDonor>();
       for (const r of rows) {
-        const normLast = normalizeNamePart(r.contributor_last_name);
-        const normFirst = normalizeNamePart(r.contributor_first_name);
-        if (!normLast && !normFirst) continue;
-        const key = `${r.contributor_type ?? ""}|${normLast}|${normFirst}`;
-        const displayName = [r.contributor_first_name, r.contributor_last_name]
-          .filter((s) => !!(s ?? "").trim())
-          .join(" ")
-          .trim() || normLast || normFirst;
+        const nameKey = donorKey(r.contributor_type, r.contributor_last_name, r.contributor_first_name);
+        if (!nameKey) continue;
+        const key = `${r.contributor_type ?? ""}|${nameKey}`;
+        const displayName = donorDisplayName(r);
         const split: TxIeDonorSplit = {
           ie_filer_ident: r.ie_filer_ident,
           committee_name:
@@ -873,12 +878,19 @@ export function useCandidateLoans(
           if (!lastOk || !firstOk) continue;
         }
         const source: "loan" | "self" = isLoan ? "loan" : "self";
-        const key = `${source}|${(r.contributor_last_name ?? "").trim().toUpperCase()}|${(r.contributor_first_name ?? "").trim().toUpperCase()}`;
+        // One row per lender however the name was filed (see donorKey).
+        const key = `${source}|${donorKey(r.contributor_type, r.contributor_last_name, r.contributor_first_name)}`;
         const existing = map.get(key);
         const amt = Number(r.amount ?? 0);
         if (existing) {
           existing.total_amount += amt;
           existing.contribution_count += 1;
+          if (!hasSplitName(existing) && hasSplitName(r)) {
+            existing.contributor_last_name = r.contributor_last_name;
+            existing.contributor_first_name = r.contributor_first_name;
+          }
+          if (!existing.employer && r.employer) existing.employer = r.employer;
+          if (!existing.occupation && r.occupation) existing.occupation = r.occupation;
           if (
             r.contribution_date &&
             (!existing.last_date || r.contribution_date > existing.last_date)
