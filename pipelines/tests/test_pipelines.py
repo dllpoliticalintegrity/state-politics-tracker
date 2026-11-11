@@ -264,6 +264,27 @@ class RunStateTest(unittest.TestCase):
                 self.assertEqual(run_state.scrape_errors("r1"), ["2026-09.csv: HTTP 500"])
                 self.assertTrue(run_state.scrape_errors("missing"))   # no log = not clean
 
+    def test_install_playwright_retries_then_drops_deps(self):
+        calls = []
+
+        def runner(results):
+            it = iter(results)
+            def go(cmd):
+                calls.append(cmd[-2:])
+                return next(it)
+            return go
+
+        run_state.install_playwright(runner=runner([1, 0]), sleep=lambda s: None)
+        self.assertEqual(calls, [["--with-deps", "chromium"]] * 2)
+
+        calls.clear()
+        run_state.install_playwright(runner=runner([100, 100, 100, 0]), sleep=lambda s: None)
+        self.assertEqual(calls, [["--with-deps", "chromium"]] * 3 + [["install", "chromium"]])
+
+        calls.clear()
+        with self.assertRaises(RuntimeError):
+            run_state.install_playwright(runner=runner([1, 1, 1, 1]), sleep=lambda s: None)
+
     def test_prune_guard_is_per_table(self):
         flags = run_state.prune_flags
         self.assertEqual(flags([]), [])
