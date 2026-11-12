@@ -71,7 +71,15 @@ def get_keyset(path, page=1000, by_amount=False):
     by_amount pages on (amount desc, id): for a candidate_id filter on
     cf_contributions that walks idx_cf_contributions_candidate_amount, where
     paging on id alone makes Postgres sort every one of the candidate's rows
-    for every page (60k+ for a governor's race)."""
+    for every page (60k+ for a governor's race).
+
+    The cursor also carries amount <= the last amount, which the or=() already
+    implies: Postgres can't turn the or=() into an index range, so without it
+    every page scanned the candidate's index from the top and filtered, and
+    deep pages outran the 8 s statement timeout (Rob Sand, ~310k rows: 10 s
+    for one page, HTTP 500 57014, every night from 2026-10-28). With it a page
+    reads the rest of the last amount's ties plus the next 1,000 rows (124 ms
+    for that page)."""
     rows, last = [], None
     order = "amount.desc,id.asc" if by_amount else "id.asc"
     while True:
@@ -79,7 +87,7 @@ def get_keyset(path, page=1000, by_amount=False):
             cursor = ""
         elif by_amount:
             a, i = last["amount"], last["id"]
-            cursor = f"&or=(amount.lt.{a},and(amount.eq.{a},id.gt.{i}))"
+            cursor = f"&amount=lte.{a}&or=(amount.lt.{a},and(amount.eq.{a},id.gt.{i}))"
         else:
             cursor = f"&id=gt.{last['id']}"
         chunk = json.loads(http(

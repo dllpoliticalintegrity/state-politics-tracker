@@ -53,6 +53,26 @@ def run(cmd, **kw):
     return subprocess.run(cmd, **kw).returncode
 
 
+def install_playwright(tries=3, wait=30, runner=None, sleep=time.sleep):
+    """Chromium for the playwright states. --with-deps apt-installs Chromium's
+    system packages and fonts, and an apt mirror hiccup on the runner
+    ("Temporary failure resolving 'azure.archive.ubuntu.com'", fl, 2026-11-11)
+    used to fail the whole state. Retry; if apt still can't be reached,
+    install the browser alone. The ubuntu-24.04 image already carries
+    Chromium's libraries, and a missing one fails loudly at launch."""
+    runner = runner or run
+    base = [sys.executable, "-m", "playwright", "install"]
+    for i in range(tries):
+        if not runner(base + ["--with-deps", "chromium"]):
+            return
+        if i + 1 < tries:
+            sleep(wait)
+    print("::warning::playwright --with-deps failed; installing chromium without system deps",
+          flush=True)
+    if runner(base + ["chromium"]):
+        raise RuntimeError("playwright install failed")
+
+
 def cleaned_rows(clean_dir, table):
     reader = load_cf.open_table(clean_dir, table) if clean_dir else None
     if reader is None:
@@ -95,8 +115,7 @@ def prune_flags(errors):
 def sync(st, entry):
     """Run SLCF for the state; return the run's scrape errors."""
     if entry.get("playwright"):
-        if run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"]):
-            raise RuntimeError("playwright install failed")
+        install_playwright()
     start_year = load_cf.since_of(entry)[:4]
     # A known run id, so this run's log can be read back (orc keeps one that
     # is already set; logs/prod/<run id>/log.jsonl).

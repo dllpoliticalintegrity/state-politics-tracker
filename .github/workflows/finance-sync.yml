@@ -77,7 +77,12 @@ jobs:
   slcf:
     needs: plan
     if: needs.plan.outputs.slcf != '[]' && needs.plan.outputs.slcf != ''
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became Ubuntu 26.04 around 2026-10-27, and the
+    # pinned Playwright (pipelines/slcf/requirements.txt) can't install
+    # Chromium there ("does not support chromium on ubuntu26.04-x64"), which
+    # failed every playwright state (fl, or) from 2026-10-28. Move to
+    # ubuntu-latest again with a Playwright release that lists 26.04.
+    runs-on: ubuntu-24.04
     # Arizona's full committee-details sweep (~8,900 pages, ~75 min with the
     # scrape) runs once a month (cache below); 180 leaves room for it.
     timeout-minutes: 180
